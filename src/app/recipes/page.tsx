@@ -1,0 +1,253 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { Plus, Search, Filter, Eye, Edit, Trash2, Video, Image } from 'lucide-react';
+import { supabase, Recipe } from '@/lib/supabase';
+
+export default function RecipesPage() {
+  const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
+
+  useEffect(() => {
+    fetchRecipes();
+  }, []);
+
+  async function fetchRecipes() {
+    try {
+      const { data, error } = await supabase
+        .from('recipes')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setRecipes(data || []);
+    } catch (error) {
+      console.error('Error fetching recipes:', error);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function deleteRecipe(id: string) {
+    if (!confirm('Are you sure you want to delete this recipe?')) return;
+
+    try {
+      const { error } = await supabase.from('recipes').delete().eq('id', id);
+      if (error) throw error;
+      setRecipes(recipes.filter(r => r.id !== id));
+    } catch (error) {
+      console.error('Error deleting recipe:', error);
+      alert('Failed to delete recipe');
+    }
+  }
+
+  async function togglePublished(recipe: Recipe) {
+    try {
+      const { error } = await supabase
+        .from('recipes')
+        .update({ is_published: !recipe.is_published })
+        .eq('id', recipe.id);
+
+      if (error) throw error;
+      setRecipes(recipes.map(r =>
+        r.id === recipe.id ? { ...r, is_published: !r.is_published } : r
+      ));
+    } catch (error) {
+      console.error('Error updating recipe:', error);
+    }
+  }
+
+  const filteredRecipes = recipes.filter(recipe => {
+    const matchesSearch = recipe.title.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCategory = categoryFilter === 'all' || recipe.category === categoryFilter;
+    return matchesSearch && matchesCategory;
+  });
+
+  const categories = ['all', 'breakfast', 'lunch', 'dinner', 'snack', 'dessert', 'baking'];
+
+  return (
+    <div className="p-8">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Recipes</h1>
+          <p className="text-gray-600 mt-1">Manage your recipe library</p>
+        </div>
+        <Link
+          href="/recipes/new"
+          className="flex items-center gap-2 bg-caramel text-white px-4 py-2.5 rounded-lg hover:bg-maple transition-colors"
+        >
+          <Plus className="h-5 w-5" />
+          Add Recipe
+        </Link>
+      </div>
+
+      {/* Filters */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6">
+        <div className="flex flex-col md:flex-row gap-4">
+          {/* Search */}
+          <div className="flex-1 relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search recipes..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent"
+            />
+          </div>
+
+          {/* Category Filter */}
+          <div className="flex items-center gap-2">
+            <Filter className="h-5 w-5 text-gray-400" />
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent"
+            >
+              {categories.map(cat => (
+                <option key={cat} value={cat}>
+                  {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Recipes Table */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        {loading ? (
+          <div className="p-8 text-center text-gray-500">Loading recipes...</div>
+        ) : filteredRecipes.length === 0 ? (
+          <div className="p-8 text-center text-gray-500">
+            No recipes found. <Link href="/recipes/new" className="text-caramel hover:underline">Add your first recipe</Link>
+          </div>
+        ) : (
+          <table className="w-full">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  Recipe
+                </th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  Category
+                </th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  Macros
+                </th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  Media
+                </th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  Status
+                </th>
+                <th className="text-right px-6 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {filteredRecipes.map((recipe) => (
+                <tr key={recipe.id} className="hover:bg-gray-50">
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-3">
+                      {recipe.featured_image ? (
+                        <img
+                          src={recipe.featured_image}
+                          alt={recipe.title}
+                          className="w-12 h-12 rounded-lg object-cover"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded-lg bg-cream flex items-center justify-center">
+                          <span className="text-2xl">🥞</span>
+                        </div>
+                      )}
+                      <div>
+                        <p className="font-medium text-gray-900">{recipe.title}</p>
+                        <p className="text-sm text-gray-500">
+                          {recipe.prep_time_minutes || 0} + {recipe.cook_time_minutes || 0} min
+                        </p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-cream text-caramel capitalize">
+                      {recipe.category}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="text-sm">
+                      <span className="font-medium text-gray-900">{recipe.calories || '-'}</span>
+                      <span className="text-gray-500"> cal</span>
+                      <span className="mx-1 text-gray-300">|</span>
+                      <span className="font-medium text-maple">{recipe.protein || '-'}g</span>
+                      <span className="text-gray-500"> protein</span>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-2">
+                      {recipe.featured_image && (
+                        <span className="inline-flex items-center gap-1 text-green-600">
+                          <Image className="h-4 w-4" />
+                        </span>
+                      )}
+                      {recipe.video_url && (
+                        <span className="inline-flex items-center gap-1 text-blue-600">
+                          <Video className="h-4 w-4" />
+                        </span>
+                      )}
+                      {!recipe.featured_image && !recipe.video_url && (
+                        <span className="text-gray-400 text-sm">No media</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <button
+                      onClick={() => togglePublished(recipe)}
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                        recipe.is_published
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-gray-100 text-gray-600'
+                      }`}
+                    >
+                      {recipe.is_published ? 'Published' : 'Draft'}
+                    </button>
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <Link
+                        href={`/recipes/${recipe.id}`}
+                        className="p-2 text-gray-600 hover:text-caramel hover:bg-cream rounded-lg transition-colors"
+                        title="View"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Link>
+                      <Link
+                        href={`/recipes/${recipe.id}/edit`}
+                        className="p-2 text-gray-600 hover:text-caramel hover:bg-cream rounded-lg transition-colors"
+                        title="Edit"
+                      >
+                        <Edit className="h-4 w-4" />
+                      </Link>
+                      <button
+                        onClick={() => deleteRecipe(recipe.id)}
+                        className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        title="Delete"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
