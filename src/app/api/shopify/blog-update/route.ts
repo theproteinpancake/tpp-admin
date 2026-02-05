@@ -9,7 +9,6 @@ export async function POST(request: Request) {
     const { recipeId } = await request.json();
 
     if (!SHOPIFY_ACCESS_TOKEN) {
-      console.error('Missing SHOPIFY_ACCESS_TOKEN');
       return NextResponse.json(
         { error: 'Shopify integration not configured' },
         { status: 500 }
@@ -27,6 +26,14 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: 'Recipe not found' },
         { status: 404 }
+      );
+    }
+
+    // Check if recipe has a Shopify article ID
+    if (!recipe.shopify_article_id) {
+      return NextResponse.json(
+        { error: 'This recipe has not been published to Shopify yet. Use "Create Blog Draft" first.' },
+        { status: 400 }
       );
     }
 
@@ -49,7 +56,7 @@ export async function POST(request: Request) {
     <span class="rating-text" style="color: #6B7280; font-size: 14px; margin-left: 8px;">${recipe.rating.toFixed(1)} / 5${recipe.review_count ? ` (${recipe.review_count} reviews)` : ''}</span>
   </div>` : '';
 
-    // Build the blog post HTML (image is added via the image field, not in body)
+    // Build the blog post HTML
     const blogContent = `
 <div class="recipe-post">
   ${recipe.description ? `<p class="recipe-intro">${recipe.description}</p>` : ''}
@@ -92,8 +99,8 @@ export async function POST(request: Request) {
 </div>
     `.trim();
 
-    // Create draft blog post via Shopify Admin API (using stable API version)
-    const shopifyResponse = await fetch(
+    // First, find the blog that contains this article
+    const blogsResponse = await fetch(
       `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-10/blogs.json`,
       {
         method: 'GET',
@@ -104,113 +111,99 @@ export async function POST(request: Request) {
       }
     );
 
-    if (!shopifyResponse.ok) {
-      const errorText = await shopifyResponse.text();
-      console.error('Failed to fetch blogs:', shopifyResponse.status, errorText);
-
-      if (shopifyResponse.status === 401 || shopifyResponse.status === 403) {
-        return NextResponse.json(
-          { error: 'Shopify authentication failed. Please check your access token has read_content and write_content scopes.' },
-          { status: 500 }
-        );
-      }
-
+    if (!blogsResponse.ok) {
       return NextResponse.json(
-        { error: `Failed to connect to Shopify: ${shopifyResponse.status} - ${errorText}` },
+        { error: 'Failed to fetch Shopify blogs' },
         { status: 500 }
       );
     }
 
-    const { blogs } = await shopifyResponse.json();
+    const { blogs } = await blogsResponse.json();
 
-    console.log('Shopify blogs found:', blogs?.map((b: { id: number; handle: string; title: string }) => ({ id: b.id, handle: b.handle, title: b.title })));
+    // Find the blog containing the article
+    let targetBlogId: number | null = null;
 
-    // Find the main blog (usually called "News" or "Blog" or "Recipes")
-    const targetBlog = blogs.find((b: { handle: string }) =>
-      b.handle === 'recipes' || b.handle === 'news' || b.handle === 'blog'
-    ) || blogs[0];
+    for (const blog of blogs) {
+      // Try to fetch the article from this blog
+      const articleCheck = await fetch(
+        `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-10/blogs/${blog.id}/articles/${recipe.shopify_article_id}.json`,
+        {
+          method: 'GET',
+          headers: {
+            'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
 
-    if (!targetBlog) {
+      if (articleCheck.ok) {
+        targetBlogId = blog.id;
+        break;
+      }
+    }
+
+    if (!targetBlogId) {
+      // Article not found - clear the stale ID and prompt to create new
+      await supabase
+        .from('recipes')
+        .update({ shopify_article_id: null })
+        .eq('id', recipeId);
+
       return NextResponse.json(
-        { error: 'No blog found in Shopify store. Please create a blog first in Shopify Admin → Online Store → Blog Posts.' },
+        { error: 'The linked Shopify article was not found. It may have been deleted. Please create a new blog draft.' },
         { status: 404 }
       );
     }
 
-    console.log('Using blog:', targetBlog.handle, targetBlog.id);
-
-    // Create the article as a draft
-    const articleResponse = await fetch(
-      `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-10/blogs/${targetBlog.id}/articles.json`,
+    // Update the existing article
+    const updateResponse = await fetch(
+      `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-10/blogs/${targetBlogId}/articles/${recipe.shopify_article_id}.json`,
       {
-        method: 'POST',
+        method: 'PUT',
         headers: {
           'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           article: {
+            id: recipe.shopify_article_id,
             title: recipe.title,
-            author: 'The Protein Pancake',
-            tags: recipe.tags?.join(', ') || '',
             body_html: blogContent,
-            published: false, // Create as draft
-            handle: recipe.slug,
-            // Add featured image to the article's image field (for previews)
+            tags: recipe.tags?.join(', ') || '',
+            // Update featured image if changed
             ...(recipe.featured_image && {
               image: {
                 src: recipe.featured_image,
                 alt: recipe.title,
               },
             }),
-            metafields: [
-              {
-                namespace: 'tpp',
-                key: 'recipe_id',
-                value: recipeId,
-                type: 'single_line_text_field',
-              },
-            ],
           },
         }),
       }
     );
 
-    if (!articleResponse.ok) {
-      const errorText = await articleResponse.text();
-      console.error('Failed to create article:', articleResponse.status, errorText);
-
-      if (articleResponse.status === 401 || articleResponse.status === 403) {
-        return NextResponse.json(
-          { error: 'Permission denied. Please ensure your Shopify app has write_content scope enabled.' },
-          { status: 500 }
-        );
-      }
-
+    if (!updateResponse.ok) {
+      const errorText = await updateResponse.text();
+      console.error('Failed to update article:', updateResponse.status, errorText);
       return NextResponse.json(
-        { error: `Failed to create blog draft: ${errorText}` },
+        { error: `Failed to update blog post: ${errorText}` },
         { status: 500 }
       );
     }
 
-    const { article } = await articleResponse.json();
-
-    // Update recipe with Shopify article ID for future syncs
-    await supabase
-      .from('recipes')
-      .update({ shopify_article_id: article.id })
-      .eq('id', recipeId);
+    const { article } = await updateResponse.json();
 
     return NextResponse.json({
       success: true,
       articleId: article.id,
-      articleUrl: `https://${SHOPIFY_STORE_DOMAIN}/admin/blogs/${targetBlog.id}/articles/${article.id}`,
+      articleUrl: `https://${SHOPIFY_STORE_DOMAIN}/admin/blogs/${targetBlogId}/articles/${article.id}`,
+      message: 'Blog post updated successfully!',
     });
 
   } catch (error) {
-    console.error('Blog draft error:', error);
+    console.error('Blog update error:', error);
     return NextResponse.json(
-      { error: 'Failed to create blog draft' },
+      { error: 'Failed to update blog post' },
       { status: 500 }
     );
   }

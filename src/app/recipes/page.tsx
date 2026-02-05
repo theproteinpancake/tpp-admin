@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Plus, Search, Filter, Eye, Edit, Trash2, Video, Image } from 'lucide-react';
+import { Plus, Search, Filter, Eye, Edit, Trash2, Video, Image, RefreshCw, Loader2 } from 'lucide-react';
 import { supabase, Recipe } from '@/lib/supabase';
 
 export default function RecipesPage() {
@@ -10,6 +10,8 @@ export default function RecipesPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [syncing, setSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState({ current: 0, total: 0 });
 
   useEffect(() => {
     fetchRecipes();
@@ -60,6 +62,69 @@ export default function RecipesPage() {
     }
   }
 
+  // Bulk sync all recipes with Shopify article IDs
+  async function bulkSyncToShopify() {
+    // Get recipes that have a Shopify article ID
+    const recipesToSync = recipes.filter(r => r.shopify_article_id);
+
+    if (recipesToSync.length === 0) {
+      alert('No recipes are linked to Shopify blog posts yet. Create blog drafts from individual recipe edit pages first.');
+      return;
+    }
+
+    if (!confirm(`Sync ${recipesToSync.length} recipe(s) to Shopify?\n\nThis will update all linked blog posts with current recipe data including ratings.`)) {
+      return;
+    }
+
+    setSyncing(true);
+    setSyncProgress({ current: 0, total: recipesToSync.length });
+
+    const results = { success: 0, failed: 0, errors: [] as string[] };
+
+    for (let i = 0; i < recipesToSync.length; i++) {
+      const recipe = recipesToSync[i];
+      setSyncProgress({ current: i + 1, total: recipesToSync.length });
+
+      try {
+        const response = await fetch('/api/shopify/blog-update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ recipeId: recipe.id }),
+        });
+
+        if (response.ok) {
+          results.success++;
+        } else {
+          const result = await response.json();
+          results.failed++;
+          results.errors.push(`${recipe.title}: ${result.error || 'Unknown error'}`);
+        }
+      } catch (error) {
+        results.failed++;
+        results.errors.push(`${recipe.title}: Network error`);
+      }
+    }
+
+    setSyncing(false);
+    setSyncProgress({ current: 0, total: 0 });
+
+    // Show results
+    let message = `Sync complete!\n\n✅ ${results.success} recipe(s) synced successfully`;
+    if (results.failed > 0) {
+      message += `\n❌ ${results.failed} failed`;
+      if (results.errors.length > 0) {
+        message += `\n\nErrors:\n${results.errors.slice(0, 5).join('\n')}`;
+        if (results.errors.length > 5) {
+          message += `\n... and ${results.errors.length - 5} more`;
+        }
+      }
+    }
+    alert(message);
+  }
+
+  // Count recipes linked to Shopify
+  const linkedToShopifyCount = recipes.filter(r => r.shopify_article_id).length;
+
   const filteredRecipes = recipes.filter(recipe => {
     const matchesSearch = recipe.title.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCategory = categoryFilter === 'all' || recipe.category === categoryFilter;
@@ -76,13 +141,34 @@ export default function RecipesPage() {
           <h1 className="text-3xl font-bold text-gray-900">Recipes</h1>
           <p className="text-gray-600 mt-1">Manage your recipe library</p>
         </div>
-        <Link
-          href="/recipes/new"
-          className="flex items-center gap-2 bg-caramel text-white px-4 py-2.5 rounded-lg hover:bg-maple transition-colors"
-        >
-          <Plus className="h-5 w-5" />
-          Add Recipe
-        </Link>
+        <div className="flex items-center gap-3">
+          {linkedToShopifyCount > 0 && (
+            <button
+              onClick={bulkSyncToShopify}
+              disabled={syncing}
+              className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {syncing ? (
+                <>
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  Syncing {syncProgress.current}/{syncProgress.total}...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="h-5 w-5" />
+                  Sync All to Shopify ({linkedToShopifyCount})
+                </>
+              )}
+            </button>
+          )}
+          <Link
+            href="/recipes/new"
+            className="flex items-center gap-2 bg-caramel text-white px-4 py-2.5 rounded-lg hover:bg-maple transition-colors"
+          >
+            <Plus className="h-5 w-5" />
+            Add Recipe
+          </Link>
+        </div>
       </div>
 
       {/* Filters */}
@@ -140,10 +226,16 @@ export default function RecipesPage() {
                   Macros
                 </th>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  Rating
+                </th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wider">
                   Media
                 </th>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wider">
                   Status
+                </th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  Blog
                 </th>
                 <th className="text-right px-6 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wider">
                   Actions
@@ -189,6 +281,16 @@ export default function RecipesPage() {
                     </div>
                   </td>
                   <td className="px-6 py-4">
+                    {recipe.rating ? (
+                      <div className="text-sm">
+                        <span className="text-amber-500">{'★'.repeat(Math.round(recipe.rating))}{'☆'.repeat(5 - Math.round(recipe.rating))}</span>
+                        <span className="text-gray-500 ml-1">({recipe.review_count || 0})</span>
+                      </div>
+                    ) : (
+                      <span className="text-gray-400 text-sm">No ratings</span>
+                    )}
+                  </td>
+                  <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
                       {recipe.featured_image && (
                         <span className="inline-flex items-center gap-1 text-green-600">
@@ -216,6 +318,16 @@ export default function RecipesPage() {
                     >
                       {recipe.is_published ? 'Published' : 'Draft'}
                     </button>
+                  </td>
+                  <td className="px-6 py-4">
+                    {recipe.shopify_article_id ? (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                        <span className="w-1.5 h-1.5 bg-blue-500 rounded-full" />
+                        Linked
+                      </span>
+                    ) : (
+                      <span className="text-gray-400 text-xs">Not linked</span>
+                    )}
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">

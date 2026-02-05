@@ -20,6 +20,8 @@ interface RecipeForm {
   protein: number;
   carbs: number;
   fat: number;
+  rating: number;
+  review_count: number;
   ingredients: RecipeIngredient[];
   instructions: string[];
   tips: string;
@@ -45,6 +47,8 @@ const initialForm: RecipeForm = {
   protein: 0,
   carbs: 0,
   fat: 0,
+  rating: 0,
+  review_count: 0,
   ingredients: [{ amount: '', unit: '', item: '', notes: '' }],
   instructions: [''],
   tips: '',
@@ -275,6 +279,8 @@ export default function NewRecipePage() {
         protein: form.protein || null,
         carbs: form.carbs || null,
         fat: form.fat || null,
+        rating: form.rating || null,
+        review_count: form.review_count || null,
         ingredients: cleanIngredients,
         instructions: cleanInstructions,
         tips: form.tips || null,
@@ -613,6 +619,50 @@ export default function NewRecipePage() {
                 value={form.fat}
                 onChange={(e) => setForm({ ...form, fat: parseInt(e.target.value) || 0 })}
                 min="0"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900 placeholder-gray-400"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Ratings */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Ratings (synced with Shopify)</h2>
+          <p className="text-sm text-gray-500 mb-4">
+            Set the recipe rating (1-5 stars) and review count. These will display in the app and sync to Shopify blog posts.
+          </p>
+
+          <div className="grid grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Rating (1-5)
+              </label>
+              <input
+                type="number"
+                value={form.rating}
+                onChange={(e) => setForm({ ...form, rating: Math.min(5, Math.max(0, parseFloat(e.target.value) || 0)) })}
+                min="0"
+                max="5"
+                step="0.1"
+                placeholder="e.g., 4.5"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900 placeholder-gray-400"
+              />
+              {form.rating > 0 && (
+                <div className="mt-2 text-xl">
+                  {'★'.repeat(Math.round(form.rating))}{'☆'.repeat(5 - Math.round(form.rating))}
+                </div>
+              )}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Review Count
+              </label>
+              <input
+                type="number"
+                value={form.review_count}
+                onChange={(e) => setForm({ ...form, review_count: parseInt(e.target.value) || 0 })}
+                min="0"
+                placeholder="e.g., 42"
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900 placeholder-gray-400"
               />
             </div>

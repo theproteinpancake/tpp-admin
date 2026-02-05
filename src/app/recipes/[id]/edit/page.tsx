@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { ArrowLeft, Upload, Plus, X, Loader2, Video, Image as ImageIcon, Save } from 'lucide-react';
+import { ArrowLeft, Upload, Plus, X, Loader2, Video, Image as ImageIcon, Save, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import { supabase, RecipeIngredient, Creator } from '@/lib/supabase';
 
@@ -20,6 +20,8 @@ interface RecipeForm {
   protein: number;
   carbs: number;
   fat: number;
+  rating: number;
+  review_count: number;
   ingredients: RecipeIngredient[];
   instructions: string[];
   tips: string;
@@ -45,6 +47,8 @@ const initialForm: RecipeForm = {
   protein: 0,
   carbs: 0,
   fat: 0,
+  rating: 0,
+  review_count: 0,
   ingredients: [{ amount: '', unit: '', item: '', notes: '' }],
   instructions: [''],
   tips: '',
@@ -69,6 +73,10 @@ export default function EditRecipePage() {
   const [videoProgress, setVideoProgress] = useState(0);
   const [newTag, setNewTag] = useState('');
   const [creators, setCreators] = useState<Creator[]>([]);
+  const [shopifyArticleId, setShopifyArticleId] = useState<string | null>(null);
+  const [updatingBlog, setUpdatingBlog] = useState(false);
+  const [linkingBlog, setLinkingBlog] = useState(false);
+  const [manualArticleId, setManualArticleId] = useState('');
 
   // Fetch creators
   useEffect(() => {
@@ -109,6 +117,8 @@ export default function EditRecipePage() {
             protein: data.protein || 0,
             carbs: data.carbs || 0,
             fat: data.fat || 0,
+            rating: data.rating || 0,
+            review_count: data.review_count || 0,
             ingredients: data.ingredients?.length > 0 ? data.ingredients : [{ amount: '', unit: '', item: '', notes: '' }],
             instructions: data.instructions?.length > 0 ? data.instructions : [''],
             tips: data.tips || '',
@@ -119,6 +129,8 @@ export default function EditRecipePage() {
             creator_id: data.creator_id || '',
             publish_to_blog: false,
           });
+          // Track if already linked to Shopify
+          setShopifyArticleId(data.shopify_article_id || null);
         }
       } catch (error) {
         console.error('Error fetching recipe:', error);
@@ -328,6 +340,8 @@ export default function EditRecipePage() {
         protein: form.protein || null,
         carbs: form.carbs || null,
         fat: form.fat || null,
+        rating: form.rating || null,
+        review_count: form.review_count || null,
         ingredients: cleanIngredients,
         instructions: cleanInstructions,
         tips: form.tips || null,
@@ -374,6 +388,88 @@ export default function EditRecipePage() {
       alert('Failed to save recipe');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Update existing Shopify blog post
+  const handleUpdateBlog = async () => {
+    if (!shopifyArticleId) return;
+
+    setUpdatingBlog(true);
+
+    try {
+      const response = await fetch('/api/shopify/blog-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recipeId }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        if (response.status === 404 && result.error?.includes('not found')) {
+          // Article was deleted from Shopify
+          setShopifyArticleId(null);
+          alert('The linked Shopify article was not found. It may have been deleted. You can create a new blog draft using the checkbox below.');
+        } else {
+          alert(`Failed to update blog: ${result.error || 'Unknown error'}`);
+        }
+      } else {
+        alert(`Blog post updated successfully!\n\nView it here:\n${result.articleUrl}`);
+      }
+    } catch (error) {
+      console.error('Blog update error:', error);
+      alert('Failed to update blog post. Check console for details.');
+    } finally {
+      setUpdatingBlog(false);
+    }
+  };
+
+  // Link existing Shopify blog post manually
+  const handleLinkExistingBlog = async () => {
+    if (!manualArticleId.trim()) {
+      alert('Please enter a Shopify article ID');
+      return;
+    }
+
+    setLinkingBlog(true);
+
+    try {
+      const { error } = await supabase
+        .from('recipes')
+        .update({ shopify_article_id: manualArticleId.trim() })
+        .eq('id', recipeId);
+
+      if (error) throw error;
+
+      setShopifyArticleId(manualArticleId.trim());
+      setManualArticleId('');
+      alert('Successfully linked to Shopify article! You can now use the Sync button.');
+    } catch (error) {
+      console.error('Error linking blog:', error);
+      alert('Failed to link blog. Please check the article ID and try again.');
+    } finally {
+      setLinkingBlog(false);
+    }
+  };
+
+  // Unlink Shopify blog post
+  const handleUnlinkBlog = async () => {
+    if (!confirm('Unlink this recipe from Shopify? The blog post will remain in Shopify but future syncs won\'t update it.')) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('recipes')
+        .update({ shopify_article_id: null })
+        .eq('id', recipeId);
+
+      if (error) throw error;
+      setShopifyArticleId(null);
+    } catch (error) {
+      console.error('Error unlinking blog:', error);
+      alert('Failed to unlink blog.');
     }
   };
 
@@ -686,6 +782,50 @@ export default function EditRecipePage() {
           </div>
         </div>
 
+        {/* Ratings */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Ratings (synced with Shopify)</h2>
+          <p className="text-sm text-gray-500 mb-4">
+            Set the recipe rating (1-5 stars) and review count. These will display in the app and sync to Shopify blog posts.
+          </p>
+
+          <div className="grid grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Rating (1-5)
+              </label>
+              <input
+                type="number"
+                value={form.rating}
+                onChange={(e) => setForm({ ...form, rating: Math.min(5, Math.max(0, parseFloat(e.target.value) || 0)) })}
+                min="0"
+                max="5"
+                step="0.1"
+                placeholder="e.g., 4.5"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
+              />
+              {form.rating > 0 && (
+                <div className="mt-2 text-xl">
+                  {'★'.repeat(Math.round(form.rating))}{'☆'.repeat(5 - Math.round(form.rating))}
+                </div>
+              )}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Review Count
+              </label>
+              <input
+                type="number"
+                value={form.review_count}
+                onChange={(e) => setForm({ ...form, review_count: parseInt(e.target.value) || 0 })}
+                min="0"
+                placeholder="e.g., 42"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
+              />
+            </div>
+          </div>
+        </div>
+
         {/* Ingredients */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Ingredients</h2>
@@ -860,18 +1000,88 @@ export default function EditRecipePage() {
               </div>
             </label>
 
-            <label className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                checked={form.publish_to_blog}
-                onChange={(e) => setForm({ ...form, publish_to_blog: e.target.checked })}
-                className="w-5 h-5 text-caramel rounded focus:ring-caramel"
-              />
-              <div>
-                <span className="font-medium text-gray-900">Create Blog Draft</span>
-                <p className="text-sm text-gray-500">Create a draft post on Shopify blog for editing</p>
-              </div>
-            </label>
+            {/* Shopify Blog Sync */}
+            <div className="border-t border-gray-200 pt-4 mt-4">
+              <h3 className="font-medium text-gray-900 mb-3">Shopify Blog</h3>
+
+              {shopifyArticleId ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-sm text-green-600 bg-green-50 px-3 py-2 rounded-lg">
+                      <span className="w-2 h-2 bg-green-500 rounded-full" />
+                      Linked to Shopify article ({shopifyArticleId})
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleUnlinkBlog}
+                      className="text-xs text-gray-500 hover:text-red-600"
+                    >
+                      Unlink
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleUpdateBlog}
+                    disabled={updatingBlog}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {updatingBlog ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Updating Blog...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="h-4 w-4" />
+                        Sync to Shopify Blog
+                      </>
+                    )}
+                  </button>
+                  <p className="text-sm text-gray-500">
+                    Updates the existing Shopify blog post with current recipe data including ratings.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <label className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={form.publish_to_blog}
+                      onChange={(e) => setForm({ ...form, publish_to_blog: e.target.checked })}
+                      className="w-5 h-5 text-caramel rounded focus:ring-caramel"
+                    />
+                    <div>
+                      <span className="font-medium text-gray-900">Create New Blog Draft</span>
+                      <p className="text-sm text-gray-500">Create a new draft post on Shopify blog</p>
+                    </div>
+                  </label>
+
+                  <div className="border-t border-gray-100 pt-4">
+                    <p className="text-sm font-medium text-gray-700 mb-2">Or link an existing blog post:</p>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={manualArticleId}
+                        onChange={(e) => setManualArticleId(e.target.value)}
+                        placeholder="Shopify article ID (e.g., 12345678)"
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-caramel focus:border-transparent"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleLinkExistingBlog}
+                        disabled={linkingBlog || !manualArticleId.trim()}
+                        className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50 text-sm"
+                      >
+                        {linkingBlog ? 'Linking...' : 'Link'}
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Find the article ID in your Shopify admin URL: /blogs/[blog-id]/articles/<strong>[article-id]</strong>
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
