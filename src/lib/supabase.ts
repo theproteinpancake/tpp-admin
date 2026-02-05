@@ -32,6 +32,9 @@ export interface Recipe {
   is_published: boolean;
   source_url: string | null;
   creator_id?: string | null;
+  rating: number | null;
+  review_count: number | null;
+  shopify_article_id: string | null;
 }
 
 export interface RecipeIngredient {
