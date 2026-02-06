@@ -175,6 +175,30 @@ export async function POST(request: Request) {
 
     console.log(`[YouTube Upload] Success! ${result.videoUrl}`);
 
+    // Auto-update Shopify blog post with YouTube embed if blog exists
+    if (recipe.shopify_article_id) {
+      try {
+        const baseUrl = request.headers.get('origin') || request.headers.get('host') || '';
+        const protocol = baseUrl.startsWith('http') ? '' : 'https://';
+        const blogUpdateUrl = `${protocol}${baseUrl}/api/shopify/blog-update`;
+
+        console.log(`[YouTube Upload] Updating Shopify blog with YouTube embed...`);
+        const blogResponse = await fetch(blogUpdateUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ recipeId }),
+        });
+
+        if (blogResponse.ok) {
+          console.log('[YouTube Upload] Shopify blog updated with YouTube embed');
+        } else {
+          console.log('[YouTube Upload] Shopify blog update failed (non-critical):', await blogResponse.text());
+        }
+      } catch (blogErr) {
+        console.log('[YouTube Upload] Could not update Shopify blog (non-critical):', blogErr);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       videoId: result.videoId,

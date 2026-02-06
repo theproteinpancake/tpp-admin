@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { generateBlogHtml } from '@/lib/blog-html';
 
 const SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN || 'theproteinpancake.myshopify.com';
 const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ADMIN_ACCESS_TOKEN;
@@ -30,67 +31,8 @@ export async function POST(request: Request) {
       );
     }
 
-    // Format ingredients for blog post
-    const ingredientsList = recipe.ingredients
-      ?.map((ing: { amount: string; unit: string; item: string; notes?: string }) =>
-        `<li>${ing.amount} ${ing.unit} ${ing.item}${ing.notes ? ` (${ing.notes})` : ''}</li>`
-      )
-      .join('\n') || '';
-
-    // Format instructions for blog post
-    const instructionsList = recipe.instructions
-      ?.map((step: string, idx: number) => `<li><strong>Step ${idx + 1}:</strong> ${step}</li>`)
-      .join('\n') || '';
-
-    // Generate star rating HTML if rating exists
-    const ratingHtml = recipe.rating ? `
-  <div class="recipe-rating" style="margin: 16px 0; font-size: 18px;">
-    <span class="stars" style="color: #D97706; letter-spacing: 2px;">${'★'.repeat(Math.round(recipe.rating))}${'☆'.repeat(5 - Math.round(recipe.rating))}</span>
-    <span class="rating-text" style="color: #6B7280; font-size: 14px; margin-left: 8px;">${recipe.rating.toFixed(1)} / 5${recipe.review_count ? ` (${recipe.review_count} reviews)` : ''}</span>
-  </div>` : '';
-
-    // Build the blog post HTML (image is added via the image field, not in body)
-    const blogContent = `
-<div class="recipe-post">
-  ${recipe.description ? `<p class="recipe-intro">${recipe.description}</p>` : ''}
-  ${ratingHtml}
-
-  <div class="recipe-meta">
-    <span>⏱️ Prep: ${recipe.prep_time_minutes} min</span>
-    <span>🔥 Cook: ${recipe.cook_time_minutes} min</span>
-    <span>🍽️ Serves: ${recipe.servings}</span>
-  </div>
-
-  ${recipe.protein || recipe.calories ? `
-  <div class="recipe-nutrition">
-    <h3>Nutrition (per serving)</h3>
-    <ul>
-      ${recipe.calories ? `<li>Calories: ${recipe.calories}</li>` : ''}
-      ${recipe.protein ? `<li>Protein: ${recipe.protein}g</li>` : ''}
-      ${recipe.carbs ? `<li>Carbs: ${recipe.carbs}g</li>` : ''}
-      ${recipe.fat ? `<li>Fat: ${recipe.fat}g</li>` : ''}
-    </ul>
-  </div>
-  ` : ''}
-
-  <h3>Ingredients</h3>
-  <ul class="recipe-ingredients">
-    ${ingredientsList}
-  </ul>
-
-  <h3>Instructions</h3>
-  <ol class="recipe-instructions">
-    ${instructionsList}
-  </ol>
-
-  ${recipe.tips ? `
-  <div class="recipe-tips">
-    <h3>💡 Tips</h3>
-    <p>${recipe.tips}</p>
-  </div>
-  ` : ''}
-</div>
-    `.trim();
+    // Generate SEO-optimized blog HTML
+    const blogContent = generateBlogHtml(recipe);
 
     // Create draft blog post via Shopify Admin API (using stable API version)
     const shopifyResponse = await fetch(
