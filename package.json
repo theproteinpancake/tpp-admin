@@ -7,7 +7,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "youtube-server": "node scripts/shopify-youtube-server.js",
+    "setup-webhooks": "node scripts/setup-webhooks.js",
+    "youtube-upload": "node scripts/youtube-upload.js",
+    "generate-blog": "node scripts/generate-blog-html.js"
   },
   "keywords": [],
   "author": "",
@@ -19,6 +23,7 @@
     "@types/react": "^19.2.10",
     "autoprefixer": "^10.4.24",
     "date-fns": "^4.1.0",
+    "googleapis": "^171.4.0",
     "lucide-react": "^0.563.0",
     "next": "^16.1.6",
     "postcss": "^8.5.6",

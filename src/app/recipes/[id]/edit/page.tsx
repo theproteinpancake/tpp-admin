@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { ArrowLeft, Upload, Plus, X, Loader2, Video, Image as ImageIcon, Save, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Upload, Plus, X, Loader2, Video, Image as ImageIcon, Save, RefreshCw, Youtube } from 'lucide-react';
 import Link from 'next/link';
 import { supabase, RecipeIngredient, Creator } from '@/lib/supabase';
 
@@ -31,6 +31,7 @@ interface RecipeForm {
   is_published: boolean;
   creator_id: string;
   publish_to_blog: boolean;
+  upload_to_youtube: boolean;
 }
 
 const initialForm: RecipeForm = {
@@ -58,6 +59,7 @@ const initialForm: RecipeForm = {
   is_published: false,
   creator_id: '',
   publish_to_blog: false,
+  upload_to_youtube: false,
 };
 
 export default function EditRecipePage() {
@@ -74,6 +76,8 @@ export default function EditRecipePage() {
   const [newTag, setNewTag] = useState('');
   const [creators, setCreators] = useState<Creator[]>([]);
   const [shopifyArticleId, setShopifyArticleId] = useState<string | null>(null);
+  const [youtubeVideoId, setYoutubeVideoId] = useState<string | null>(null);
+  const [uploadingToYouTube, setUploadingToYouTube] = useState(false);
   const [updatingBlog, setUpdatingBlog] = useState(false);
   const [linkingBlog, setLinkingBlog] = useState(false);
   const [manualArticleId, setManualArticleId] = useState('');
@@ -128,9 +132,11 @@ export default function EditRecipePage() {
             is_published: data.is_published || false,
             creator_id: data.creator_id || '',
             publish_to_blog: false,
+            upload_to_youtube: false,
           });
-          // Track if already linked to Shopify
+          // Track if already linked to Shopify / YouTube
           setShopifyArticleId(data.shopify_article_id || null);
+          setYoutubeVideoId(data.youtube_video_id || null);
         }
       } catch (error) {
         console.error('Error fetching recipe:', error);
@@ -379,6 +385,33 @@ export default function EditRecipePage() {
         } catch (blogError) {
           console.error('Blog draft error:', blogError);
           alert('Recipe saved but failed to create blog draft. Check console for details.');
+        }
+      }
+
+      // If upload to YouTube is enabled, upload the video
+      if (form.upload_to_youtube && form.video_url && !youtubeVideoId) {
+        setUploadingToYouTube(true);
+        try {
+          const ytResponse = await fetch('/api/youtube/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ recipeId }),
+          });
+
+          const ytResult = await ytResponse.json();
+
+          if (!ytResponse.ok) {
+            console.error('YouTube upload error:', ytResult);
+            alert(`Recipe saved but YouTube upload failed: ${ytResult.error || 'Unknown error'}`);
+          } else {
+            setYoutubeVideoId(ytResult.videoId);
+            alert(`Recipe saved! Video uploaded to YouTube.\n\n${ytResult.videoUrl}`);
+          }
+        } catch (ytError) {
+          console.error('YouTube upload error:', ytError);
+          alert('Recipe saved but YouTube upload failed. Check console for details.');
+        } finally {
+          setUploadingToYouTube(false);
         }
       }
 
@@ -1080,6 +1113,54 @@ export default function EditRecipePage() {
                     </p>
                   </div>
                 </div>
+              )}
+            </div>
+
+            {/* YouTube Upload */}
+            <div className="border-t border-gray-200 pt-4 mt-4">
+              <h3 className="font-medium text-gray-900 mb-3 flex items-center gap-2">
+                <Youtube className="h-5 w-5 text-red-600" />
+                YouTube
+              </h3>
+
+              {youtubeVideoId ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">
+                    <span className="w-2 h-2 bg-red-500 rounded-full" />
+                    Uploaded to YouTube ({youtubeVideoId})
+                  </div>
+                  <a
+                    href={`https://www.youtube.com/watch?v=${youtubeVideoId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-blue-600 hover:underline"
+                  >
+                    View on YouTube →
+                  </a>
+                </div>
+              ) : (
+                <label className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={form.upload_to_youtube}
+                    onChange={(e) => setForm({ ...form, upload_to_youtube: e.target.checked })}
+                    disabled={!form.video_url || uploadingToYouTube}
+                    className="w-5 h-5 text-red-600 rounded focus:ring-red-500"
+                  />
+                  <div>
+                    <span className="font-medium text-gray-900">Upload to YouTube</span>
+                    <p className="text-sm text-gray-500">
+                      {!form.video_url
+                        ? 'Upload a video first to enable YouTube'
+                        : uploadingToYouTube
+                        ? 'Uploading to YouTube...'
+                        : 'Auto-upload with branded description, tags & hashtags'}
+                    </p>
+                  </div>
+                  {uploadingToYouTube && (
+                    <Loader2 className="h-4 w-4 animate-spin text-red-600 ml-auto" />
+                  )}
+                </label>
               )}
             </div>
           </div>

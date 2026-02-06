@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Upload, Plus, X, Loader2, Video, Image as ImageIcon, Send } from 'lucide-react';
+import { ArrowLeft, Upload, Plus, X, Loader2, Video, Image as ImageIcon, Send, Youtube } from 'lucide-react';
 import Link from 'next/link';
 import { supabase, RecipeIngredient, Creator } from '@/lib/supabase';
 
@@ -31,6 +31,7 @@ interface RecipeForm {
   is_published: boolean;
   creator_id: string;
   publish_to_blog: boolean;
+  upload_to_youtube: boolean;
 }
 
 const initialForm: RecipeForm = {
@@ -58,6 +59,7 @@ const initialForm: RecipeForm = {
   is_published: false,
   creator_id: '',
   publish_to_blog: false,
+  upload_to_youtube: false,
 };
 
 export default function NewRecipePage() {
@@ -306,6 +308,26 @@ export default function NewRecipePage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ recipeId: data.id }),
         });
+      }
+
+      // If upload to YouTube is enabled, upload the video
+      if (form.upload_to_youtube && form.video_url && data) {
+        try {
+          const ytResponse = await fetch('/api/youtube/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ recipeId: data.id }),
+          });
+
+          const ytResult = await ytResponse.json();
+
+          if (!ytResponse.ok) {
+            console.error('YouTube upload error:', ytResult);
+            alert(`Recipe saved but YouTube upload failed: ${ytResult.error || 'Unknown error'}`);
+          }
+        } catch (ytError) {
+          console.error('YouTube upload error:', ytError);
+        }
       }
 
       router.push('/recipes');
@@ -853,6 +875,27 @@ export default function NewRecipePage() {
               <div>
                 <span className="font-medium text-gray-900">Create Blog Draft</span>
                 <p className="text-sm text-gray-500">Create a draft post on Shopify blog for editing</p>
+              </div>
+            </label>
+
+            <label className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                checked={form.upload_to_youtube}
+                onChange={(e) => setForm({ ...form, upload_to_youtube: e.target.checked })}
+                disabled={!form.video_url}
+                className="w-5 h-5 text-red-600 rounded focus:ring-red-500"
+              />
+              <div className="flex items-center gap-2">
+                <Youtube className="h-5 w-5 text-red-600" />
+                <div>
+                  <span className="font-medium text-gray-900">Upload to YouTube</span>
+                  <p className="text-sm text-gray-500">
+                    {!form.video_url
+                      ? 'Upload a video first to enable YouTube'
+                      : 'Auto-upload with branded description, tags & hashtags'}
+                  </p>
+                </div>
               </div>
             </label>
           </div>

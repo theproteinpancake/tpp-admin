@@ -46,3 +46,14 @@ next-env.d.ts
 
 # Turbo
 .turbo
+
+# YouTube / Google OAuth secrets (keep local only)
+scripts/client_secret.json
+scripts/.youtube-token.json
+
+# Video files (too large for git)
+scripts/videos/*.mp4
+scripts/videos/*.mov
+scripts/videos/*.avi
+scripts/videos/*.mkv
+scripts/videos/*.webm

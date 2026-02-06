@@ -17,7 +17,8 @@ export async function createDirectUpload() {
     cors_origin: '*',
     new_asset_settings: {
       playback_policy: ['public'],
-      encoding_tier: 'baseline', // Use 'smart' for better quality at higher cost
+      encoding_tier: 'baseline',
+      mp4_support: 'standard', // Enable MP4 downloads (for YouTube re-upload)
     },
   });
 
@@ -70,6 +71,44 @@ export function getThumbnailUrl(playbackId: string, options?: {
 
   const queryString = params.toString();
   return `https://image.mux.com/${playbackId}/thumbnail.jpg${queryString ? '?' + queryString : ''}`;
+}
+
+/**
+ * Get MP4 download URL for a video (requires mp4_support: 'standard')
+ */
+export function getMp4Url(playbackId: string, quality: 'high' | 'medium' | 'low' = 'high') {
+  return `https://stream.mux.com/${playbackId}/${quality}.mp4`;
+}
+
+/**
+ * Enable MP4 support on an existing asset (triggers static rendition creation)
+ */
+export async function enableMp4Support(assetId: string) {
+  return video.assets.update(assetId, {
+    mp4_support: 'standard',
+  });
+}
+
+/**
+ * Extract playback ID from a Mux stream URL
+ */
+export function extractPlaybackId(videoUrl: string): string | null {
+  const match = videoUrl.match(/stream\.mux\.com\/([a-zA-Z0-9]+)/);
+  return match ? match[1] : null;
+}
+
+/**
+ * Find asset ID by playback ID
+ */
+export async function findAssetByPlaybackId(playbackId: string) {
+  // List recent assets and find the one with this playback ID
+  const assets = await video.assets.list({ limit: 100 });
+  for (const asset of assets.data || []) {
+    if (asset.playback_ids?.some(p => p.id === playbackId)) {
+      return asset;
+    }
+  }
+  return null;
 }
 
 /**
