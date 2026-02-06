@@ -227,7 +227,7 @@ export default function EditRecipePage() {
     setForm({ ...form, tags: form.tags.filter(t => t !== tag) });
   };
 
-  // Upload video to Mux + Supabase Storage (original quality for YouTube)
+  // Upload video to Mux (for app streaming)
   const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -236,28 +236,6 @@ export default function EditRecipePage() {
     setVideoProgress(0);
 
     try {
-      // Start Supabase Storage upload in background (original quality for YouTube)
-      const fileExt = file.name.split('.').pop() || 'mp4';
-      const fileName = `${Date.now()}.${fileExt}`;
-      const storagePath = `recipe-videos/${fileName}`;
-
-      const storagePromise = supabase.storage
-        .from('recipe-videos')
-        .upload(storagePath, file, { upsert: true })
-        .then(({ error: storageError }) => {
-          if (!storageError) {
-            const { data: { publicUrl } } = supabase.storage
-              .from('recipe-videos')
-              .getPublicUrl(storagePath);
-            console.log('[Video] Original saved to Supabase Storage');
-            return publicUrl;
-          }
-          console.warn('[Video] Supabase Storage upload failed:', storageError.message);
-          return '';
-        })
-        .catch(() => '');
-
-      // Start Mux upload simultaneously (for app streaming)
       const response = await fetch('/api/mux/upload', { method: 'POST' });
       const { uploadUrl, uploadId } = await response.json();
 
@@ -275,10 +253,8 @@ export default function EditRecipePage() {
         xhr.send(file);
       });
 
-      // Wait for Supabase Storage upload to finish too
-      const originalVideoUrl = await storagePromise;
-
       // Poll for Mux asset ready
+      setVideoProgress(100);
       let assetId = null;
       for (let i = 0; i < 60; i++) {
         await new Promise(r => setTimeout(r, 3000));
@@ -297,11 +273,7 @@ export default function EditRecipePage() {
         const playbackId = asset.playback_ids?.[0]?.id;
 
         if (playbackId) {
-          setForm({
-            ...form,
-            video_url: `https://stream.mux.com/${playbackId}.m3u8`,
-            original_video_url: originalVideoUrl,
-          });
+          setForm({ ...form, video_url: `https://stream.mux.com/${playbackId}.m3u8` });
         }
       } else {
         alert('Video processing is taking longer than expected. Please try again later.');
@@ -312,6 +284,46 @@ export default function EditRecipePage() {
     } finally {
       setUploadingVideo(false);
       setVideoProgress(0);
+    }
+  };
+
+  // Upload YouTube video to Supabase Storage (original quality)
+  const [uploadingYouTubeVideo, setUploadingYouTubeVideo] = useState(false);
+  const [youtubeVideoProgress, setYoutubeVideoProgress] = useState(0);
+
+  const handleYouTubeVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingYouTubeVideo(true);
+    setYoutubeVideoProgress(0);
+
+    try {
+      const fileExt = file.name.split('.').pop() || 'mp4';
+      const fileName = `${Date.now()}.${fileExt}`;
+      const storagePath = `recipe-videos/${fileName}`;
+
+      // Use XMLHttpRequest for progress tracking
+      const { data: { publicUrl } } = supabase.storage
+        .from('recipe-videos')
+        .getPublicUrl(storagePath);
+
+      const { error: uploadError } = await supabase.storage
+        .from('recipe-videos')
+        .upload(storagePath, file, { upsert: true });
+
+      if (uploadError) {
+        throw new Error(`Upload failed: ${uploadError.message}. Make sure "recipe-videos" bucket exists in Supabase Storage.`);
+      }
+
+      setYoutubeVideoProgress(100);
+      setForm({ ...form, original_video_url: publicUrl });
+    } catch (error) {
+      console.error('YouTube video upload error:', error);
+      alert(`Failed to upload YouTube video: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setUploadingYouTubeVideo(false);
+      setYoutubeVideoProgress(0);
     }
   };
 
@@ -414,7 +426,7 @@ export default function EditRecipePage() {
       }
 
       // If upload to YouTube is enabled, upload the video
-      if (form.upload_to_youtube && form.video_url && !youtubeVideoId) {
+      if (form.upload_to_youtube && form.original_video_url && !youtubeVideoId) {
         setUploadingToYouTube(true);
         try {
           const ytResponse = await fetch('/api/youtube/upload', {
@@ -1164,28 +1176,73 @@ export default function EditRecipePage() {
                   </a>
                 </div>
               ) : (
-                <label className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    checked={form.upload_to_youtube}
-                    onChange={(e) => setForm({ ...form, upload_to_youtube: e.target.checked })}
-                    disabled={!form.video_url || uploadingToYouTube}
-                    className="w-5 h-5 text-red-600 rounded focus:ring-red-500"
-                  />
+                <div className="space-y-3">
+                  {/* YouTube Video Upload */}
                   <div>
-                    <span className="font-medium text-gray-900">Upload to YouTube</span>
-                    <p className="text-sm text-gray-500">
-                      {!form.video_url
-                        ? 'Upload a video first to enable YouTube'
-                        : uploadingToYouTube
-                        ? 'Uploading to YouTube...'
-                        : 'Auto-upload with branded description, tags & hashtags'}
-                    </p>
+                    <p className="text-sm font-medium text-gray-700 mb-2">YouTube Video (full quality)</p>
+                    {form.original_video_url ? (
+                      <div className="flex items-center justify-between bg-red-50 px-3 py-2 rounded-lg">
+                        <div className="flex items-center gap-2 text-sm text-red-700">
+                          <Video className="h-4 w-4" />
+                          Video ready for YouTube
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setForm({ ...form, original_video_url: '' })}
+                          className="text-xs text-gray-500 hover:text-red-600"
+                        >
+                          Replace
+                        </button>
+                      </div>
+                    ) : (
+                      <label className="flex flex-col items-center justify-center w-full py-4 border-2 border-red-200 border-dashed rounded-lg cursor-pointer bg-red-50/50 hover:bg-red-50">
+                        {uploadingYouTubeVideo ? (
+                          <div className="text-center">
+                            <Loader2 className="h-6 w-6 text-red-500 animate-spin mx-auto mb-1" />
+                            <span className="text-sm text-gray-500">Uploading... {youtubeVideoProgress}%</span>
+                          </div>
+                        ) : (
+                          <>
+                            <Upload className="h-5 w-5 text-red-400 mb-1" />
+                            <span className="text-sm text-gray-600">Upload video for YouTube</span>
+                            <span className="text-xs text-gray-400 mt-0.5">Original quality, no compression</span>
+                          </>
+                        )}
+                        <input
+                          type="file"
+                          accept="video/*"
+                          onChange={handleYouTubeVideoUpload}
+                          className="hidden"
+                          disabled={uploadingYouTubeVideo}
+                        />
+                      </label>
+                    )}
                   </div>
-                  {uploadingToYouTube && (
-                    <Loader2 className="h-4 w-4 animate-spin text-red-600 ml-auto" />
-                  )}
-                </label>
+
+                  {/* Upload checkbox */}
+                  <label className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={form.upload_to_youtube}
+                      onChange={(e) => setForm({ ...form, upload_to_youtube: e.target.checked })}
+                      disabled={!form.original_video_url || uploadingToYouTube}
+                      className="w-5 h-5 text-red-600 rounded focus:ring-red-500"
+                    />
+                    <div>
+                      <span className="font-medium text-gray-900">Upload to YouTube on Save</span>
+                      <p className="text-sm text-gray-500">
+                        {!form.original_video_url
+                          ? 'Upload a YouTube video above first'
+                          : uploadingToYouTube
+                          ? 'Uploading to YouTube...'
+                          : 'Auto-upload with branded description, tags & hashtags'}
+                      </p>
+                    </div>
+                    {uploadingToYouTube && (
+                      <Loader2 className="h-4 w-4 animate-spin text-red-600 ml-auto" />
+                    )}
+                  </label>
+                </div>
               )}
             </div>
           </div>
