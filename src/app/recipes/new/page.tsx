@@ -168,33 +168,31 @@ export default function NewRecipePage() {
     setVideoProgress(0);
 
     try {
-      // 1. Upload original to Supabase Storage (full quality for YouTube)
+      // Start Supabase Storage upload in background (original quality for YouTube)
       const fileExt = file.name.split('.').pop() || 'mp4';
       const fileName = `${Date.now()}.${fileExt}`;
       const storagePath = `recipe-videos/${fileName}`;
 
-      const { error: storageError } = await supabase.storage
+      const storagePromise = supabase.storage
         .from('recipe-videos')
-        .upload(storagePath, file, { upsert: true });
+        .upload(storagePath, file, { upsert: true })
+        .then(({ error: storageError }) => {
+          if (!storageError) {
+            const { data: { publicUrl } } = supabase.storage
+              .from('recipe-videos')
+              .getPublicUrl(storagePath);
+            console.log('[Video] Original saved to Supabase Storage');
+            return publicUrl;
+          }
+          console.warn('[Video] Supabase Storage upload failed:', storageError.message);
+          return '';
+        })
+        .catch(() => '');
 
-      let originalVideoUrl = '';
-      if (!storageError) {
-        const { data: { publicUrl } } = supabase.storage
-          .from('recipe-videos')
-          .getPublicUrl(storagePath);
-        originalVideoUrl = publicUrl;
-        console.log('[Video] Original saved to Supabase Storage');
-      } else {
-        console.warn('[Video] Supabase Storage upload failed, YouTube will use Mux fallback:', storageError.message);
-      }
-
-      // 2. Get direct upload URL from Mux API
-      const response = await fetch('/api/mux/upload', {
-        method: 'POST',
-      });
+      // Start Mux upload simultaneously (for app streaming)
+      const response = await fetch('/api/mux/upload', { method: 'POST' });
       const { uploadUrl, uploadId } = await response.json();
 
-      // 3. Upload file directly to Mux (for app streaming)
       const xhr = new XMLHttpRequest();
       xhr.upload.addEventListener('progress', (event) => {
         if (event.lengthComputable) {
@@ -209,7 +207,10 @@ export default function NewRecipePage() {
         xhr.send(file);
       });
 
-      // 4. Poll for asset ready (show processing status)
+      // Wait for Supabase Storage upload to finish too
+      const originalVideoUrl = await storagePromise;
+
+      // Poll for Mux asset ready
       setVideoProgress(100);
       let assetId = null;
       for (let i = 0; i < 60; i++) {
@@ -224,7 +225,6 @@ export default function NewRecipePage() {
       }
 
       if (assetId) {
-        // Get playback ID
         const assetRes = await fetch(`/api/mux/asset/${assetId}`);
         const asset = await assetRes.json();
         const playbackId = asset.playback_ids?.[0]?.id;
