@@ -84,9 +84,10 @@ export function getMp4Url(playbackId: string, quality: 'high' | 'medium' | 'low'
  * Enable MP4 support on an existing asset (triggers static rendition creation)
  */
 export async function enableMp4Support(assetId: string) {
+  // The Mux API supports mp4_support but the SDK types are incomplete
   return video.assets.update(assetId, {
     mp4_support: 'standard',
-  });
+  } as Parameters<typeof video.assets.update>[1]);
 }
 
 /**
