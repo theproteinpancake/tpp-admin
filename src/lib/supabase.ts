@@ -28,6 +28,7 @@ export interface Recipe {
   instructions: string[];
   tips: string | null;
   video_url: string | null;
+  original_video_url: string | null;
   is_featured: boolean;
   is_published: boolean;
   source_url: string | null;

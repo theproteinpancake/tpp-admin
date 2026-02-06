@@ -5,6 +5,78 @@ import { uploadToYouTube, isYouTubeConfigured } from '@/lib/youtube';
 
 export const maxDuration = 300; // 5 min timeout for video upload
 
+async function downloadOriginalVideo(url: string): Promise<Buffer | null> {
+  try {
+    console.log(`[YouTube Upload] Downloading original from Supabase Storage...`);
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    console.log(`[YouTube Upload] Original downloaded: ${(buffer.length / 1024 / 1024).toFixed(1)} MB (full quality)`);
+    return buffer;
+  } catch (err) {
+    console.log('[YouTube Upload] Could not download original:', err);
+    return null;
+  }
+}
+
+async function downloadFromMux(playbackId: string): Promise<Buffer | null> {
+  console.log(`[YouTube Upload] Falling back to Mux MP4...`);
+
+  // Ensure MP4 support is enabled on the Mux asset
+  try {
+    const asset = await findAssetByPlaybackId(playbackId);
+    if (asset && asset.mp4_support !== 'standard') {
+      console.log('[YouTube Upload] Enabling MP4 support on Mux asset...');
+      await enableMp4Support(asset.id);
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+  } catch (err) {
+    console.log('[YouTube Upload] Could not check/enable MP4 support:', err);
+  }
+
+  const mp4Url = getMp4Url(playbackId, 'high');
+  console.log(`[YouTube Upload] Downloading MP4: ${mp4Url}`);
+
+  let retries = 0;
+  const maxRetries = 10;
+
+  while (retries < maxRetries) {
+    const mp4Response = await fetch(mp4Url);
+
+    if (mp4Response.ok) {
+      const arrayBuffer = await mp4Response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      console.log(`[YouTube Upload] Downloaded from Mux: ${(buffer.length / 1024 / 1024).toFixed(1)} MB`);
+      return buffer;
+    }
+
+    if (mp4Response.status === 412) {
+      retries++;
+      console.log(`[YouTube Upload] MP4 not ready yet, waiting... (attempt ${retries}/${maxRetries})`);
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      continue;
+    }
+
+    // Try medium quality as fallback
+    if (retries === 0) {
+      const mediumUrl = getMp4Url(playbackId, 'medium');
+      const medResponse = await fetch(mediumUrl);
+      if (medResponse.ok) {
+        const arrayBuffer = await medResponse.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        console.log(`[YouTube Upload] Downloaded (medium): ${(buffer.length / 1024 / 1024).toFixed(1)} MB`);
+        return buffer;
+      }
+    }
+
+    retries++;
+    await new Promise(resolve => setTimeout(resolve, 5000));
+  }
+
+  return null;
+}
+
 export async function POST(request: Request) {
   try {
     const { recipeId } = await request.json();
@@ -46,78 +118,32 @@ export async function POST(request: Request) {
       });
     }
 
-    // Extract Mux playback ID from the video URL
-    const playbackId = extractPlaybackId(recipe.video_url);
-    if (!playbackId) {
-      return NextResponse.json(
-        { error: 'Could not extract Mux playback ID from video URL' },
-        { status: 400 }
-      );
+    console.log(`[YouTube Upload] Recipe: ${recipe.title}`);
+
+    // Download video — prefer original (full quality) from Supabase Storage
+    let videoBuffer: Buffer | null = null;
+
+    if (recipe.original_video_url) {
+      videoBuffer = await downloadOriginalVideo(recipe.original_video_url);
     }
 
-    console.log(`[YouTube Upload] Recipe: ${recipe.title}, Playback ID: ${playbackId}`);
-
-    // Ensure MP4 support is enabled on the Mux asset
-    try {
-      const asset = await findAssetByPlaybackId(playbackId);
-      if (asset && asset.mp4_support !== 'standard') {
-        console.log('[YouTube Upload] Enabling MP4 support on Mux asset...');
-        await enableMp4Support(asset.id);
-        // Wait a moment for rendition to start
-        await new Promise(resolve => setTimeout(resolve, 3000));
+    // Fall back to Mux MP4 if original not available
+    if (!videoBuffer) {
+      const playbackId = extractPlaybackId(recipe.video_url);
+      if (!playbackId) {
+        return NextResponse.json(
+          { error: 'Could not extract Mux playback ID from video URL' },
+          { status: 400 }
+        );
       }
-    } catch (err) {
-      console.log('[YouTube Upload] Could not check/enable MP4 support:', err);
-      // Continue anyway - the MP4 URL might still work
+      videoBuffer = await downloadFromMux(playbackId);
     }
 
-    // Download the MP4 from Mux
-    const mp4Url = getMp4Url(playbackId, 'high');
-    console.log(`[YouTube Upload] Downloading MP4: ${mp4Url}`);
-
-    let videoBuffer: Buffer;
-    let retries = 0;
-    const maxRetries = 10;
-
-    while (retries < maxRetries) {
-      const mp4Response = await fetch(mp4Url);
-
-      if (mp4Response.ok) {
-        const arrayBuffer = await mp4Response.arrayBuffer();
-        videoBuffer = Buffer.from(arrayBuffer);
-        console.log(`[YouTube Upload] Downloaded: ${(videoBuffer.length / 1024 / 1024).toFixed(1)} MB`);
-        break;
-      }
-
-      if (mp4Response.status === 412) {
-        // MP4 rendition not ready yet - wait and retry
-        retries++;
-        console.log(`[YouTube Upload] MP4 not ready yet, waiting... (attempt ${retries}/${maxRetries})`);
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        continue;
-      }
-
-      // Try medium quality as fallback
-      if (retries === 0) {
-        const mediumUrl = getMp4Url(playbackId, 'medium');
-        const medResponse = await fetch(mediumUrl);
-        if (medResponse.ok) {
-          const arrayBuffer = await medResponse.arrayBuffer();
-          videoBuffer = Buffer.from(arrayBuffer);
-          console.log(`[YouTube Upload] Downloaded (medium): ${(videoBuffer.length / 1024 / 1024).toFixed(1)} MB`);
-          break;
-        }
-      }
-
-      retries++;
-      await new Promise(resolve => setTimeout(resolve, 5000));
-    }
-
-    if (!videoBuffer!) {
+    if (!videoBuffer) {
       return NextResponse.json(
         {
-          error: 'Could not download video from Mux. The MP4 rendition may not be ready yet. ' +
-                 'Try again in a minute, or check that the video was uploaded correctly.'
+          error: 'Could not download video. Try re-uploading the video, ' +
+                 'or try again in a minute if the video was just uploaded.'
         },
         { status: 500 }
       );

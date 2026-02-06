@@ -27,6 +27,7 @@ interface RecipeForm {
   tips: string;
   featured_image: string;
   video_url: string;
+  original_video_url: string;
   is_featured: boolean;
   is_published: boolean;
   creator_id: string;
@@ -55,6 +56,7 @@ const initialForm: RecipeForm = {
   tips: '',
   featured_image: '',
   video_url: '',
+  original_video_url: '',
   is_featured: false,
   is_published: false,
   creator_id: '',
@@ -128,6 +130,7 @@ export default function EditRecipePage() {
             tips: data.tips || '',
             featured_image: data.featured_image || '',
             video_url: data.video_url || '',
+            original_video_url: data.original_video_url || '',
             is_featured: data.is_featured || false,
             is_published: data.is_published || false,
             creator_id: data.creator_id || '',
@@ -224,7 +227,7 @@ export default function EditRecipePage() {
     setForm({ ...form, tags: form.tags.filter(t => t !== tag) });
   };
 
-  // Upload video to Mux
+  // Upload video to Mux + Supabase Storage (original quality for YouTube)
   const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -233,13 +236,33 @@ export default function EditRecipePage() {
     setVideoProgress(0);
 
     try {
-      // Get direct upload URL from our API
+      // 1. Upload original to Supabase Storage (full quality for YouTube)
+      const fileExt = file.name.split('.').pop() || 'mp4';
+      const fileName = `${Date.now()}.${fileExt}`;
+      const storagePath = `recipe-videos/${fileName}`;
+
+      const { error: storageError } = await supabase.storage
+        .from('recipe-videos')
+        .upload(storagePath, file, { upsert: true });
+
+      let originalVideoUrl = '';
+      if (!storageError) {
+        const { data: { publicUrl } } = supabase.storage
+          .from('recipe-videos')
+          .getPublicUrl(storagePath);
+        originalVideoUrl = publicUrl;
+        console.log('[Video] Original saved to Supabase Storage');
+      } else {
+        console.warn('[Video] Supabase Storage upload failed, YouTube will use Mux fallback:', storageError.message);
+      }
+
+      // 2. Get direct upload URL from Mux API
       const response = await fetch('/api/mux/upload', {
         method: 'POST',
       });
       const { uploadUrl, uploadId } = await response.json();
 
-      // Upload file directly to Mux
+      // 3. Upload file directly to Mux (for app streaming)
       const xhr = new XMLHttpRequest();
       xhr.upload.addEventListener('progress', (event) => {
         if (event.lengthComputable) {
@@ -254,7 +277,7 @@ export default function EditRecipePage() {
         xhr.send(file);
       });
 
-      // Poll for asset ready (increased attempts for larger videos)
+      // 4. Poll for asset ready (increased attempts for larger videos)
       let assetId = null;
       for (let i = 0; i < 60; i++) {
         await new Promise(r => setTimeout(r, 3000));
@@ -277,6 +300,7 @@ export default function EditRecipePage() {
           setForm({
             ...form,
             video_url: `https://stream.mux.com/${playbackId}.m3u8`,
+            original_video_url: originalVideoUrl,
           });
         }
       } else {
@@ -353,6 +377,7 @@ export default function EditRecipePage() {
         tips: form.tips || null,
         featured_image: form.featured_image || null,
         video_url: form.video_url || null,
+        original_video_url: form.original_video_url || null,
         is_featured: form.is_featured,
         is_published: form.is_published,
         creator_id: form.creator_id || null,
