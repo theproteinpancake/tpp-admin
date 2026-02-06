@@ -169,7 +169,15 @@ export default function NewRecipePage() {
 
     try {
       const response = await fetch('/api/mux/upload', { method: 'POST' });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || `Mux upload creation failed (${response.status})`);
+      }
       const { uploadUrl, uploadId } = await response.json();
+
+      if (!uploadUrl) {
+        throw new Error('No upload URL returned from Mux');
+      }
 
       const xhr = new XMLHttpRequest();
       xhr.upload.addEventListener('progress', (event) => {
@@ -180,8 +188,14 @@ export default function NewRecipePage() {
 
       await new Promise((resolve, reject) => {
         xhr.open('PUT', uploadUrl);
-        xhr.onload = () => resolve(xhr.response);
-        xhr.onerror = () => reject(new Error('Upload failed'));
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(xhr.response);
+          } else {
+            reject(new Error(`Upload returned status ${xhr.status}`));
+          }
+        };
+        xhr.onerror = () => reject(new Error('Upload failed - network error'));
         xhr.send(file);
       });
 
@@ -190,6 +204,7 @@ export default function NewRecipePage() {
       for (let i = 0; i < 60; i++) {
         await new Promise(r => setTimeout(r, 3000));
         const statusRes = await fetch(`/api/mux/upload/${uploadId}`);
+        if (!statusRes.ok) continue;
         const status = await statusRes.json();
 
         if (status.asset_id) {
@@ -204,12 +219,14 @@ export default function NewRecipePage() {
         const playbackId = asset.playback_ids?.[0]?.id;
 
         if (playbackId) {
-          setForm({ ...form, video_url: `https://stream.mux.com/${playbackId}.m3u8` });
+          setForm(prev => ({ ...prev, video_url: `https://stream.mux.com/${playbackId}.m3u8` }));
         }
+      } else {
+        alert('Video processing is taking longer than expected. Please try again later.');
       }
     } catch (error) {
       console.error('Video upload error:', error);
-      alert('Failed to upload video');
+      alert(`Failed to upload video: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setUploadingVideo(false);
       setVideoProgress(0);
@@ -245,7 +262,7 @@ export default function NewRecipePage() {
       }
 
       setYoutubeVideoProgress(100);
-      setForm({ ...form, original_video_url: publicUrl });
+      setForm(prev => ({ ...prev, original_video_url: publicUrl }));
     } catch (error) {
       console.error('YouTube video upload error:', error);
       alert(`Failed to upload YouTube video: ${error instanceof Error ? error.message : 'Unknown error'}`);

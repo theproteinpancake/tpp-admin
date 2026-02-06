@@ -18,7 +18,6 @@ export async function createDirectUpload() {
     new_asset_settings: {
       playback_policy: ['public'],
       encoding_tier: 'baseline',
-      mp4_support: 'standard', // Enable MP4 downloads (for YouTube re-upload)
     },
   });
 
