@@ -4,6 +4,7 @@ import path from 'path';
 import { Readable } from 'stream';
 
 // ─── Config ────────────────────────────────────────────────────────
+// Supports both env vars (Vercel) and local files (dev)
 const SCRIPTS_DIR = path.join(process.cwd(), 'scripts');
 const CRED_PATH = path.join(SCRIPTS_DIR, 'client_secret.json');
 const TOKEN_PATH = path.join(SCRIPTS_DIR, '.youtube-token.json');
@@ -35,40 +36,59 @@ interface RecipeForYouTube {
 }
 
 // ─── Auth ──────────────────────────────────────────────────────────
+function hasEnvCredentials(): boolean {
+  return !!(
+    process.env.YOUTUBE_CLIENT_ID &&
+    process.env.YOUTUBE_CLIENT_SECRET &&
+    process.env.YOUTUBE_REFRESH_TOKEN
+  );
+}
+
 export function isYouTubeConfigured(): boolean {
-  return fs.existsSync(CRED_PATH) && fs.existsSync(TOKEN_PATH);
+  // Check env vars first (Vercel), then local files (dev)
+  return hasEnvCredentials() || (fs.existsSync(CRED_PATH) && fs.existsSync(TOKEN_PATH));
 }
 
 export async function getYouTubeAuth() {
-  if (!fs.existsSync(CRED_PATH)) {
-    throw new Error('YouTube not configured: missing scripts/client_secret.json');
+  let client_id: string;
+  let client_secret: string;
+  let redirect_uri = 'http://localhost';
+  let refresh_token: string;
+
+  if (hasEnvCredentials()) {
+    // Production: read from environment variables
+    client_id = process.env.YOUTUBE_CLIENT_ID!;
+    client_secret = process.env.YOUTUBE_CLIENT_SECRET!;
+    refresh_token = process.env.YOUTUBE_REFRESH_TOKEN!;
+  } else {
+    // Local dev: read from files
+    if (!fs.existsSync(CRED_PATH)) {
+      throw new Error('YouTube not configured: missing scripts/client_secret.json');
+    }
+    if (!fs.existsSync(TOKEN_PATH)) {
+      throw new Error(
+        'YouTube not authenticated. Run the initial auth from terminal first:\n' +
+        'node scripts/youtube-upload.js --video <any-video> --slug test'
+      );
+    }
+
+    const credentials = JSON.parse(fs.readFileSync(CRED_PATH, 'utf8'));
+    const cred = credentials.installed || credentials.web;
+    client_id = cred.client_id;
+    client_secret = cred.client_secret;
+    if (cred.redirect_uris?.[0]) redirect_uri = cred.redirect_uris[0];
+
+    const token = JSON.parse(fs.readFileSync(TOKEN_PATH, 'utf8'));
+    refresh_token = token.refresh_token;
   }
-  if (!fs.existsSync(TOKEN_PATH)) {
-    throw new Error(
-      'YouTube not authenticated. Run this once from terminal:\n' +
-      'node scripts/youtube-upload.js --video <any-video> --slug test'
-    );
-  }
 
-  const credentials = JSON.parse(fs.readFileSync(CRED_PATH, 'utf8'));
-  const { client_id, client_secret, redirect_uris } = credentials.installed || credentials.web;
+  const oauth2Client = new google.auth.OAuth2(client_id, client_secret, redirect_uri);
+  oauth2Client.setCredentials({ refresh_token });
 
-  const oauth2Client = new google.auth.OAuth2(
-    client_id,
-    client_secret,
-    redirect_uris ? redirect_uris[0] : 'urn:ietf:wg:oauth:2.0:oob'
-  );
-
-  const token = JSON.parse(fs.readFileSync(TOKEN_PATH, 'utf8'));
-  oauth2Client.setCredentials(token);
-
-  // Refresh if expired
-  if (token.expiry_date && Date.now() >= token.expiry_date) {
-    console.log('[YouTube] Refreshing token...');
-    const { credentials: newCreds } = await oauth2Client.refreshAccessToken();
-    fs.writeFileSync(TOKEN_PATH, JSON.stringify(newCreds, null, 2));
-    oauth2Client.setCredentials(newCreds);
-  }
+  // Always refresh to get a valid access token
+  console.log('[YouTube] Refreshing access token...');
+  const { credentials: newCreds } = await oauth2Client.refreshAccessToken();
+  oauth2Client.setCredentials(newCreds);
 
   return oauth2Client;
 }
