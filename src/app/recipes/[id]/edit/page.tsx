@@ -694,7 +694,13 @@ export default function EditRecipePage() {
         : meta?.confidence === 'medium' ? '⚠️ Medium confidence'
         : '⚠️ Low confidence — review recommended';
 
-      alert(`Nutrition generated via ${methodLabel}\n${confidenceLabel}\n\nReview the values and save when ready.`);
+      const errors = [
+        meta?.claude_error ? `Claude: ${meta.claude_error}` : null,
+        meta?.gemini_error ? `Gemini: ${meta.gemini_error}` : null,
+      ].filter(Boolean);
+      const errorInfo = errors.length > 0 ? `\n\nModel errors:\n${errors.join('\n')}` : '';
+
+      alert(`Nutrition generated via ${methodLabel}\n${confidenceLabel}\n\nReview the values and save when ready.${errorInfo}`);
     } catch (error) {
       console.error('Nutrition generation error:', error);
       alert(`Failed to generate nutrition: ${error instanceof Error ? error.message : 'Unknown error'}`);

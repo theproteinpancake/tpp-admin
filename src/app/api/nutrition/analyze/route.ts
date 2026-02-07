@@ -240,13 +240,12 @@ export async function POST(request: Request) {
     const claudeResult = results[0].status === 'fulfilled' ? results[0].value : null;
     const geminiResult = results[1].status === 'fulfilled' ? results[1].value : null;
 
-    // Log any individual model failures (non-fatal)
-    if (results[0].status === 'rejected' && hasAnthropicKey) {
-      console.warn('[Nutrition] Claude failed:', (results[0] as PromiseRejectedResult).reason?.message);
-    }
-    if (results[1].status === 'rejected' && hasGeminiKey) {
-      console.warn('[Nutrition] Gemini failed:', (results[1] as PromiseRejectedResult).reason?.message);
-    }
+    // Capture any individual model failures (non-fatal)
+    const claudeError = results[0].status === 'rejected' ? (results[0] as PromiseRejectedResult).reason?.message : null;
+    const geminiError = results[1].status === 'rejected' ? (results[1] as PromiseRejectedResult).reason?.message : null;
+
+    if (claudeError && hasAnthropicKey) console.warn('[Nutrition] Claude failed:', claudeError);
+    if (geminiError && hasGeminiKey) console.warn('[Nutrition] Gemini failed:', geminiError);
 
     const { nutrition, method, confidence } = crossValidate(claudeResult, geminiResult);
 
@@ -258,6 +257,8 @@ export async function POST(request: Request) {
         confidence,
         claude: claudeResult ? 'ok' : 'failed',
         gemini: geminiResult ? 'ok' : 'failed',
+        ...(claudeError && { claude_error: claudeError }),
+        ...(geminiError && { gemini_error: geminiError }),
       },
     });
 
