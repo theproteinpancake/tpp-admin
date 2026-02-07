@@ -24,6 +24,10 @@ export interface Recipe {
   protein: number | null;
   carbs: number | null;
   fat: number | null;
+  saturated_fat: number | null;
+  sugars: number | null;
+  fiber: number | null;
+  sodium: number | null;
   ingredients: RecipeIngredient[];
   instructions: string[];
   tips: string | null;

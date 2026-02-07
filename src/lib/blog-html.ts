@@ -20,6 +20,10 @@ interface RecipeData {
   protein: number | null;
   carbs: number | null;
   fat: number | null;
+  saturated_fat: number | null;
+  sugars: number | null;
+  fiber: number | null;
+  sodium: number | null;
   ingredients: { amount: string; unit: string; item: string; notes?: string }[];
   instructions: string[];
   tips: string | null;
@@ -124,6 +128,10 @@ function generateRecipeSchema(recipe: RecipeData): string {
       ...(recipe.protein && { proteinContent: `${recipe.protein}g` }),
       ...(recipe.carbs && { carbohydrateContent: `${recipe.carbs}g` }),
       ...(recipe.fat && { fatContent: `${recipe.fat}g` }),
+      ...(recipe.saturated_fat && { saturatedFatContent: `${recipe.saturated_fat}g` }),
+      ...(recipe.sugars && { sugarContent: `${recipe.sugars}g` }),
+      ...(recipe.fiber && { fiberContent: `${recipe.fiber}g` }),
+      ...(recipe.sodium && { sodiumContent: `${recipe.sodium}mg` }),
     };
   }
 
@@ -238,7 +246,11 @@ export function generateBlogHtml(recipe: RecipeData): string {
           ${recipe.calories != null ? nutritionRow('Energy', `${Math.round(recipe.calories)} kcal (${kcalToKj(recipe.calories)} kJ)`, calcDV(recipe.calories, DAILY_VALUES.calories), true) : ''}
           ${recipe.protein != null ? nutritionRow('Protein', `${recipe.protein}g`, calcDV(recipe.protein, DAILY_VALUES.protein), true) : ''}
           ${recipe.fat != null ? nutritionRow('Total Fat', `${recipe.fat}g`, calcDV(recipe.fat, DAILY_VALUES.fat), true) : ''}
+          ${recipe.saturated_fat != null ? nutritionRow('Saturated Fat', `${recipe.saturated_fat}g`, calcDV(recipe.saturated_fat, DAILY_VALUES.saturatedFat), false, true) : ''}
           ${recipe.carbs != null ? nutritionRow('Carbohydrates', `${recipe.carbs}g`, calcDV(recipe.carbs, DAILY_VALUES.carbs), true) : ''}
+          ${recipe.sugars != null ? nutritionRow('Sugars', `${recipe.sugars}g`, '—', false, true) : ''}
+          ${recipe.fiber != null ? nutritionRow('Dietary Fiber', `${recipe.fiber}g`, calcDV(recipe.fiber, DAILY_VALUES.fiber), false, true) : ''}
+          ${recipe.sodium != null ? nutritionRow('Sodium', `${recipe.sodium}mg`, calcDV(recipe.sodium, DAILY_VALUES.sodium), true) : ''}
         </tbody>
       </table>
 

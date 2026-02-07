@@ -17,6 +17,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.73.0",
     "@mux/mux-node": "^12.8.1",
     "@supabase/supabase-js": "^2.94.0",
     "@types/node": "^25.2.0",

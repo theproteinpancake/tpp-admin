@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { ArrowLeft, Upload, Plus, X, Loader2, Video, Image as ImageIcon, Save, RefreshCw, Youtube } from 'lucide-react';
+import { ArrowLeft, Upload, Plus, X, Loader2, Video, Image as ImageIcon, Save, RefreshCw, Youtube, Sparkles, Link2 } from 'lucide-react';
 import Link from 'next/link';
 import { supabase, RecipeIngredient, Creator } from '@/lib/supabase';
 
@@ -20,6 +20,10 @@ interface RecipeForm {
   protein: number;
   carbs: number;
   fat: number;
+  saturated_fat: number;
+  sugars: number;
+  fiber: number;
+  sodium: number;
   rating: number;
   review_count: number;
   ingredients: RecipeIngredient[];
@@ -49,6 +53,10 @@ const initialForm: RecipeForm = {
   protein: 0,
   carbs: 0,
   fat: 0,
+  saturated_fat: 0,
+  sugars: 0,
+  fiber: 0,
+  sodium: 0,
   rating: 0,
   review_count: 0,
   ingredients: [{ amount: '', unit: '', item: '', notes: '' }],
@@ -83,6 +91,9 @@ export default function EditRecipePage() {
   const [updatingBlog, setUpdatingBlog] = useState(false);
   const [linkingBlog, setLinkingBlog] = useState(false);
   const [manualArticleId, setManualArticleId] = useState('');
+  const [manualYouTubeUrl, setManualYouTubeUrl] = useState('');
+  const [linkingYouTube, setLinkingYouTube] = useState(false);
+  const [generatingNutrition, setGeneratingNutrition] = useState(false);
 
   // Fetch creators
   useEffect(() => {
@@ -123,6 +134,10 @@ export default function EditRecipePage() {
             protein: data.protein || 0,
             carbs: data.carbs || 0,
             fat: data.fat || 0,
+            saturated_fat: data.saturated_fat || 0,
+            sugars: data.sugars || 0,
+            fiber: data.fiber || 0,
+            sodium: data.sodium || 0,
             rating: data.rating || 0,
             review_count: data.review_count || 0,
             ingredients: data.ingredients?.length > 0 ? data.ingredients : [{ amount: '', unit: '', item: '', notes: '' }],
@@ -397,6 +412,10 @@ export default function EditRecipePage() {
         protein: form.protein || null,
         carbs: form.carbs || null,
         fat: form.fat || null,
+        saturated_fat: form.saturated_fat || null,
+        sugars: form.sugars || null,
+        fiber: form.fiber || null,
+        sodium: form.sodium || null,
         rating: form.rating || null,
         review_count: form.review_count || null,
         ingredients: cleanIngredients,
@@ -555,6 +574,123 @@ export default function EditRecipePage() {
     } catch (error) {
       console.error('Error unlinking blog:', error);
       alert('Failed to unlink blog.');
+    }
+  };
+
+  // Link existing YouTube video
+  const handleLinkYouTube = async () => {
+    const url = manualYouTubeUrl.trim();
+    if (!url) {
+      alert('Please enter a YouTube URL or video ID');
+      return;
+    }
+
+    // Extract video ID from various YouTube URL formats
+    let videoId = url;
+    const patterns = [
+      /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/,
+      /^([a-zA-Z0-9_-]{11})$/,
+    ];
+    for (const pattern of patterns) {
+      const match = url.match(pattern);
+      if (match) {
+        videoId = match[1];
+        break;
+      }
+    }
+
+    if (videoId.length !== 11) {
+      alert('Could not extract a valid YouTube video ID. Please check the URL.');
+      return;
+    }
+
+    setLinkingYouTube(true);
+
+    try {
+      const { error } = await supabase
+        .from('recipes')
+        .update({ youtube_video_id: videoId })
+        .eq('id', recipeId);
+
+      if (error) throw error;
+
+      setYoutubeVideoId(videoId);
+      setManualYouTubeUrl('');
+      alert(`Successfully linked YouTube video: ${videoId}`);
+    } catch (error) {
+      console.error('Error linking YouTube:', error);
+      alert('Failed to link YouTube video. Please try again.');
+    } finally {
+      setLinkingYouTube(false);
+    }
+  };
+
+  // Unlink YouTube video
+  const handleUnlinkYouTube = async () => {
+    if (!confirm('Unlink this YouTube video? The video will remain on YouTube but won\'t be embedded in the blog.')) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('recipes')
+        .update({ youtube_video_id: null })
+        .eq('id', recipeId);
+
+      if (error) throw error;
+      setYoutubeVideoId(null);
+    } catch (error) {
+      console.error('Error unlinking YouTube:', error);
+      alert('Failed to unlink YouTube video.');
+    }
+  };
+
+  // Generate nutrition data with AI
+  const handleGenerateNutrition = async () => {
+    const validIngredients = form.ingredients.filter(i => i.item.trim());
+    if (validIngredients.length === 0) {
+      alert('Please add some ingredients first so the AI can analyze them.');
+      return;
+    }
+
+    setGeneratingNutrition(true);
+
+    try {
+      const response = await fetch('/api/nutrition/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ingredients: validIngredients,
+          servings: form.servings,
+          title: form.title,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Nutrition analysis failed');
+      }
+
+      const n = result.nutrition;
+      setForm(prev => ({
+        ...prev,
+        calories: Math.round(n.calories),
+        protein: parseFloat(n.protein.toFixed(1)),
+        carbs: parseFloat(n.carbs.toFixed(1)),
+        fat: parseFloat(n.fat.toFixed(1)),
+        saturated_fat: parseFloat(n.saturated_fat.toFixed(1)),
+        sugars: parseFloat(n.sugars.toFixed(1)),
+        fiber: parseFloat(n.fiber.toFixed(1)),
+        sodium: Math.round(n.sodium),
+      }));
+
+      alert('Nutrition data generated! Review the values and save when ready.');
+    } catch (error) {
+      console.error('Nutrition generation error:', error);
+      alert(`Failed to generate nutrition: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setGeneratingNutrition(false);
     }
   };
 
@@ -811,11 +947,37 @@ export default function EditRecipePage() {
           </div>
         </div>
 
-        {/* Macros */}
+        {/* Nutrition */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Nutrition (per serving)</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-gray-900">Nutrition (per serving)</h2>
+            <button
+              type="button"
+              onClick={handleGenerateNutrition}
+              disabled={generatingNutrition || form.ingredients.filter(i => i.item.trim()).length === 0}
+              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-indigo-600 text-white rounded-lg hover:from-purple-600 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium shadow-sm"
+            >
+              {generatingNutrition ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Analyzing...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4" />
+                  Generate with AI
+                </>
+              )}
+            </button>
+          </div>
 
-          <div className="grid grid-cols-4 gap-6">
+          {generatingNutrition && (
+            <div className="mb-4 p-3 bg-purple-50 text-purple-700 rounded-lg text-sm">
+              AI is analyzing your ingredients to calculate nutritional values per serving...
+            </div>
+          )}
+
+          <div className="grid grid-cols-4 gap-6 mb-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Calories
@@ -835,8 +997,9 @@ export default function EditRecipePage() {
               <input
                 type="number"
                 value={form.protein}
-                onChange={(e) => setForm({ ...form, protein: parseInt(e.target.value) || 0 })}
+                onChange={(e) => setForm({ ...form, protein: parseFloat(e.target.value) || 0 })}
                 min="0"
+                step="0.1"
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
               />
             </div>
@@ -847,8 +1010,9 @@ export default function EditRecipePage() {
               <input
                 type="number"
                 value={form.carbs}
-                onChange={(e) => setForm({ ...form, carbs: parseInt(e.target.value) || 0 })}
+                onChange={(e) => setForm({ ...form, carbs: parseFloat(e.target.value) || 0 })}
                 min="0"
+                step="0.1"
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
               />
             </div>
@@ -859,7 +1023,62 @@ export default function EditRecipePage() {
               <input
                 type="number"
                 value={form.fat}
-                onChange={(e) => setForm({ ...form, fat: parseInt(e.target.value) || 0 })}
+                onChange={(e) => setForm({ ...form, fat: parseFloat(e.target.value) || 0 })}
+                min="0"
+                step="0.1"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-4 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Saturated Fat (g)
+              </label>
+              <input
+                type="number"
+                value={form.saturated_fat}
+                onChange={(e) => setForm({ ...form, saturated_fat: parseFloat(e.target.value) || 0 })}
+                min="0"
+                step="0.1"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Sugars (g)
+              </label>
+              <input
+                type="number"
+                value={form.sugars}
+                onChange={(e) => setForm({ ...form, sugars: parseFloat(e.target.value) || 0 })}
+                min="0"
+                step="0.1"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Fiber (g)
+              </label>
+              <input
+                type="number"
+                value={form.fiber}
+                onChange={(e) => setForm({ ...form, fiber: parseFloat(e.target.value) || 0 })}
+                min="0"
+                step="0.1"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Sodium (mg)
+              </label>
+              <input
+                type="number"
+                value={form.sodium}
+                onChange={(e) => setForm({ ...form, sodium: parseInt(e.target.value) || 0 })}
                 min="0"
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
               />
@@ -1177,9 +1396,18 @@ export default function EditRecipePage() {
 
               {youtubeVideoId ? (
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">
-                    <span className="w-2 h-2 bg-red-500 rounded-full" />
-                    Uploaded to YouTube ({youtubeVideoId})
+                  <div className="flex items-center justify-between bg-red-50 px-3 py-2 rounded-lg">
+                    <div className="flex items-center gap-2 text-sm text-red-600">
+                      <span className="w-2 h-2 bg-red-500 rounded-full" />
+                      Linked to YouTube ({youtubeVideoId})
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleUnlinkYouTube}
+                      className="text-xs text-gray-500 hover:text-red-600"
+                    >
+                      Unlink
+                    </button>
                   </div>
                   <a
                     href={`https://www.youtube.com/watch?v=${youtubeVideoId}`}
@@ -1232,6 +1460,34 @@ export default function EditRecipePage() {
                         />
                       </label>
                     )}
+                  </div>
+
+                  {/* Link existing YouTube video */}
+                  <div className="border-t border-gray-100 pt-3">
+                    <p className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1.5">
+                      <Link2 className="h-4 w-4" />
+                      Link existing YouTube video
+                    </p>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={manualYouTubeUrl}
+                        onChange={(e) => setManualYouTubeUrl(e.target.value)}
+                        placeholder="YouTube URL or video ID"
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-400 focus:border-transparent"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleLinkYouTube}
+                        disabled={linkingYouTube || !manualYouTubeUrl.trim()}
+                        className="px-4 py-2 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 disabled:opacity-50 text-sm font-medium"
+                      >
+                        {linkingYouTube ? 'Linking...' : 'Link'}
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Paste a YouTube URL (e.g., youtube.com/shorts/xxxxx) or just the video ID
+                    </p>
                   </div>
 
                   {/* Upload checkbox */}

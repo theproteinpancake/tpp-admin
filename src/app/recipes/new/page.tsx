@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Upload, Plus, X, Loader2, Video, Image as ImageIcon, Send, Youtube } from 'lucide-react';
+import { ArrowLeft, Upload, Plus, X, Loader2, Video, Image as ImageIcon, Send, Youtube, Sparkles, Link2 } from 'lucide-react';
 import Link from 'next/link';
 import { supabase, RecipeIngredient, Creator } from '@/lib/supabase';
 
@@ -20,6 +20,10 @@ interface RecipeForm {
   protein: number;
   carbs: number;
   fat: number;
+  saturated_fat: number;
+  sugars: number;
+  fiber: number;
+  sodium: number;
   rating: number;
   review_count: number;
   ingredients: RecipeIngredient[];
@@ -49,6 +53,10 @@ const initialForm: RecipeForm = {
   protein: 0,
   carbs: 0,
   fat: 0,
+  saturated_fat: 0,
+  sugars: 0,
+  fiber: 0,
+  sodium: 0,
   rating: 0,
   review_count: 0,
   ingredients: [{ amount: '', unit: '', item: '', notes: '' }],
@@ -73,6 +81,7 @@ export default function NewRecipePage() {
   const [videoProgress, setVideoProgress] = useState(0);
   const [newTag, setNewTag] = useState('');
   const [creators, setCreators] = useState<Creator[]>([]);
+  const [generatingNutrition, setGeneratingNutrition] = useState(false);
 
   // Fetch creators
   useEffect(() => {
@@ -157,6 +166,55 @@ export default function NewRecipePage() {
   // Remove tag
   const removeTag = (tag: string) => {
     setForm({ ...form, tags: form.tags.filter(t => t !== tag) });
+  };
+
+  // Generate nutrition data with AI
+  const handleGenerateNutrition = async () => {
+    const validIngredients = form.ingredients.filter(i => i.item.trim());
+    if (validIngredients.length === 0) {
+      alert('Please add some ingredients first so the AI can analyze them.');
+      return;
+    }
+
+    setGeneratingNutrition(true);
+
+    try {
+      const response = await fetch('/api/nutrition/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ingredients: validIngredients,
+          servings: form.servings,
+          title: form.title,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Nutrition analysis failed');
+      }
+
+      const n = result.nutrition;
+      setForm(prev => ({
+        ...prev,
+        calories: Math.round(n.calories),
+        protein: parseFloat(n.protein.toFixed(1)),
+        carbs: parseFloat(n.carbs.toFixed(1)),
+        fat: parseFloat(n.fat.toFixed(1)),
+        saturated_fat: parseFloat(n.saturated_fat.toFixed(1)),
+        sugars: parseFloat(n.sugars.toFixed(1)),
+        fiber: parseFloat(n.fiber.toFixed(1)),
+        sodium: Math.round(n.sodium),
+      }));
+
+      alert('Nutrition data generated! Review the values and save when ready.');
+    } catch (error) {
+      console.error('Nutrition generation error:', error);
+      alert(`Failed to generate nutrition: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setGeneratingNutrition(false);
+    }
   };
 
   // Upload video to Mux (for app streaming)
@@ -330,6 +388,10 @@ export default function NewRecipePage() {
         protein: form.protein || null,
         carbs: form.carbs || null,
         fat: form.fat || null,
+        saturated_fat: form.saturated_fat || null,
+        sugars: form.sugars || null,
+        fiber: form.fiber || null,
+        sodium: form.sodium || null,
         rating: form.rating || null,
         review_count: form.review_count || null,
         ingredients: cleanIngredients,
@@ -641,11 +703,37 @@ export default function NewRecipePage() {
           </div>
         </div>
 
-        {/* Macros */}
+        {/* Nutrition */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Nutrition (per serving)</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-gray-900">Nutrition (per serving)</h2>
+            <button
+              type="button"
+              onClick={handleGenerateNutrition}
+              disabled={generatingNutrition || form.ingredients.filter(i => i.item.trim()).length === 0}
+              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-indigo-600 text-white rounded-lg hover:from-purple-600 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium shadow-sm"
+            >
+              {generatingNutrition ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Analyzing...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4" />
+                  Generate with AI
+                </>
+              )}
+            </button>
+          </div>
 
-          <div className="grid grid-cols-4 gap-6">
+          {generatingNutrition && (
+            <div className="mb-4 p-3 bg-purple-50 text-purple-700 rounded-lg text-sm">
+              AI is analyzing your ingredients to calculate nutritional values per serving...
+            </div>
+          )}
+
+          <div className="grid grid-cols-4 gap-6 mb-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Calories
@@ -655,7 +743,7 @@ export default function NewRecipePage() {
                 value={form.calories}
                 onChange={(e) => setForm({ ...form, calories: parseInt(e.target.value) || 0 })}
                 min="0"
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900 placeholder-gray-400"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
               />
             </div>
             <div>
@@ -665,9 +753,10 @@ export default function NewRecipePage() {
               <input
                 type="number"
                 value={form.protein}
-                onChange={(e) => setForm({ ...form, protein: parseInt(e.target.value) || 0 })}
+                onChange={(e) => setForm({ ...form, protein: parseFloat(e.target.value) || 0 })}
                 min="0"
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900 placeholder-gray-400"
+                step="0.1"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
               />
             </div>
             <div>
@@ -677,9 +766,10 @@ export default function NewRecipePage() {
               <input
                 type="number"
                 value={form.carbs}
-                onChange={(e) => setForm({ ...form, carbs: parseInt(e.target.value) || 0 })}
+                onChange={(e) => setForm({ ...form, carbs: parseFloat(e.target.value) || 0 })}
                 min="0"
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900 placeholder-gray-400"
+                step="0.1"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
               />
             </div>
             <div>
@@ -689,9 +779,64 @@ export default function NewRecipePage() {
               <input
                 type="number"
                 value={form.fat}
-                onChange={(e) => setForm({ ...form, fat: parseInt(e.target.value) || 0 })}
+                onChange={(e) => setForm({ ...form, fat: parseFloat(e.target.value) || 0 })}
                 min="0"
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900 placeholder-gray-400"
+                step="0.1"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-4 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Saturated Fat (g)
+              </label>
+              <input
+                type="number"
+                value={form.saturated_fat}
+                onChange={(e) => setForm({ ...form, saturated_fat: parseFloat(e.target.value) || 0 })}
+                min="0"
+                step="0.1"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Sugars (g)
+              </label>
+              <input
+                type="number"
+                value={form.sugars}
+                onChange={(e) => setForm({ ...form, sugars: parseFloat(e.target.value) || 0 })}
+                min="0"
+                step="0.1"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Fiber (g)
+              </label>
+              <input
+                type="number"
+                value={form.fiber}
+                onChange={(e) => setForm({ ...form, fiber: parseFloat(e.target.value) || 0 })}
+                min="0"
+                step="0.1"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Sodium (mg)
+              </label>
+              <input
+                type="number"
+                value={form.sodium}
+                onChange={(e) => setForm({ ...form, sodium: parseInt(e.target.value) || 0 })}
+                min="0"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
               />
             </div>
           </div>
