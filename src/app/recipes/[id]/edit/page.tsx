@@ -685,7 +685,16 @@ export default function EditRecipePage() {
         sodium: Math.round(n.sodium),
       }));
 
-      alert('Nutrition data generated! Review the values and save when ready.');
+      const meta = result.meta;
+      const methodLabel = meta?.method === 'dual_model_average' ? 'Claude + Gemini (averaged)'
+        : meta?.method === 'claude_only' ? 'Claude only'
+        : meta?.method === 'gemini_only' ? 'Gemini only'
+        : 'AI';
+      const confidenceLabel = meta?.confidence === 'high' ? '✅ High confidence'
+        : meta?.confidence === 'medium' ? '⚠️ Medium confidence'
+        : '⚠️ Low confidence — review recommended';
+
+      alert(`Nutrition generated via ${methodLabel}\n${confidenceLabel}\n\nReview the values and save when ready.`);
     } catch (error) {
       console.error('Nutrition generation error:', error);
       alert(`Failed to generate nutrition: ${error instanceof Error ? error.message : 'Unknown error'}`);
