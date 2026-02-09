@@ -3,8 +3,12 @@
  *
  * Generates SEO-optimized HTML for Shopify recipe blog posts.
  * Includes Schema.org Recipe structured data, YouTube embed,
- * full nutrition panel, and on-brand styling.
+ * full nutrition panel, internal product links, review widget,
+ * and on-brand styling.
  */
+
+import { linkifyIngredient } from './product-links';
+import { generateMetaDescription, generateSeoKeywords } from './seo-utils';
 
 interface RecipeData {
   title: string;
@@ -30,6 +34,8 @@ interface RecipeData {
   rating: number | null;
   review_count: number | null;
   youtube_video_id: string | null;
+  meta_description?: string | null;
+  seo_keywords?: string | null;
 }
 
 // Brand colors
@@ -84,15 +90,28 @@ function toIsoDuration(minutes: number | null): string {
 
 /**
  * Generate Schema.org Recipe JSON-LD for rich search results
+ * Uses SEO fields (meta_description, seo_keywords) when available
  */
 function generateRecipeSchema(recipe: RecipeData): string {
   const totalTime = (recipe.prep_time_minutes || 0) + (recipe.cook_time_minutes || 0);
+
+  // Use SEO keywords if available, fall back to tags, then category
+  const keywords = recipe.seo_keywords
+    || generateSeoKeywords(recipe)
+    || recipe.tags?.join(', ')
+    || recipe.category;
+
+  // Use meta description if available, fall back to auto-generated
+  const description = recipe.meta_description
+    || generateMetaDescription(recipe)
+    || recipe.description
+    || `${recipe.title} - A high-protein recipe by The Protein Pancake`;
 
   const schema: Record<string, unknown> = {
     '@context': 'https://schema.org/',
     '@type': 'Recipe',
     name: recipe.title,
-    description: recipe.description || `${recipe.title} - A high-protein recipe by The Protein Pancake`,
+    description,
     author: {
       '@type': 'Organization',
       name: 'The Protein Pancake',
@@ -104,7 +123,7 @@ function generateRecipeSchema(recipe: RecipeData): string {
     recipeYield: `${recipe.servings} serving${recipe.servings !== 1 ? 's' : ''}`,
     recipeCategory: recipe.category,
     recipeCuisine: 'High Protein',
-    keywords: recipe.tags?.join(', ') || recipe.category,
+    keywords,
     recipeIngredient: recipe.ingredients?.map(
       (ing) => `${ing.amount} ${ing.unit} ${ing.item}${ing.notes ? ` (${ing.notes})` : ''}`
     ) || [],
@@ -178,6 +197,125 @@ function nutritionRow(label: string, amount: string, dv: string, bold: boolean =
 }
 
 /**
+ * Generate the review widget HTML for the blog post
+ * Allows visitors to leave a star rating + comment directly on the Shopify blog
+ */
+function generateReviewWidget(recipe: RecipeData): string {
+  return `
+  <div id="tpp-review-widget" style="max-width: 560px; margin: 40px auto; border: 2px solid ${BRAND.caramel}; border-radius: 12px; overflow: hidden;">
+    <div style="background: ${BRAND.caramel}; padding: 16px 20px;">
+      <h2 style="margin: 0; color: ${BRAND.white}; font-size: 20px; font-weight: bold; text-align: center; font-family: ${FONT};">Leave a Review</h2>
+    </div>
+    <div style="padding: 24px; background: ${BRAND.cream};">
+      <div id="tpp-review-form">
+        <!-- Star Rating -->
+        <div style="text-align: center; margin-bottom: 16px;">
+          <p style="color: ${BRAND.caramel}; font-size: 14px; margin: 0 0 8px 0; font-family: ${FONT};">How would you rate this recipe?</p>
+          <div id="tpp-stars" style="font-size: 32px; cursor: pointer; letter-spacing: 4px;">
+            <span class="tpp-star" data-value="1" style="color: ${BRAND.border};">&#9733;</span>
+            <span class="tpp-star" data-value="2" style="color: ${BRAND.border};">&#9733;</span>
+            <span class="tpp-star" data-value="3" style="color: ${BRAND.border};">&#9733;</span>
+            <span class="tpp-star" data-value="4" style="color: ${BRAND.border};">&#9733;</span>
+            <span class="tpp-star" data-value="5" style="color: ${BRAND.border};">&#9733;</span>
+          </div>
+        </div>
+
+        <!-- Name -->
+        <div style="margin-bottom: 12px;">
+          <input type="text" id="tpp-review-name" placeholder="Your name"
+            style="width: 100%; padding: 10px 14px; border: 1px solid ${BRAND.border}; border-radius: 8px; font-family: ${FONT}; font-size: 14px; color: ${BRAND.caramel}; background: ${BRAND.white}; box-sizing: border-box;" />
+        </div>
+
+        <!-- Comment -->
+        <div style="margin-bottom: 16px;">
+          <textarea id="tpp-review-comment" placeholder="Share your experience with this recipe..." rows="3"
+            style="width: 100%; padding: 10px 14px; border: 1px solid ${BRAND.border}; border-radius: 8px; font-family: ${FONT}; font-size: 14px; color: ${BRAND.caramel}; background: ${BRAND.white}; resize: vertical; box-sizing: border-box;"></textarea>
+        </div>
+
+        <!-- Submit -->
+        <button id="tpp-review-submit" type="button"
+          style="width: 100%; padding: 12px; background: ${BRAND.caramel}; color: ${BRAND.white}; border: none; border-radius: 8px; font-family: ${FONT}; font-size: 16px; font-weight: bold; cursor: pointer;">
+          Submit Review
+        </button>
+      </div>
+
+      <!-- Success message (hidden by default) -->
+      <div id="tpp-review-success" style="display: none; text-align: center; padding: 20px 0;">
+        <p style="color: ${BRAND.caramel}; font-size: 18px; font-weight: bold; font-family: ${FONT}; margin: 0 0 8px 0;">Thank you! 🎉</p>
+        <p style="color: ${BRAND.caramel}; font-size: 14px; font-family: ${FONT}; margin: 0;">Your review has been submitted.</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function() {
+    var selectedRating = 0;
+    var stars = document.querySelectorAll('.tpp-star');
+    var goldColor = '${BRAND.starGold}';
+    var grayColor = '${BRAND.border}';
+    var slug = '${recipe.slug}';
+
+    // Star hover/click handlers
+    stars.forEach(function(star) {
+      star.addEventListener('mouseenter', function() {
+        var val = parseInt(this.getAttribute('data-value'));
+        stars.forEach(function(s) {
+          s.style.color = parseInt(s.getAttribute('data-value')) <= val ? goldColor : grayColor;
+        });
+      });
+
+      star.addEventListener('mouseleave', function() {
+        stars.forEach(function(s) {
+          s.style.color = parseInt(s.getAttribute('data-value')) <= selectedRating ? goldColor : grayColor;
+        });
+      });
+
+      star.addEventListener('click', function() {
+        selectedRating = parseInt(this.getAttribute('data-value'));
+        stars.forEach(function(s) {
+          s.style.color = parseInt(s.getAttribute('data-value')) <= selectedRating ? goldColor : grayColor;
+        });
+      });
+    });
+
+    // Submit handler
+    document.getElementById('tpp-review-submit').addEventListener('click', function() {
+      var name = document.getElementById('tpp-review-name').value.trim();
+      var comment = document.getElementById('tpp-review-comment').value.trim();
+
+      if (selectedRating === 0) { alert('Please select a star rating'); return; }
+      if (!name) { alert('Please enter your name'); return; }
+      if (!comment) { alert('Please write a review'); return; }
+
+      this.textContent = 'Submitting...';
+      this.disabled = true;
+
+      fetch('/apps/tpp-reviews/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipe_slug: slug,
+          rating: selectedRating,
+          author_name: name,
+          comment_text: comment
+        })
+      })
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        document.getElementById('tpp-review-form').style.display = 'none';
+        document.getElementById('tpp-review-success').style.display = 'block';
+      })
+      .catch(function(err) {
+        alert('Something went wrong. Please try again.');
+        document.getElementById('tpp-review-submit').textContent = 'Submit Review';
+        document.getElementById('tpp-review-submit').disabled = false;
+      });
+    });
+  })();
+  </script>`;
+}
+
+/**
  * Generate the full blog HTML for a recipe
  */
 export function generateBlogHtml(recipe: RecipeData): string {
@@ -193,11 +331,12 @@ export function generateBlogHtml(recipe: RecipeData): string {
     <span style="color: ${BRAND.caramel}; font-size: 14px; margin-left: 8px; font-family: ${FONT};">${recipe.rating.toFixed(1)} / 5${recipe.review_count ? ` (${recipe.review_count} reviews)` : ''}</span>
   </div>` : '';
 
-  // Ingredients list
+  // Ingredients list — with internal product links
   const ingredientsList = recipe.ingredients
-    ?.map((ing) =>
-      `<li style="padding: 6px 0; color: ${BRAND.darkText}; border-bottom: 1px solid ${BRAND.border}; font-family: ${FONT};">${ing.amount} ${ing.unit} ${ing.item}${ing.notes ? ` <em>(${ing.notes})</em>` : ''}</li>`
-    )
+    ?.map((ing) => {
+      const linkedItem = linkifyIngredient(ing.item);
+      return `<li style="padding: 6px 0; color: ${BRAND.darkText}; border-bottom: 1px solid ${BRAND.border}; font-family: ${FONT};">${ing.amount} ${ing.unit} ${linkedItem}${ing.notes ? ` <em>(${ing.notes})</em>` : ''}</li>`;
+    })
     .join('\n') || '';
 
   // Instructions list
@@ -291,6 +430,9 @@ export function generateBlogHtml(recipe: RecipeData): string {
     </table>
   </div>` : '';
 
+  // Review widget
+  const reviewWidget = generateReviewWidget(recipe);
+
   // Build the full blog HTML
   return `
 ${schemaMarkup}
@@ -336,6 +478,9 @@ ${schemaMarkup}
     <p style="color: ${BRAND.caramel}; font-size: 16px; margin: 0 0 8px 0; font-weight: bold; font-family: ${FONT};">Made this recipe? 🥞</p>
     <p style="color: ${BRAND.caramel}; font-size: 14px; margin: 0; font-family: ${FONT};">Tag us <strong>@theproteinpancake</strong> on Instagram!</p>
   </div>
+
+  <!-- Review Widget -->
+  ${reviewWidget}
 
 </div>
   `.trim();

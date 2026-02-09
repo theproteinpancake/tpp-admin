@@ -41,6 +41,9 @@ export interface Recipe {
   review_count: number | null;
   shopify_article_id: string | null;
   youtube_video_id: string | null;
+  meta_title: string | null;
+  meta_description: string | null;
+  seo_keywords: string | null;
 }
 
 export interface RecipeIngredient {

@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { ArrowLeft, Upload, Plus, X, Loader2, Video, Image as ImageIcon, Save, RefreshCw, Youtube, Sparkles, Link2 } from 'lucide-react';
+import { ArrowLeft, Upload, Plus, X, Loader2, Video, Image as ImageIcon, Save, RefreshCw, Youtube, Sparkles, Link2, Search } from 'lucide-react';
 import Link from 'next/link';
 import { supabase, RecipeIngredient, Creator } from '@/lib/supabase';
+import { generateMetaTitle, generateMetaDescription, generateSeoKeywords } from '@/lib/seo-utils';
 
 interface RecipeForm {
   title: string;
@@ -37,6 +38,9 @@ interface RecipeForm {
   creator_id: string;
   publish_to_blog: boolean;
   upload_to_youtube: boolean;
+  meta_title: string;
+  meta_description: string;
+  seo_keywords: string;
 }
 
 const initialForm: RecipeForm = {
@@ -70,6 +74,9 @@ const initialForm: RecipeForm = {
   creator_id: '',
   publish_to_blog: false,
   upload_to_youtube: false,
+  meta_title: '',
+  meta_description: '',
+  seo_keywords: '',
 };
 
 export default function EditRecipePage() {
@@ -120,28 +127,72 @@ export default function EditRecipePage() {
         if (error) throw error;
 
         if (data) {
+          // Safely parse ingredients — handle JSON strings, arrays, or null
+          let parsedIngredients = [{ amount: '', unit: '', item: '', notes: '' }];
+          try {
+            const rawIng = typeof data.ingredients === 'string'
+              ? JSON.parse(data.ingredients)
+              : data.ingredients;
+            if (Array.isArray(rawIng) && rawIng.length > 0) {
+              parsedIngredients = rawIng.map((ing: Record<string, unknown>) => ({
+                amount: String(ing.amount || ''),
+                unit: String(ing.unit || ''),
+                item: String(ing.item || ing.name || ''),
+                notes: String(ing.notes || ''),
+              }));
+            }
+          } catch (e) {
+            console.warn('Failed to parse ingredients:', e);
+          }
+
+          // Safely parse instructions — handle JSON strings, arrays, or null
+          let parsedInstructions = [''];
+          try {
+            const rawInst = typeof data.instructions === 'string'
+              ? JSON.parse(data.instructions)
+              : data.instructions;
+            if (Array.isArray(rawInst) && rawInst.length > 0) {
+              parsedInstructions = rawInst.map((step: unknown) => String(step || ''));
+            }
+          } catch (e) {
+            console.warn('Failed to parse instructions:', e);
+          }
+
+          // Safely parse tags and flavours
+          let parsedTags: string[] = [];
+          try {
+            const rawTags = typeof data.tags === 'string' ? JSON.parse(data.tags) : data.tags;
+            if (Array.isArray(rawTags)) parsedTags = rawTags;
+          } catch { parsedTags = []; }
+
+          let parsedFlavours: string[] = [];
+          try {
+            const rawFlavours = typeof data.flavours === 'string' ? JSON.parse(data.flavours) : data.flavours;
+            if (Array.isArray(rawFlavours)) parsedFlavours = rawFlavours;
+          } catch { parsedFlavours = []; }
+
           setForm({
             title: data.title || '',
             slug: data.slug || '',
             description: data.description || '',
             category: data.category || 'breakfast',
-            tags: data.tags || [],
-            flavours: data.flavours || [],
-            prep_time_minutes: data.prep_time_minutes || 5,
-            cook_time_minutes: data.cook_time_minutes || 10,
-            servings: data.servings || 1,
-            calories: data.calories || 0,
-            protein: data.protein || 0,
-            carbs: data.carbs || 0,
-            fat: data.fat || 0,
-            saturated_fat: data.saturated_fat || 0,
-            sugars: data.sugars || 0,
-            fiber: data.fiber || 0,
-            sodium: data.sodium || 0,
-            rating: data.rating || 0,
-            review_count: data.review_count || 0,
-            ingredients: data.ingredients?.length > 0 ? data.ingredients : [{ amount: '', unit: '', item: '', notes: '' }],
-            instructions: data.instructions?.length > 0 ? data.instructions : [''],
+            tags: parsedTags,
+            flavours: parsedFlavours,
+            prep_time_minutes: Number(data.prep_time_minutes) || 5,
+            cook_time_minutes: Number(data.cook_time_minutes) || 10,
+            servings: Number(data.servings) || 1,
+            calories: Number(data.calories) || 0,
+            protein: Number(data.protein) || 0,
+            carbs: Number(data.carbs) || 0,
+            fat: Number(data.fat) || 0,
+            saturated_fat: Number(data.saturated_fat) || 0,
+            sugars: Number(data.sugars) || 0,
+            fiber: Number(data.fiber) || 0,
+            sodium: Number(data.sodium) || 0,
+            rating: Number(data.rating) || 0,
+            review_count: Number(data.review_count) || 0,
+            ingredients: parsedIngredients,
+            instructions: parsedInstructions,
             tips: data.tips || '',
             featured_image: data.featured_image || '',
             video_url: data.video_url || '',
@@ -151,6 +202,9 @@ export default function EditRecipePage() {
             creator_id: data.creator_id || '',
             publish_to_blog: false,
             upload_to_youtube: false,
+            meta_title: data.meta_title || '',
+            meta_description: data.meta_description || '',
+            seo_keywords: data.seo_keywords || '',
           });
           // Track if already linked to Shopify / YouTube
           setShopifyArticleId(data.shopify_article_id || null);
@@ -427,6 +481,9 @@ export default function EditRecipePage() {
         is_featured: form.is_featured,
         is_published: form.is_published,
         creator_id: form.creator_id || null,
+        meta_title: form.meta_title || null,
+        meta_description: form.meta_description || null,
+        seo_keywords: form.seo_keywords || null,
       };
 
       const { error } = await supabase
@@ -1288,6 +1345,84 @@ export default function EditRecipePage() {
           />
         </div>
 
+        {/* SEO */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <Search className="h-5 w-5 text-green-600" />
+                SEO
+              </h2>
+              <p className="text-sm text-gray-500 mt-1">Optimize how this recipe appears in Google search results</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setForm(prev => ({
+                  ...prev,
+                  meta_title: generateMetaTitle(prev),
+                  meta_description: generateMetaDescription(prev),
+                  seo_keywords: generateSeoKeywords(prev),
+                }));
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 text-sm font-medium"
+            >
+              <Sparkles className="h-4 w-4" />
+              Auto-Generate All
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Meta Title
+              </label>
+              <input
+                type="text"
+                value={form.meta_title}
+                onChange={(e) => setForm({ ...form, meta_title: e.target.value })}
+                placeholder={form.title ? generateMetaTitle(form) : 'Auto-generated from recipe title...'}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900 placeholder-gray-400"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                {form.meta_title.length}/60 characters (recommended: 50-60)
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Meta Description
+              </label>
+              <textarea
+                value={form.meta_description}
+                onChange={(e) => setForm({ ...form, meta_description: e.target.value })}
+                placeholder={form.title ? generateMetaDescription(form) : 'Auto-generated from recipe data...'}
+                rows={2}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900 placeholder-gray-400"
+              />
+              <p className={`text-xs mt-1 ${form.meta_description.length > 160 ? 'text-red-500' : 'text-gray-500'}`}>
+                {form.meta_description.length}/160 characters {form.meta_description.length > 160 ? '(too long!)' : '(recommended: 150-160)'}
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                SEO Keywords
+              </label>
+              <textarea
+                value={form.seo_keywords}
+                onChange={(e) => setForm({ ...form, seo_keywords: e.target.value })}
+                placeholder={form.title ? generateSeoKeywords(form) : 'Auto-generated keywords...'}
+                rows={2}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900 placeholder-gray-400"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Comma-separated keywords for Schema.org structured data
+              </p>
+            </div>
+          </div>
+        </div>
+
         {/* Publishing Options */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Publishing</h2>
@@ -1359,6 +1494,32 @@ export default function EditRecipePage() {
                   <p className="text-sm text-gray-500">
                     Updates the existing Shopify blog post with current recipe data including ratings.
                   </p>
+
+                  {/* Sync Comments to Shopify */}
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!confirm('Sync all comments from this recipe to the Shopify blog post?')) return;
+                      try {
+                        const syncResponse = await fetch('/api/shopify/sync-comments', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ recipeId }),
+                        });
+                        const result = await syncResponse.json();
+                        if (syncResponse.ok) {
+                          alert(result.message || 'Comments synced successfully!');
+                        } else {
+                          alert(`Sync failed: ${result.error}`);
+                        }
+                      } catch (error) {
+                        alert('Failed to sync comments');
+                      }
+                    }}
+                    className="mt-2 flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 text-sm font-medium"
+                  >
+                    💬 Sync Comments to Shopify
+                  </button>
                 </div>
               ) : (
                 <div className="space-y-4">

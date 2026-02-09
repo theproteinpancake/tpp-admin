@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Upload, Plus, X, Loader2, Video, Image as ImageIcon, Send, Youtube, Sparkles, Link2 } from 'lucide-react';
+import { ArrowLeft, Upload, Plus, X, Loader2, Video, Image as ImageIcon, Send, Youtube, Sparkles, Link2, Search } from 'lucide-react';
 import Link from 'next/link';
 import { supabase, RecipeIngredient, Creator } from '@/lib/supabase';
+import { generateMetaTitle, generateMetaDescription, generateSeoKeywords } from '@/lib/seo-utils';
 
 interface RecipeForm {
   title: string;
@@ -37,6 +38,9 @@ interface RecipeForm {
   creator_id: string;
   publish_to_blog: boolean;
   upload_to_youtube: boolean;
+  meta_title: string;
+  meta_description: string;
+  seo_keywords: string;
 }
 
 const initialForm: RecipeForm = {
@@ -70,6 +74,9 @@ const initialForm: RecipeForm = {
   creator_id: '',
   publish_to_blog: false,
   upload_to_youtube: false,
+  meta_title: '',
+  meta_description: '',
+  seo_keywords: '',
 };
 
 export default function NewRecipePage() {
@@ -412,6 +419,9 @@ export default function NewRecipePage() {
         is_featured: form.is_featured,
         is_published: form.is_published,
         creator_id: form.creator_id || null,
+        meta_title: form.meta_title || null,
+        meta_description: form.meta_description || null,
+        seo_keywords: form.seo_keywords || null,
       };
 
       const { data, error } = await supabase
@@ -1036,6 +1046,84 @@ export default function NewRecipePage() {
             placeholder="Any tips for making this recipe..."
             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900 placeholder-gray-400"
           />
+        </div>
+
+        {/* SEO */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <Search className="h-5 w-5 text-green-600" />
+                SEO
+              </h2>
+              <p className="text-sm text-gray-500 mt-1">Optimize how this recipe appears in Google search results</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setForm(prev => ({
+                  ...prev,
+                  meta_title: generateMetaTitle(prev),
+                  meta_description: generateMetaDescription(prev),
+                  seo_keywords: generateSeoKeywords(prev),
+                }));
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 text-sm font-medium"
+            >
+              <Sparkles className="h-4 w-4" />
+              Auto-Generate All
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Meta Title
+              </label>
+              <input
+                type="text"
+                value={form.meta_title}
+                onChange={(e) => setForm({ ...form, meta_title: e.target.value })}
+                placeholder={form.title ? generateMetaTitle(form) : 'Auto-generated from recipe title...'}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900 placeholder-gray-400"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                {form.meta_title.length}/60 characters (recommended: 50-60)
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Meta Description
+              </label>
+              <textarea
+                value={form.meta_description}
+                onChange={(e) => setForm({ ...form, meta_description: e.target.value })}
+                placeholder={form.title ? generateMetaDescription(form) : 'Auto-generated from recipe data...'}
+                rows={2}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900 placeholder-gray-400"
+              />
+              <p className={`text-xs mt-1 ${form.meta_description.length > 160 ? 'text-red-500' : 'text-gray-500'}`}>
+                {form.meta_description.length}/160 characters {form.meta_description.length > 160 ? '(too long!)' : '(recommended: 150-160)'}
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                SEO Keywords
+              </label>
+              <textarea
+                value={form.seo_keywords}
+                onChange={(e) => setForm({ ...form, seo_keywords: e.target.value })}
+                placeholder={form.title ? generateSeoKeywords(form) : 'Auto-generated keywords...'}
+                rows={2}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900 placeholder-gray-400"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Comma-separated keywords for Schema.org structured data
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Publishing Options */}

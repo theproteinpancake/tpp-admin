@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { generateBlogHtml } from '@/lib/blog-html';
+import { generateMetaTitle, generateMetaDescription } from '@/lib/seo-utils';
 
 const SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN || 'theproteinpancake.myshopify.com';
 const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ADMIN_ACCESS_TOKEN;
@@ -97,6 +98,10 @@ export async function POST(request: Request) {
       );
     }
 
+    // Use SEO-optimized title if available, otherwise auto-generate
+    const articleTitle = recipe.meta_title || generateMetaTitle(recipe);
+    const metaDescription = recipe.meta_description || generateMetaDescription(recipe);
+
     // Update the existing article
     const updateResponse = await fetch(
       `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-10/blogs/${targetBlogId}/articles/${recipe.shopify_article_id}.json`,
@@ -109,14 +114,15 @@ export async function POST(request: Request) {
         body: JSON.stringify({
           article: {
             id: recipe.shopify_article_id,
-            title: recipe.title,
+            title: articleTitle,
             body_html: blogContent,
+            summary_html: metaDescription,
             tags: recipe.tags?.join(', ') || '',
             // Update featured image if changed
             ...(recipe.featured_image && {
               image: {
                 src: recipe.featured_image,
-                alt: recipe.title,
+                alt: articleTitle,
               },
             }),
           },

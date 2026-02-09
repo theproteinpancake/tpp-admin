@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { generateBlogHtml } from '@/lib/blog-html';
+import { generateMetaTitle, generateMetaDescription } from '@/lib/seo-utils';
 
 const SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN || 'theproteinpancake.myshopify.com';
 const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ADMIN_ACCESS_TOKEN;
@@ -81,6 +82,10 @@ export async function POST(request: Request) {
 
     console.log('Using blog:', targetBlog.handle, targetBlog.id);
 
+    // Use SEO-optimized title if available, otherwise auto-generate
+    const articleTitle = recipe.meta_title || generateMetaTitle(recipe);
+    const metaDescription = recipe.meta_description || generateMetaDescription(recipe);
+
     // Create the article as a draft
     const articleResponse = await fetch(
       `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-10/blogs/${targetBlog.id}/articles.json`,
@@ -92,17 +97,18 @@ export async function POST(request: Request) {
         },
         body: JSON.stringify({
           article: {
-            title: recipe.title,
+            title: articleTitle,
             author: 'The Protein Pancake',
             tags: recipe.tags?.join(', ') || '',
             body_html: blogContent,
+            summary_html: metaDescription,
             published: false, // Create as draft
             handle: recipe.slug,
             // Add featured image to the article's image field (for previews)
             ...(recipe.featured_image && {
               image: {
                 src: recipe.featured_image,
-                alt: recipe.title,
+                alt: articleTitle,
               },
             }),
             metafields: [
@@ -110,6 +116,18 @@ export async function POST(request: Request) {
                 namespace: 'tpp',
                 key: 'recipe_id',
                 value: recipeId,
+                type: 'single_line_text_field',
+              },
+              {
+                namespace: 'global',
+                key: 'description_tag',
+                value: metaDescription,
+                type: 'single_line_text_field',
+              },
+              {
+                namespace: 'global',
+                key: 'title_tag',
+                value: articleTitle,
                 type: 'single_line_text_field',
               },
             ],
