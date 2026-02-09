@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// Use service role key for server-side operations (bypasses RLS)
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://nnwfuylkrouuitjcdswj.supabase.co',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-);
+// Lazy init to avoid build-time errors when env vars aren't available
+function getSupabaseAdmin() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://nnwfuylkrouuitjcdswj.supabase.co',
+    process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+  );
+}
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -39,7 +41,7 @@ export async function POST(request: Request) {
     }
 
     // Find recipe by slug
-    const { data: recipe, error: recipeError } = await supabaseAdmin
+    const { data: recipe, error: recipeError } = await getSupabaseAdmin()
       .from('recipes')
       .select('id, rating, review_count')
       .eq('slug', recipe_slug)
@@ -53,7 +55,7 @@ export async function POST(request: Request) {
     }
 
     // Insert the comment/review
-    const { error: commentError } = await supabaseAdmin
+    const { error: commentError } = await getSupabaseAdmin()
       .from('recipe_comments')
       .insert({
         recipe_id: recipe.id,
@@ -75,7 +77,7 @@ export async function POST(request: Request) {
     const newCount = currentCount + 1;
     const newRating = ((currentRating * currentCount) + rating) / newCount;
 
-    await supabaseAdmin
+    await getSupabaseAdmin()
       .from('recipes')
       .update({
         rating: parseFloat(newRating.toFixed(1)),
