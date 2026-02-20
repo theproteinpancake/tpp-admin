@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ArrowLeft, Loader2, Save, Upload, X } from 'lucide-react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
+import { convertToWebP } from '@/lib/image-utils';
 
 interface CreatorForm {
   name: string;
@@ -41,13 +42,14 @@ export default function NewCreatorPage() {
     setUploadingImage(true);
 
     try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `creator-${Date.now()}.${fileExt}`;
+      // Convert to WebP for smaller file sizes
+      const webpFile = await convertToWebP(file, 0.8);
+      const fileName = `creator-${Date.now()}.webp`;
       const filePath = `creator-images/${fileName}`;
 
       const { error: uploadError } = await supabase.storage
         .from('recipe-images')
-        .upload(filePath, file, { upsert: true });
+        .upload(filePath, webpFile, { upsert: true });
 
       if (uploadError) throw uploadError;
 

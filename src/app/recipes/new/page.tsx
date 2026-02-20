@@ -6,6 +6,7 @@ import { ArrowLeft, Upload, Plus, X, Loader2, Video, Image as ImageIcon, Send, Y
 import Link from 'next/link';
 import { supabase, RecipeIngredient, Creator } from '@/lib/supabase';
 import { generateMetaTitle, generateMetaDescription, generateSeoKeywords } from '@/lib/seo-utils';
+import { convertToWebP } from '@/lib/image-utils';
 
 interface RecipeForm {
   title: string;
@@ -346,7 +347,7 @@ export default function NewRecipePage() {
     }
   };
 
-  // Upload image to Supabase Storage
+  // Upload image to Supabase Storage (auto-converts to WebP)
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -354,13 +355,14 @@ export default function NewRecipePage() {
     setUploadingImage(true);
 
     try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${Date.now()}.${fileExt}`;
+      // Convert to WebP for smaller file sizes
+      const webpFile = await convertToWebP(file, 0.8);
+      const fileName = `${Date.now()}.webp`;
       const filePath = `recipe-images/${fileName}`;
 
       const { error: uploadError } = await supabase.storage
         .from('recipe-images')
-        .upload(filePath, file, { upsert: true });
+        .upload(filePath, webpFile, { upsert: true });
 
       if (uploadError) {
         console.error('Upload error:', uploadError);
