@@ -202,11 +202,11 @@ function nutritionRow(label: string, amount: string, dv: string, bold: boolean =
  */
 function generateReviewWidget(recipe: RecipeData): string {
   return `
-  <div id="tpp-review-widget" style="max-width: 560px; margin: 40px auto; border: 2px solid ${BRAND.caramel}; border-radius: 12px; overflow: hidden;">
-    <div style="background: ${BRAND.caramel}; padding: 16px 20px;">
+  <div id="tpp-review-widget" style="margin: 40px 0; border: 2px solid ${BRAND.caramel}; border-radius: 12px;">
+    <div style="background: ${BRAND.caramel}; padding: 16px 20px; border-radius: 10px 10px 0 0;">
       <h2 style="margin: 0; color: ${BRAND.white}; font-size: 20px; font-weight: bold; text-align: center; font-family: ${FONT};">Leave a Review</h2>
     </div>
-    <div style="padding: 24px; background: ${BRAND.cream};">
+    <div style="padding: 24px; background: ${BRAND.cream}; border-radius: 0 0 10px 10px;">
       <div id="tpp-review-form">
         <!-- Star Rating -->
         <div style="text-align: center; margin-bottom: 16px;">
@@ -365,11 +365,11 @@ export function generateBlogHtml(recipe: RecipeData): string {
   // Full Nutritional Information table (below tips)
   const hasNutrition = recipe.calories || recipe.protein || recipe.carbs || recipe.fat;
   const nutritionPanel = hasNutrition ? `
-  <div style="max-width: 420px; margin: 32px auto; border: 2px solid ${BRAND.caramel}; border-radius: 12px; overflow: hidden;">
-    <div style="background: ${BRAND.caramel}; padding: 16px 20px;">
+  <div style="margin: 32px 0; border: 2px solid ${BRAND.caramel}; border-radius: 12px;">
+    <div style="background: ${BRAND.caramel}; padding: 16px 20px; border-radius: 10px 10px 0 0;">
       <h2 style="margin: 0; color: ${BRAND.white}; font-size: 22px; font-weight: bold; text-align: center; font-family: ${FONT};">Nutritional Information</h2>
     </div>
-    <div style="padding: 20px; background: ${BRAND.cream};">
+    <div style="padding: 20px; background: ${BRAND.cream}; border-radius: 0 0 10px 10px;">
       <p style="color: ${BRAND.caramel}; font-size: 14px; margin: 0 0 4px 0; font-weight: 600; font-family: ${FONT};">Amount per serving</p>
       <p style="color: ${BRAND.caramel}; font-size: 13px; margin: 0 0 16px 0; font-family: ${FONT};">Serves ${recipe.servings}</p>
 

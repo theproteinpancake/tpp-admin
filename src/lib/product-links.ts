@@ -71,14 +71,14 @@ export function linkifyIngredient(itemText: string): string {
     for (const keyword of product.keywords) {
       if (itemLower.includes(keyword)) {
         // Wrap the matching text in a link
-        return `<a href="${product.url}" style="color: #bd6930; text-decoration: underline; font-weight: 600;" target="_blank" rel="noopener">${itemText}</a>`;
+        return `<a href="${product.url}" style="color: #bd6930; text-decoration: none; font-weight: 600;" target="_blank" rel="noopener">${itemText}</a>`;
       }
     }
   }
 
   // Also catch generic "protein pancake mix" or "TPP mix"
   if (itemLower.includes('protein pancake mix') || itemLower.includes('tpp mix') || itemLower.includes('pancake mix')) {
-    return `<a href="${STORE_URL}/collections/all" style="color: #bd6930; text-decoration: underline; font-weight: 600;" target="_blank" rel="noopener">${itemText}</a>`;
+    return `<a href="${STORE_URL}/collections/all" style="color: #bd6930; text-decoration: none; font-weight: 600;" target="_blank" rel="noopener">${itemText}</a>`;
   }
 
   return itemText;

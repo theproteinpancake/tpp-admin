@@ -157,7 +157,7 @@ FORMATTING RULES:
 2. Slug: lowercase-hyphenated version of the title
 3. Description: 1-2 sentences, compelling, mentions a key benefit (protein, taste, ease)
 4. Ingredients: Split into structured {amount, unit, item, notes} objects. Separate the numeric amount from the unit. Use common abbreviations: cup, tbsp, tsp, g, ml, etc.
-5. Instructions: 4-8 clear numbered steps. Each step should be 1-2 sentences. Include specific temperatures and times. Be more detailed than the raw notes - explain HOW to do things, not just what to do.
+5. Instructions: 4-8 clear steps. Each step should be 1-2 sentences. Include specific temperatures and times. Be more detailed than the raw notes - explain HOW to do things, not just what to do. IMPORTANT: Do NOT include step numbers or "Step X:" prefixes — the app and blog templates add numbering automatically. Just write the instruction text directly (e.g., "Preheat your oven to 180°C (350°F)." not "Step 1: Preheat...").
 6. Tips: A helpful "Pro tip:" about variations, texture tricks, or substitutions. If the original doesn't have one, create a relevant one.
 7. Servings: Infer from the recipe context (donuts = count yield, pancakes = usually 1 serving, sliced items = number of slices)
 8. Times: Estimate realistic prep and cook times based on the instructions
