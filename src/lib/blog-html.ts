@@ -202,11 +202,11 @@ function nutritionRow(label: string, amount: string, dv: string, bold: boolean =
  */
 function generateReviewWidget(recipe: RecipeData): string {
   return `
-  <div id="tpp-review-widget" style="margin: 40px 0; border: 2px solid ${BRAND.caramel}; border-radius: 12px;">
-    <div style="background: ${BRAND.caramel}; padding: 16px 20px; border-radius: 10px 10px 0 0;">
+  <div id="tpp-review-widget" style="margin: 40px 0; border: 2px solid ${BRAND.caramel}; border-radius: 12px; background: ${BRAND.caramel}; overflow: hidden;">
+    <div style="background: ${BRAND.caramel}; padding: 16px 20px;">
       <h2 style="margin: 0; color: ${BRAND.white}; font-size: 20px; font-weight: bold; text-align: center; font-family: ${FONT};">Leave a Review</h2>
     </div>
-    <div style="padding: 24px; background: ${BRAND.cream}; border-radius: 0 0 10px 10px;">
+    <div style="padding: 24px; background: ${BRAND.cream};">
       <div id="tpp-review-form">
         <!-- Star Rating -->
         <div style="text-align: center; margin-bottom: 16px;">
@@ -342,7 +342,7 @@ export function generateBlogHtml(recipe: RecipeData): string {
   // Instructions list
   const instructionsList = recipe.instructions
     ?.map((step, idx) =>
-      `<li style="padding: 10px 0; color: ${BRAND.darkText}; line-height: 1.6; border-bottom: 1px solid ${BRAND.border}; font-family: ${FONT};"><strong style="color: ${BRAND.caramel};">Step ${idx + 1}:</strong> ${step}</li>`
+      `<div style="padding: 10px 0; color: ${BRAND.darkText}; line-height: 1.6; border-bottom: 1px solid ${BRAND.border}; font-family: ${FONT};"><strong style="color: ${BRAND.caramel};">Step ${idx + 1}:</strong> ${step}</div>`
     )
     .join('\n') || '';
 
@@ -365,11 +365,11 @@ export function generateBlogHtml(recipe: RecipeData): string {
   // Full Nutritional Information table (below tips)
   const hasNutrition = recipe.calories || recipe.protein || recipe.carbs || recipe.fat;
   const nutritionPanel = hasNutrition ? `
-  <div style="margin: 32px 0; border: 2px solid ${BRAND.caramel}; border-radius: 12px;">
-    <div style="background: ${BRAND.caramel}; padding: 16px 20px; border-radius: 10px 10px 0 0;">
+  <div style="margin: 32px 0; border: 2px solid ${BRAND.caramel}; border-radius: 12px; background: ${BRAND.caramel}; overflow: hidden;">
+    <div style="background: ${BRAND.caramel}; padding: 16px 20px;">
       <h2 style="margin: 0; color: ${BRAND.white}; font-size: 22px; font-weight: bold; text-align: center; font-family: ${FONT};">Nutritional Information</h2>
     </div>
-    <div style="padding: 20px; background: ${BRAND.cream}; border-radius: 0 0 10px 10px;">
+    <div style="padding: 20px; background: ${BRAND.cream};">
       <p style="color: ${BRAND.caramel}; font-size: 14px; margin: 0 0 4px 0; font-weight: 600; font-family: ${FONT};">Amount per serving</p>
       <p style="color: ${BRAND.caramel}; font-size: 13px; margin: 0 0 16px 0; font-family: ${FONT};">Serves ${recipe.servings}</p>
 
@@ -463,9 +463,9 @@ ${schemaMarkup}
 
   <!-- Instructions -->
   <h2 style="color: ${BRAND.caramel}; font-size: 24px; margin: 32px 0 16px 0; padding-bottom: 8px; border-bottom: 2px solid ${BRAND.caramel}; font-family: ${FONT};">Instructions</h2>
-  <ol style="padding-left: 20px; margin: 0 0 24px 0;">
+  <div style="padding: 0; margin: 0 0 24px 0;">
     ${instructionsList}
-  </ol>
+  </div>
 
   <!-- Tips -->
   ${tipsHtml}
