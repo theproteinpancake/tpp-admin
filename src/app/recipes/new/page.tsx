@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Upload, Plus, X, Loader2, Video, Image as ImageIcon, Send, Youtube, Sparkles, Link2, Search } from 'lucide-react';
+import { ArrowLeft, Upload, Plus, X, Loader2, Video, Image as ImageIcon, Send, Youtube, Sparkles, Link2, Search, FileText, Wand2 } from 'lucide-react';
 import Link from 'next/link';
 import { supabase, RecipeIngredient, Creator } from '@/lib/supabase';
 import { generateMetaTitle, generateMetaDescription, generateSeoKeywords } from '@/lib/seo-utils';
@@ -91,6 +91,11 @@ export default function NewRecipePage() {
   const [creators, setCreators] = useState<Creator[]>([]);
   const [generatingNutrition, setGeneratingNutrition] = useState(false);
 
+  // AI Recipe Import state
+  const [rawRecipeText, setRawRecipeText] = useState('');
+  const [enhancingRecipe, setEnhancingRecipe] = useState(false);
+  const [docxFileName, setDocxFileName] = useState('');
+
   // Fetch creators
   useEffect(() => {
     async function fetchCreators() {
@@ -102,6 +107,72 @@ export default function NewRecipePage() {
     }
     fetchCreators();
   }, []);
+
+  // Handle .docx file upload for AI import
+  const handleDocxUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setDocxFileName(file.name);
+
+    try {
+      const mammoth = await import('mammoth');
+      const arrayBuffer = await file.arrayBuffer();
+      const result = await mammoth.extractRawText({ arrayBuffer });
+      setRawRecipeText(result.value);
+    } catch (error) {
+      console.error('Error reading .docx:', error);
+      alert('Failed to read .docx file. Please try pasting the text instead.');
+    }
+  };
+
+  // AI Recipe Enhancement
+  const handleEnhanceRecipe = async () => {
+    if (!rawRecipeText.trim()) {
+      alert('Please paste recipe text or upload a .docx file first.');
+      return;
+    }
+
+    setEnhancingRecipe(true);
+
+    try {
+      const response = await fetch('/api/recipes/enhance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recipeText: rawRecipeText }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || 'Enhancement failed');
+      }
+
+      const { recipe } = await response.json();
+
+      // Auto-fill the form with enhanced recipe data
+      setForm(prev => ({
+        ...prev,
+        title: recipe.title || prev.title,
+        slug: recipe.slug || prev.slug,
+        description: recipe.description || prev.description,
+        category: recipe.category || prev.category,
+        tags: recipe.tags || prev.tags,
+        flavours: recipe.flavours || prev.flavours,
+        prep_time_minutes: recipe.prep_time_minutes || prev.prep_time_minutes,
+        cook_time_minutes: recipe.cook_time_minutes || prev.cook_time_minutes,
+        servings: recipe.servings || prev.servings,
+        ingredients: recipe.ingredients.length > 0 ? recipe.ingredients : prev.ingredients,
+        instructions: recipe.instructions.length > 0 ? recipe.instructions : prev.instructions,
+        tips: recipe.tips || prev.tips,
+      }));
+
+    } catch (error) {
+      console.error('Enhancement error:', error);
+      alert(`Failed to enhance recipe: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setEnhancingRecipe(false);
+    }
+  };
 
   // Generate slug from title
   const generateSlug = (title: string) => {
@@ -487,6 +558,72 @@ export default function NewRecipePage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Add New Recipe</h1>
           <p className="text-gray-600 mt-1">Create a new recipe for the TPP app</p>
+        </div>
+      </div>
+
+      {/* AI Recipe Import */}
+      <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl shadow-sm border border-amber-200 p-6 mb-8">
+        <div className="flex items-center gap-2 mb-4">
+          <Wand2 className="h-5 w-5 text-caramel" />
+          <h2 className="text-lg font-semibold text-gray-900">AI Recipe Import</h2>
+          <span className="text-xs bg-caramel/10 text-caramel px-2 py-0.5 rounded-full font-medium">Beta</span>
+        </div>
+        <p className="text-sm text-gray-600 mb-4">
+          Paste a rough recipe or upload a .docx file — AI will format it, expand the instructions, and auto-fill the form below.
+        </p>
+
+        <div className="space-y-4">
+          {/* File upload */}
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors text-sm font-medium text-gray-700">
+              <FileText className="h-4 w-4" />
+              {docxFileName || 'Upload .docx'}
+              <input
+                type="file"
+                accept=".docx"
+                onChange={handleDocxUpload}
+                className="hidden"
+              />
+            </label>
+            {docxFileName && (
+              <button
+                type="button"
+                onClick={() => { setDocxFileName(''); setRawRecipeText(''); }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+            <span className="text-sm text-gray-400">or paste below</span>
+          </div>
+
+          {/* Text area */}
+          <textarea
+            value={rawRecipeText}
+            onChange={(e) => setRawRecipeText(e.target.value)}
+            placeholder="Paste your rough recipe text here...&#10;&#10;e.g.&#10;Oreo Protein Donuts&#10;- 1 cup Cookies & Cream mix&#10;- 2 tsp sweetener&#10;- 1/2 tsp baking powder&#10;- 3/4 cup almond milk&#10;Mix, pour into molds, bake 180C 12-15 min..."
+            className="w-full h-40 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900 placeholder-gray-400 text-sm resize-y"
+          />
+
+          {/* Enhance button */}
+          <button
+            type="button"
+            onClick={handleEnhanceRecipe}
+            disabled={enhancingRecipe || !rawRecipeText.trim()}
+            className="flex items-center gap-2 px-6 py-2.5 bg-caramel text-white rounded-lg hover:bg-caramel/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+          >
+            {enhancingRecipe ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Enhancing recipe...
+              </>
+            ) : (
+              <>
+                <Sparkles className="h-4 w-4" />
+                Enhance with AI
+              </>
+            )}
+          </button>
         </div>
       </div>
 
