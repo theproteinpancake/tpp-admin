@@ -350,10 +350,21 @@ async function authenticate() {
   console.log('');
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  const code = await new Promise(resolve => {
-    rl.question('Enter the authorization code: ', resolve);
+  let code = await new Promise(resolve => {
+    rl.question('Enter the authorization code (or full redirect URL): ', resolve);
   });
   rl.close();
+
+  // If the user pasted the full redirect URL, extract just the code parameter
+  if (code.includes('code=')) {
+    try {
+      const url = new URL(code);
+      code = url.searchParams.get('code') || code;
+    } catch {
+      const match = code.match(/code=([^&]+)/);
+      if (match) code = decodeURIComponent(match[1]);
+    }
+  }
 
   const { tokens } = await oauth2Client.getToken(code);
   oauth2Client.setCredentials(tokens);
