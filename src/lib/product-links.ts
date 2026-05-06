@@ -4,7 +4,7 @@
  * Used to auto-link ingredient mentions in blog post HTML.
  */
 
-const STORE_URL = 'https://theproteinpancake.com.au';
+const STORE_URL = 'https://theproteinpancake.co';
 
 interface ProductLink {
   keywords: string[];  // Terms to match in ingredient text

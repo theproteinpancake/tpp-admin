@@ -82,8 +82,9 @@ export function generateMetaDescription(recipe: SeoRecipeInput): string {
   }
 }
 
-// Generate rich SEO keywords
-// e.g. "protein waffles, high protein breakfast, cookies and cream, protein pancake mix recipe, healthy waffles"
+// Generate focused SEO keywords (max 5)
+// Google recommends a small number of genuine, relevant keywords — not keyword stuffing.
+// e.g. "protein waffles, high protein breakfast, cookies and cream recipe"
 export function generateSeoKeywords(recipe: SeoRecipeInput): string {
   try {
     const title = recipe?.title || '';
@@ -91,69 +92,50 @@ export function generateSeoKeywords(recipe: SeoRecipeInput): string {
 
     if (!title) return '';
 
-    const keywords = new Set<string>();
-
-    // Title-derived keywords
+    const keywords: string[] = [];
     const titleLower = title.toLowerCase();
-    keywords.add(titleLower);
 
-    // Add "protein" variants of title
-    if (!titleLower.includes('protein')) {
-      keywords.add(`protein ${titleLower}`);
+    // 1. Primary keyword: the recipe title itself (or protein variant)
+    if (titleLower.includes('protein')) {
+      keywords.push(titleLower);
+    } else {
+      keywords.push(`protein ${titleLower}`);
     }
-    keywords.add(`high protein ${titleLower}`);
 
-    // Category keywords
+    // 2. Category keyword: "high protein [category]"
     if (category) {
-      const cat = category.toLowerCase();
-      keywords.add(`protein ${cat}`);
-      keywords.add(`high protein ${cat}`);
-      keywords.add(`healthy ${cat}`);
-      keywords.add(`easy ${cat} recipe`);
+      keywords.push(`high protein ${category.toLowerCase()}`);
     }
 
-    // Food type keywords (extract from title)
+    // 3. Food type keyword if present in title
     const foodTypes = ['pancakes', 'waffles', 'crepes', 'muffins', 'cookies', 'brownies', 'bars', 'bites', 'bowl', 'smoothie', 'shake', 'oats', 'porridge'];
     for (const food of foodTypes) {
       if (titleLower.includes(food)) {
-        keywords.add(`protein ${food}`);
-        keywords.add(`high protein ${food}`);
-        keywords.add(`healthy ${food}`);
-        keywords.add(`${food} recipe`);
+        keywords.push(`protein ${food} recipe`);
+        break;
       }
     }
 
-    // Flavour keywords (extract from title)
+    // 4. Flavour keyword if present in title
     const flavours = ['chocolate', 'vanilla', 'strawberry', 'blueberry', 'banana', 'peanut butter', 'cookies and cream', 'cookies & cream', 'salted caramel', 'cinnamon', 'maple', 'matcha', 'tiramisu', 'lemon'];
     for (const flavour of flavours) {
       if (titleLower.includes(flavour)) {
-        keywords.add(flavour);
+        keywords.push(flavour);
+        break;
       }
     }
 
-    // Brand keywords
-    keywords.add('protein pancake mix recipe');
-    keywords.add('the protein pancake');
-
-    // Tags
-    if (Array.isArray(recipe.tags)) {
-      recipe.tags.forEach(tag => {
-        if (typeof tag === 'string') keywords.add(tag.toLowerCase());
-      });
+    // 5. One tag if available and not already covered
+    if (Array.isArray(recipe.tags) && recipe.tags.length > 0) {
+      const tag = recipe.tags[0].toLowerCase();
+      if (!keywords.some(k => k.includes(tag))) {
+        keywords.push(tag);
+      }
     }
 
-    // Macro keywords if notable
-    const protein = Number(recipe.protein) || 0;
-    const calories = Number(recipe.calories) || 0;
-    if (protein >= 20) {
-      keywords.add('high protein meal');
-      keywords.add(`${Math.round(protein)}g protein recipe`);
-    }
-    if (calories > 0 && calories < 400) {
-      keywords.add('low calorie recipe');
-    }
-
-    return Array.from(keywords).join(', ');
+    // Deduplicate and cap at 5
+    const unique = Array.from(new Set(keywords)).slice(0, 5);
+    return unique.join(', ');
   } catch {
     return '';
   }

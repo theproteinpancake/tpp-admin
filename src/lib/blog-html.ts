@@ -107,6 +107,9 @@ function generateRecipeSchema(recipe: RecipeData): string {
     || recipe.description
     || `${recipe.title} - A high-protein recipe by The Protein Pancake`;
 
+  // Check for valid YouTube video ID (11-char alphanumeric)
+  const hasValidVideo = recipe.youtube_video_id && /^[a-zA-Z0-9_-]{11}$/.test(recipe.youtube_video_id);
+
   const schema: Record<string, unknown> = {
     '@context': 'https://schema.org/',
     '@type': 'Recipe',
@@ -115,23 +118,45 @@ function generateRecipeSchema(recipe: RecipeData): string {
     author: {
       '@type': 'Organization',
       name: 'The Protein Pancake',
-      url: 'https://theproteinpancake.com.au',
+      url: 'https://theproteinpancake.co',
     },
     prepTime: toIsoDuration(recipe.prep_time_minutes),
     cookTime: toIsoDuration(recipe.cook_time_minutes),
     totalTime: toIsoDuration(totalTime),
-    recipeYield: `${recipe.servings} serving${recipe.servings !== 1 ? 's' : ''}`,
+    recipeYield: `${recipe.servings}`,
     recipeCategory: recipe.category,
     recipeCuisine: 'High Protein',
     keywords,
     recipeIngredient: recipe.ingredients?.map(
       (ing) => `${ing.amount} ${ing.unit} ${ing.item}${ing.notes ? ` (${ing.notes})` : ''}`
     ) || [],
-    recipeInstructions: recipe.instructions?.map((step, idx) => ({
-      '@type': 'HowToStep',
-      position: idx + 1,
-      text: step,
-    })) || [],
+    recipeInstructions: recipe.instructions?.map((step, idx) => {
+      const stepNum = idx + 1;
+      const stepSchema: Record<string, unknown> = {
+        '@type': 'HowToStep',
+        position: stepNum,
+        name: `Step ${stepNum}`,
+        text: step,
+        url: `https://theproteinpancake.co/blogs/recipes/${recipe.slug}#step${stepNum}`,
+      };
+      // Add video reference to first step if YouTube video exists
+      if (idx === 0 && hasValidVideo) {
+        stepSchema.video = {
+          '@type': 'VideoObject',
+          name: recipe.title,
+          description: description,
+          thumbnailUrl: `https://img.youtube.com/vi/${recipe.youtube_video_id}/maxresdefault.jpg`,
+          contentUrl: `https://www.youtube.com/watch?v=${recipe.youtube_video_id}`,
+          embedUrl: `https://www.youtube.com/embed/${recipe.youtube_video_id}`,
+          uploadDate: new Date(new Date().toLocaleString('en-US', { timeZone: 'Australia/Sydney' })).toISOString().split('T')[0],
+        };
+      }
+      // Add image reference to first step if featured image exists
+      if (idx === 0 && recipe.featured_image) {
+        stepSchema.image = recipe.featured_image;
+      }
+      return stepSchema;
+    }) || [],
   };
 
   // Add image if available
@@ -160,20 +185,20 @@ function generateRecipeSchema(recipe: RecipeData): string {
       '@type': 'AggregateRating',
       ratingValue: recipe.rating.toFixed(1),
       bestRating: '5',
-      ...(recipe.review_count && { ratingCount: recipe.review_count }),
+      ...(recipe.review_count && { reviewCount: recipe.review_count }),
     };
   }
 
   // Add video if YouTube upload exists
-  if (recipe.youtube_video_id) {
+  if (hasValidVideo) {
     schema.video = {
       '@type': 'VideoObject',
       name: recipe.title,
-      description: recipe.description || recipe.title,
+      description: description,
       thumbnailUrl: `https://img.youtube.com/vi/${recipe.youtube_video_id}/maxresdefault.jpg`,
       contentUrl: `https://www.youtube.com/watch?v=${recipe.youtube_video_id}`,
       embedUrl: `https://www.youtube.com/embed/${recipe.youtube_video_id}`,
-      uploadDate: new Date().toISOString().split('T')[0],
+      uploadDate: new Date(new Date().toLocaleString('en-US', { timeZone: 'Australia/Sydney' })).toISOString().split('T')[0],
     };
   }
 
@@ -342,7 +367,7 @@ export function generateBlogHtml(recipe: RecipeData): string {
   // Instructions list
   const instructionsList = recipe.instructions
     ?.map((step, idx) =>
-      `<div style="padding: 10px 0; color: ${BRAND.darkText}; line-height: 1.6; border-bottom: 1px solid ${BRAND.border}; font-family: ${FONT};"><strong style="color: ${BRAND.caramel};">Step ${idx + 1}:</strong> ${step}</div>`
+      `<div id="step${idx + 1}" style="padding: 10px 0; color: ${BRAND.darkText}; line-height: 1.6; border-bottom: 1px solid ${BRAND.border}; font-family: ${FONT};"><strong style="color: ${BRAND.caramel};">Step ${idx + 1}:</strong> ${step}</div>`
     )
     .join('\n') || '';
 
