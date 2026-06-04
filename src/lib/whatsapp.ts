@@ -20,10 +20,11 @@ export function isAllowed(from: string): boolean {
   return a.length === 0 ? false : a.includes(waAddr(from));
 }
 
-export async function sendWhatsApp(to: string, body: string): Promise<boolean> {
+export async function sendWhatsApp(to: string, body: string, mediaUrl?: string): Promise<boolean> {
   const sid = SID(), token = TOKEN(), from = FROM();
   if (!sid || !token || !from) { console.error('Twilio env missing'); return false; }
   const params = new URLSearchParams({ To: waAddr(to), From: from, Body: body.slice(0, 1550) });
+  if (mediaUrl) params.set('MediaUrl', mediaUrl);
   const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
     method: 'POST',
     headers: {

@@ -1,21 +1,15 @@
 import { NextRequest } from 'next/server';
+import { after } from 'next/server';
 import { askStockAgent } from '@/lib/stockAgent';
 import { isAllowed, sendWhatsApp } from '@/lib/whatsapp';
 
-export const maxDuration = 30;
+export const maxDuration = 120; // agent + docket parse can take ~30s
 
-// escape for TwiML XML
-const xml = (s: string) => s.replace(/[<>&'"]/g, (c) => (
-  { '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' }[c] as string));
-const twiml = (msg?: string, media?: string) => {
-  const body = msg || media
-    ? `<Message>${msg ? `<Body>${xml(msg)}</Body>` : ''}${media ? `<Media>${xml(media)}</Media>` : ''}</Message>`
-    : '';
-  return new Response(`<?xml version="1.0" encoding="UTF-8"?><Response>${body}</Response>`,
-    { headers: { 'Content-Type': 'text/xml' } });
-};
+const empty = () =>
+  new Response('<?xml version="1.0" encoding="UTF-8"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
 
-// Twilio inbound WhatsApp webhook.
+// Twilio inbound WhatsApp webhook. Twilio drops the reply if we don't respond in
+// ~15s, so we ACK immediately and do the (slower) agent work + send via REST after().
 export async function POST(req: NextRequest) {
   let from = '', body = '';
   try {
@@ -23,21 +17,20 @@ export async function POST(req: NextRequest) {
     from = String(form.get('From') || '');
     body = String(form.get('Body') || '').trim();
   } catch {
-    return twiml();
+    return empty();
   }
 
-  if (!isAllowed(from)) {
-    return twiml('Sorry, this assistant is private.');
-  }
-  if (!body) return twiml('Send me a question about stock, e.g. “what’s low at Altona?”');
+  if (!isAllowed(from) || !body) return empty();
 
-  try {
-    const answer = await askStockAgent(body);
-    return twiml(answer.text, answer.media);
-  } catch (e) {
-    console.error('whatsapp agent error', e);
-    // best-effort async fallback so the user gets *something*
-    await sendWhatsApp(from, 'Hit an error answering that — try again in a moment.').catch(() => {});
-    return twiml();
-  }
+  after(async () => {
+    try {
+      const answer = await askStockAgent(body);
+      await sendWhatsApp(from, answer.text, answer.media);
+    } catch (e) {
+      console.error('whatsapp agent error', e);
+      await sendWhatsApp(from, '⚠️ Hit an error on that one — try again in a moment.').catch(() => {});
+    }
+  });
+
+  return empty();
 }

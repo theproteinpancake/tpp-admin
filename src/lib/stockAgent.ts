@@ -7,6 +7,7 @@ import { getReorderRecommendations } from './reorder';
 import { draftWhatsAppPO, approveLatestWhatsAppDraft } from './poActions';
 import { findLatestDocket, parseDocket, createWROFromParsed, draftSharonReply } from './wroFlow';
 import { gmailSendDraft } from './google';
+import { getLots, expiryStatus, EXPIRY_META } from './lots';
 
 const MODEL = 'claude-sonnet-4-6';
 
@@ -52,6 +53,11 @@ const tools: Anthropic.Tool[] = [
     name: 'approve_po',
     description: 'ONLY call when the user has EXPLICITLY approved sending (e.g. "send it", "approve", "yes send to ABC"). Pushes the most recent draft PO to Xero as an approved order.',
     input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'get_expiring_stock',
+    description: 'Batch/lot best-before data — stock with the soonest expiry per site (lot number, best-before date, days left, units, status). Use for "what expires soonest / shortest-dated / batch best-befores / expiry".',
+    input_schema: { type: 'object', properties: { site: { type: 'string', enum: ['ALTONA', 'MANCHESTER'] } } },
   },
   {
     name: 'check_docket',
@@ -131,6 +137,15 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
   if (name === 'approve_po') {
     return await approveLatestWhatsAppDraft();
   }
+  if (name === 'get_expiring_stock') {
+    let lots = await getLots();
+    if (input.site) lots = lots.filter((l) => l.site === input.site);
+    return lots.slice(0, 20).map((l) => ({
+      flavour: l.flavour, size: l.unit_size_g && l.unit_size_g >= 1000 ? `${l.unit_size_g / 1000}kg` : `${l.unit_size_g}g`,
+      site: l.site, lot: l.lot_number, best_before: l.expiry_date, days_left: l.days_left,
+      on_hand: l.on_hand, status: EXPIRY_META[expiryStatus(l.days_left)].label,
+    }));
+  }
   if (name === 'check_docket') {
     const d = await findLatestDocket();
     return d ?? { error: 'No recent ABC docket email found.' };
@@ -162,6 +177,7 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
 const SYSTEM = `You are the operations assistant for The Protein Pancake (TPP), messaging the founder on WhatsApp.
 Live data + actions via tools. Sites: Altona (AU), Manchester (UK). Primary SKUs: ${PRIMARY_FLAVOURS.join(', ')}.
 "Days of cover" = available ÷ daily sales. "Inbound" = units on open POs.
+You DO have batch/best-before data — use get_expiring_stock for expiry / shortest-dated / lot questions.
 
 Capabilities:
 - Answer stock/velocity/PO questions (get_stock, get_purchase_orders).
