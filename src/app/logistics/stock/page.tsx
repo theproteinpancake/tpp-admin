@@ -1,8 +1,10 @@
-import { Package, AlertTriangle, Boxes, TrendingDown, ArrowUp, ArrowDown, Minus } from 'lucide-react';
+import Link from 'next/link';
+import { Package, AlertTriangle, Boxes, TrendingDown, ArrowUp, ArrowDown, Minus, Receipt, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { getStockData, summariseSite, computeStatus, STATUS_META, type StockStatus } from '@/lib/stock';
 import type { StockRow } from '@/lib/supabase-logistics';
 import { flavourColor } from '@/lib/flavours';
 import { getShortestDated, expiryStatus, EXPIRY_META } from '@/lib/lots';
+import { getBillingHighlights, SITE_LABEL } from '@/lib/billing';
 import TrendSparkline, { type Point } from '@/components/stock/TrendSparkline';
 import SyncNowButton from '@/components/stock/SyncNowButton';
 
@@ -180,6 +182,7 @@ function StockTable({
 export default async function StockOverviewPage() {
   const { sites, rows, history, lastSync } = await getStockData();
   const shortestDated = await getShortestDated(6);
+  const billing = await getBillingHighlights();
 
   // history -> product -> site -> points
   const historyByProduct = new Map<string, Record<string, Point[]>>();
@@ -261,6 +264,50 @@ export default async function StockOverviewPage() {
           );
         })}
       </div>
+
+      {/* Billing highlights */}
+      <section className="mb-8">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Receipt className="h-5 w-5 text-caramel" />
+            <h2 className="text-lg font-semibold text-gray-900">Billing this month</h2>
+          </div>
+          <Link href="/logistics/shipping" className="text-xs font-medium text-maple hover:underline">View all →</Link>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {billing.map((h) => {
+            const up = h.momPct != null && h.momPct > 0;
+            return (
+              <div key={h.site} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-gray-900">{SITE_LABEL[h.site]}</p>
+                  {h.momPct != null && (
+                    <span className={`inline-flex items-center gap-0.5 text-xs font-medium ${up ? 'text-red-600' : 'text-emerald-600'}`}>
+                      {up ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />}
+                      {Math.abs(h.momPct)}%
+                    </span>
+                  )}
+                </div>
+                <div className="mt-1 flex items-baseline gap-1">
+                  <span className="text-xl font-bold text-gray-900">{fmtMoney(h.thisMonth, h.currency)}</span>
+                  <span className="text-xs text-gray-400">shipping · last mo {fmtMoney(h.lastMonth, h.currency)}</span>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                  {h.outlierExposure > 0 && (
+                    <span className="font-medium text-red-600">⚠ {fmtMoney(h.outlierExposure, h.currency)} over-median ({h.outlierCount})</span>
+                  )}
+                  {h.unpaidCount > 0 && (
+                    <span className="font-medium text-amber-600">{h.unpaidCount} unpaid {fmtMoney(h.unpaidTotal, h.currency)}</span>
+                  )}
+                  {h.outlierExposure === 0 && h.unpaidCount === 0 && (
+                    <span className="text-emerald-600">No flags</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
 
       {/* Running out soonest */}
       {urgent.length > 0 && (
