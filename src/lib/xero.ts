@@ -17,14 +17,16 @@ function basicAuth() {
 }
 
 export function authorizeUrl(state: string) {
-  const p = new URLSearchParams({
-    response_type: 'code',
-    client_id: process.env.XERO_CLIENT_ID || '',
-    redirect_uri: process.env.XERO_REDIRECT_URI || '',
-    scope: XERO_SCOPES,
-    state,
-  });
-  return `${AUTHORIZE}?${p.toString()}`;
+  // NB: encode scope spaces as %20 (encodeURIComponent), NOT '+' — Xero does
+  // not decode '+' as a space and rejects it with invalid_scope.
+  const q = [
+    `response_type=code`,
+    `client_id=${encodeURIComponent(process.env.XERO_CLIENT_ID || '')}`,
+    `redirect_uri=${encodeURIComponent(process.env.XERO_REDIRECT_URI || '')}`,
+    `scope=${encodeURIComponent(XERO_SCOPES)}`,
+    `state=${encodeURIComponent(state)}`,
+  ].join('&');
+  return `${AUTHORIZE}?${q}`;
 }
 
 async function saveToken(t: {
