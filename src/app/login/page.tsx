@@ -1,16 +1,15 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 
 export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
     setLoading(true);
     setError('');
 
@@ -22,51 +21,50 @@ export default function LoginPage() {
       });
 
       if (res.ok) {
-        router.push('/');
-        router.refresh();
-      } else {
-        setError('Incorrect password');
+        // Hard navigation so the freshly-set auth cookie is guaranteed to be
+        // sent with the next request (avoids the soft-nav race that required
+        // clicking Sign In multiple times). Keep `loading` true through redirect.
+        window.location.assign('/');
+        return;
       }
+
+      setError('Incorrect password');
+      setLoading(false);
     } catch {
-      setError('Something went wrong');
-    } finally {
+      setError('Something went wrong. Please try again.');
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-orange-50 to-amber-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <span className="text-3xl">🥞</span>
+    <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-cream via-churro/40 to-cream">
+      <div className="w-full max-w-md rounded-2xl border border-churro/60 bg-white p-8 shadow-xl">
+        <div className="mb-8 text-center">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-caramel text-3xl shadow-sm">
+            🥞
           </div>
-          <h1 className="text-2xl font-bold text-gray-800">TPP Admin</h1>
-          <p className="text-gray-500 mt-1">Enter password to continue</p>
+          <h1 className="text-2xl font-bold text-gray-900">TPP Control</h1>
+          <p className="mt-1 text-gray-500">Sign in to the dashboard</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Password"
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
-              autoFocus
-            />
-          </div>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Password"
+            autoFocus
+            className="w-full rounded-xl border border-gray-200 px-4 py-3 transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-caramel"
+          />
 
-          {error && (
-            <p className="text-red-500 text-sm text-center">{error}</p>
-          )}
+          {error && <p className="text-center text-sm text-red-500">{error}</p>}
 
           <button
             type="submit"
             disabled={loading || !password}
-            className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white font-semibold py-3 px-4 rounded-xl transition-colors"
+            className="w-full rounded-xl bg-caramel px-4 py-3 font-semibold text-white transition-colors hover:bg-maple disabled:cursor-not-allowed disabled:bg-caramel/40"
           >
-            {loading ? 'Checking...' : 'Sign In'}
+            {loading ? 'Signing in…' : 'Sign In'}
           </button>
         </form>
       </div>

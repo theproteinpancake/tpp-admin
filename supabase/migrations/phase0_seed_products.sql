@@ -1,0 +1,43 @@
+begin;
+delete from public.products;
+insert into public.products
+  (sku, name, cogs, flavour, flavour_code, size_code, unit_size_g, serves, category, format, tier, base_units, units_per_carton, carton_type, blend_kg_per_unit, active)
+values
+('BMS', 'Buttermilk Protein Pancake Mix 320g', 3.05, 'Buttermilk', 'BM', 'S', 320, 8, 'mix', 'wholesale', 'primary', 0.615, 4, 'SRP', 0.32, true),
+('BMM', 'Buttermilk Protein Pancake Mix 520g', 4.95, 'Buttermilk', 'BM', 'M', 520, 13, 'mix', 'retail', 'primary', 1.0, 12, 'PANXLARGE', 0.52, true),
+('BML', 'Buttermilk Protein Pancake Mix 1kg', 9.52, 'Buttermilk', 'BM', 'L', 1000, 25, 'mix', 'retail', 'primary', 1.923, 8, 'PANXXLARGE', 1.0, true),
+('CHS', 'Chocolate Protein Pancake Mix 320g', 3.87, 'Chocolate', 'CH', 'S', 320, 8, 'mix', 'wholesale', 'secondary', 0.615, 4, 'SRP', 0.32, false),
+('CHM', 'Chocolate Protein Pancake Mix 520g', 6.29, 'Chocolate', 'CH', 'M', 520, 13, 'mix', 'retail', 'secondary', 1.0, 12, 'PANXLARGE', 0.52, true),
+('CHL', 'Chocolate Protein Pancake Mix 1kg', 12.1, 'Chocolate', 'CH', 'L', 1000, 25, 'mix', 'retail', 'secondary', 1.923, 8, 'PANXXLARGE', 1.0, true),
+('SCS', 'Salted Caramel Protein Pancake Mix 320g', 3.46, 'Salted Caramel', 'SC', 'S', 320, 8, 'mix', 'wholesale', 'secondary', 0.615, 4, 'SRP', 0.32, false),
+('SCM', 'Salted Caramel Protein Pancake Mix 520g', 5.39, 'Salted Caramel', 'SC', 'M', 520, 13, 'mix', 'retail', 'secondary', 1.0, 12, 'PANXLARGE', 0.52, true),
+('SCL', 'Salted Caramel Protein Pancake Mix 1kg', 10.35, 'Salted Caramel', 'SC', 'L', 1000, 25, 'mix', 'retail', 'secondary', 1.923, 8, 'PANXXLARGE', 1.0, true),
+('CCS', 'Cookies & Cream Protein Pancake Mix 320g', 3.88, 'Cookies & Cream', 'CC', 'S', 320, 8, 'mix', 'wholesale', 'secondary', 0.615, 4, 'SRP', 0.32, false),
+('CCM', 'Cookies & Cream Protein Pancake Mix 520g', 6.31, 'Cookies & Cream', 'CC', 'M', 520, 13, 'mix', 'retail', 'secondary', 1.0, 12, 'PANXLARGE', 0.52, true),
+('CCL', 'Cookies & Cream Protein Pancake Mix 1kg', 12.15, 'Cookies & Cream', 'CC', 'L', 1000, 25, 'mix', 'retail', 'secondary', 1.923, 8, 'PANXXLARGE', 1.0, true),
+('CIS', 'Cinnamon Churro Protein Pancake Mix 320g', 4.16, 'Cinnamon Churro', 'CI', 'S', 320, 8, 'mix', 'wholesale', 'primary', 0.615, 4, 'SRP', 0.32, true),
+('CIM', 'Cinnamon Churro Protein Pancake Mix 520g', 6.4, 'Cinnamon Churro', 'CI', 'M', 520, 13, 'mix', 'retail', 'primary', 1.0, 12, 'PANXLARGE', 0.52, true),
+('CIL', 'Cinnamon Churro Protein Pancake Mix 1kg', 11.5, 'Cinnamon Churro', 'CI', 'L', 1000, 25, 'mix', 'retail', 'primary', 1.923, 8, 'PANXXLARGE', 1.0, true),
+('MAS', 'Maple Protein Pancake Mix 320g', 4.51, 'Maple', 'MA', 'S', 320, 8, 'mix', 'wholesale', 'primary', 0.615, 4, 'SRP', 0.32, true),
+('MAM', 'Maple Protein Pancake Mix 520g', 7.33, 'Maple', 'MA', 'M', 520, 13, 'mix', 'retail', 'primary', 1.0, 12, 'PANXLARGE', 0.52, true),
+('MAL', 'Maple Protein Pancake Mix 1kg', 14.1, 'Maple', 'MA', 'L', 1000, 25, 'mix', 'retail', 'primary', 1.923, 8, 'PANXXLARGE', 1.0, true),
+('GFBS', 'GF Buttermilk Protein Pancake Mix 320g', 3.18, 'GF Buttermilk', 'GFB', 'S', 320, 8, 'mix', 'wholesale', 'primary', 0.615, 4, 'SRP', 0.32, true),
+('GFBM', 'GF Buttermilk Protein Pancake Mix 520g', 5.15, 'GF Buttermilk', 'GFB', 'M', 520, 13, 'mix', 'retail', 'primary', 1.0, 12, 'PANXLARGE', 0.52, true),
+('GFBL', 'GF Buttermilk Protein Pancake Mix 1kg', 9.91, 'GF Buttermilk', 'GFB', 'L', 1000, 25, 'mix', 'retail', 'primary', 1.923, 8, 'PANXXLARGE', 1.0, true),
+('GFCIS', 'GF Cinnamon Churro Protein Pancake Mix 320g', 5.49, 'GF Cinnamon Churro', 'GFCI', 'S', 320, 8, 'mix', 'wholesale', 'primary', 0.615, 4, 'SRP', 0.32, false),
+('GFCIM', 'GF Cinnamon Churro Protein Pancake Mix 520g', 8.59, 'GF Cinnamon Churro', 'GFCI', 'M', 520, 13, 'mix', 'retail', 'primary', 1.0, 12, 'PANXLARGE', 0.52, true),
+('GFCIL', 'GF Cinnamon Churro Protein Pancake Mix 1kg', 15.91, 'GF Cinnamon Churro', 'GFCI', 'L', 1000, 25, 'mix', 'retail', 'primary', 1.923, 8, 'PANXXLARGE', 1.0, true),
+('BM80', 'Buttermilk Protein Pancake Mix 80g Sample', 0.9, 'Buttermilk', 'BM', 'SAMPLE', 80, 2, 'mix', 'sample', 'primary', 0.154, 50, 'carton50', 0.08, false),
+('CH80', 'Chocolate Protein Pancake Mix 80g Sample', 0.9, 'Chocolate', 'CH', 'SAMPLE', 80, 2, 'mix', 'sample', 'secondary', 0.154, 50, 'carton50', 0.08, false),
+('SC80', 'Salted Caramel Protein Pancake Mix 80g Sample', 0.9, 'Salted Caramel', 'SC', 'SAMPLE', 80, 2, 'mix', 'sample', 'secondary', 0.154, 50, 'carton50', 0.08, false),
+('CC80', 'Cookies & Cream Protein Pancake Mix 80g Sample', 0.9, 'Cookies & Cream', 'CC', 'SAMPLE', 80, 2, 'mix', 'sample', 'secondary', 0.154, 50, 'carton50', 0.08, false),
+('CI80', 'Cinnamon Churro Protein Pancake Mix 80g Sample', 0.8, 'Cinnamon Churro', 'CI', 'SAMPLE', 80, 2, 'mix', 'sample', 'primary', 0.154, 50, 'carton50', 0.08, false),
+('MA80', 'Maple Protein Pancake Mix 80g Sample', 0.9, 'Maple', 'MA', 'SAMPLE', 80, 2, 'mix', 'sample', 'primary', 0.154, 50, 'carton50', 0.08, false),
+('MSS', 'Sugar Free Maple Syrup 370ml (single)', 1.72, null, null, null, null, null, 'syrup', 'retail', 'secondary', null, null, null, null, true),
+('MSS8', 'Sugar Free Maple Syrup 370ml (carton of 8)', 13.76, null, null, null, null, null, 'syrup', 'wholesale', 'secondary', null, 8, 'carton8', null, true),
+('ACCP', 'The Pancake Pan', null, null, null, null, null, null, 'accessory', 'retail', 'secondary', null, null, null, null, true),
+('ACCS', 'The Scraper', null, null, null, null, null, null, 'accessory', 'retail', 'secondary', null, null, null, null, true),
+('ACCF', 'The Flipper', null, null, null, null, null, null, 'accessory', 'retail', 'secondary', null, null, null, null, true),
+('TWM', 'The Waffle Maker', null, null, null, null, null, null, 'accessory', 'retail', 'secondary', null, null, null, null, true),
+('ACCT', 'TPP Tote Bag', null, null, null, null, null, null, 'accessory', 'retail', 'secondary', null, null, null, null, false);
+commit;

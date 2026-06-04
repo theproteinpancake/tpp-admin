@@ -57,3 +57,6 @@ scripts/videos/*.mov
 scripts/videos/*.avi
 scripts/videos/*.mkv
 scripts/videos/*.webm
+
+# Google OAuth client secret (root) — keep local only
+client_secret_*.json

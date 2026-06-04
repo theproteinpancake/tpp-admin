@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
   UtensilsCrossed,
@@ -10,69 +10,91 @@ import {
   UserCircle,
   Settings,
   LogOut,
+  Package,
+  type LucideIcon,
 } from 'lucide-react';
 
-const navigation = [
-  { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-  { name: 'Recipes', href: '/recipes', icon: UtensilsCrossed },
-  { name: 'Creators', href: '/creators', icon: UserCircle },
-  { name: 'Users', href: '/users', icon: Users },
-  { name: 'Notifications', href: '/notifications', icon: Bell },
+type NavItem = { name: string; href: string; icon: LucideIcon };
+type NavGroup = { label: string; items: NavItem[] };
+
+const groups: NavGroup[] = [
+  {
+    label: 'App',
+    items: [
+      { name: 'App Dashboard', href: '/', icon: LayoutDashboard },
+      { name: 'Recipes', href: '/recipes', icon: UtensilsCrossed },
+      { name: 'Creators', href: '/creators', icon: UserCircle },
+      { name: 'Users', href: '/users', icon: Users },
+      { name: 'Notifications', href: '/notifications', icon: Bell },
+    ],
+  },
+  {
+    label: 'Logistics',
+    items: [
+      { name: 'Stock Overview', href: '/logistics/stock', icon: Package },
+    ],
+  },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const router = useRouter();
 
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
-    router.push('/login');
-    router.refresh();
+    window.location.href = '/login';
   };
+
+  const isActive = (href: string) =>
+    pathname === href || (href !== '/' && pathname.startsWith(href));
 
   return (
     <div className="flex h-screen w-64 flex-col bg-white border-r border-gray-200">
       {/* Logo */}
-      <div className="flex h-16 items-center justify-center border-b border-gray-200">
-        <div className="flex items-center gap-2">
-          <span className="text-3xl">🥞</span>
-          <div>
-            <h1 className="text-lg font-bold text-gray-900">TPP Admin</h1>
-            <p className="text-xs text-gray-500">The Protein Pancake</p>
-          </div>
+      <div className="flex h-16 items-center gap-2.5 border-b border-gray-200 px-5">
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-caramel text-lg shadow-sm">
+          🥞
+        </div>
+        <div className="leading-tight">
+          <h1 className="text-[15px] font-bold text-gray-900">TPP Control</h1>
+          <p className="text-[11px] text-gray-500">The Protein Pancake</p>
         </div>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 space-y-1 px-3 py-4">
-        {navigation.map((item) => {
-          const isActive = pathname === item.href ||
-            (item.href !== '/' && pathname.startsWith(item.href));
-
-          return (
-            <Link
-              key={item.name}
-              href={item.href}
-              className={`
-                flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
-                ${isActive
-                  ? 'bg-caramel text-white'
-                  : 'text-gray-700 hover:bg-cream hover:text-caramel'
-                }
-              `}
-            >
-              <item.icon className="h-5 w-5" />
-              {item.name}
-            </Link>
-          );
-        })}
+      <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
+        {groups.map((group) => (
+          <div key={group.label}>
+            <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+              {group.label}
+            </p>
+            <div className="space-y-1">
+              {group.items.map((item) => {
+                const active = isActive(item.href);
+                return (
+                  <Link
+                    key={item.name}
+                    href={item.href}
+                    className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                      active
+                        ? 'bg-caramel text-white shadow-sm'
+                        : 'text-gray-700 hover:bg-cream hover:text-maple'
+                    }`}
+                  >
+                    <item.icon className="h-5 w-5 shrink-0" />
+                    {item.name}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
 
       {/* Bottom Section */}
       <div className="border-t border-gray-200 p-3">
         <Link
           href="/settings"
-          className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-cream hover:text-caramel transition-colors"
+          className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-cream hover:text-maple transition-colors"
         >
           <Settings className="h-5 w-5" />
           Settings
