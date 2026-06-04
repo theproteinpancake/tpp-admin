@@ -11,6 +11,7 @@ import {
   Settings,
   LogOut,
   Package,
+  ClipboardList,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -32,11 +33,12 @@ const groups: NavGroup[] = [
     label: 'Logistics',
     items: [
       { name: 'Stock Overview', href: '/logistics/stock', icon: Package },
+      { name: 'Purchase Orders', href: '/logistics/purchase-orders', icon: ClipboardList },
     ],
   },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
 
   const handleLogout = async () => {
@@ -74,6 +76,7 @@ export default function Sidebar() {
                   <Link
                     key={item.name}
                     href={item.href}
+                    onClick={onNavigate}
                     className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
                       active
                         ? 'bg-caramel text-white shadow-sm'
@@ -94,6 +97,7 @@ export default function Sidebar() {
       <div className="border-t border-gray-200 p-3">
         <Link
           href="/settings"
+          onClick={onNavigate}
           className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-cream hover:text-maple transition-colors"
         >
           <Settings className="h-5 w-5" />

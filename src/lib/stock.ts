@@ -11,15 +11,20 @@ export const POLICY = {
   secondary: { targetDays: 21, safetyDays: 10 },
 };
 
-export type StockStatus = 'oos' | 'reorder_now' | 'reorder_soon' | 'healthy' | 'unknown';
+export type StockStatus = 'oos' | 'reorder_now' | 'reorder_soon' | 'healthy' | 'inbound' | 'unknown';
 
-export function computeStatus(row: Pick<StockRow, 'available' | 'days_of_cover' | 'tier'>): StockStatus {
-  if (row.available <= 0) return 'oos';
-  if (row.days_of_cover == null) return 'unknown';
-  const p = POLICY[row.tier];
-  if (row.days_of_cover < p.safetyDays) return 'reorder_now';
-  if (row.days_of_cover < p.targetDays) return 'reorder_soon';
-  return 'healthy';
+export function computeStatus(row: Pick<StockRow, 'available' | 'days_of_cover' | 'tier' | 'inbound'>): StockStatus {
+  const base = ((): StockStatus => {
+    if (row.available <= 0) return 'oos';
+    if (row.days_of_cover == null) return 'unknown';
+    const p = POLICY[row.tier];
+    if (row.days_of_cover < p.safetyDays) return 'reorder_now';
+    if (row.days_of_cover < p.targetDays) return 'reorder_soon';
+    return 'healthy';
+  })();
+  // inbound-aware: a PO is on the way, so don't scream "reorder"
+  if ((row.inbound ?? 0) > 0 && (base === 'oos' || base === 'reorder_now')) return 'inbound';
+  return base;
 }
 
 export const STATUS_META: Record<StockStatus, { label: string; dot: string; chip: string }> = {
@@ -27,6 +32,7 @@ export const STATUS_META: Record<StockStatus, { label: string; dot: string; chip
   reorder_soon: { label: 'Reorder soon', dot: 'bg-amber-500',   chip: 'bg-amber-50 text-amber-700 ring-amber-600/20' },
   reorder_now:  { label: 'Reorder now',  dot: 'bg-red-500',     chip: 'bg-red-50 text-red-700 ring-red-600/20' },
   oos:          { label: 'Out of stock', dot: 'bg-red-600',     chip: 'bg-red-100 text-red-800 ring-red-700/30' },
+  inbound:      { label: 'Inbound',      dot: 'bg-blue-500',    chip: 'bg-blue-50 text-blue-700 ring-blue-600/20' },
   unknown:      { label: 'No velocity',  dot: 'bg-gray-300',    chip: 'bg-gray-50 text-gray-500 ring-gray-400/20' },
 };
 

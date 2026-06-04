@@ -54,9 +54,12 @@ function SiteCell({ row, points, color }: { row: StockRow | undefined; points: P
   return (
     <td className="px-3 py-3 align-middle">
       <div className="flex items-center gap-4">
-        <div className="min-w-[68px]">
+        <div className="min-w-[78px]">
           <div className="text-base font-semibold text-gray-900 leading-none">{fmtInt(row.on_hand)}</div>
-          <div className="mt-0.5 text-[11px] text-gray-400">{fmtInt(row.available)} avail · {cover(row.days_of_cover)}</div>
+          <div className="mt-0.5 text-[11px] text-gray-400">
+            {fmtInt(row.available)} avail · {cover(row.days_of_cover)}
+            {row.inbound > 0 && <span className="text-blue-500"> · +{fmtInt(row.inbound)} in</span>}
+          </div>
         </div>
         <StatusPill status={status} />
         <div className="ml-auto"><TrendSparkline data={points} color={color} /></div>
@@ -73,7 +76,7 @@ function StockTable({
   historyByProduct: Map<string, Record<string, Point[]>>;
 }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+    <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
       <table className="min-w-full divide-y divide-gray-200">
         <thead className="bg-gray-50">
           <tr>
@@ -132,7 +135,7 @@ export default async function StockOverviewPage() {
   const hasVelocity = rows.some((r) => r.days_of_cover != null);
 
   return (
-    <div className="mx-auto max-w-7xl px-6 py-8">
+    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
       {/* Header */}
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
