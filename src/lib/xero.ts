@@ -1,9 +1,12 @@
 // Xero OAuth2 (auth-code) + token storage/refresh + API helper. Server-side only.
 import { supabaseLogistics } from './supabase-logistics';
 
-// Minimal valid scopes: offline_access (refresh token) + accounting.transactions
-// (read+write — covers reading Purchase Orders now and drafting them later).
-export const XERO_SCOPES = ['offline_access', 'accounting.transactions'].join(' ');
+// Xero's authorize endpoint is OpenID Connect — it requires `openid` in the
+// scope set (omitting it returns invalid_scope). Canonical set + the accounting
+// scope we need (accounting.transactions = read+write, covers Purchase Orders).
+export const XERO_SCOPES = [
+  'openid', 'profile', 'email', 'accounting.transactions', 'offline_access',
+].join(' ');
 
 const AUTHORIZE = 'https://login.xero.com/identity/connect/authorize';
 const TOKEN_URL = 'https://identity.xero.com/connect/token';
