@@ -2,6 +2,9 @@
 const SID = () => process.env.TWILIO_ACCOUNT_SID || '';
 const TOKEN = () => process.env.TWILIO_AUTH_TOKEN || '';
 const FROM = () => process.env.TWILIO_WHATSAPP_FROM || '';
+// Account is pinned to the AU1 region — REST calls must hit the regional edge,
+// not the default US1 host. Override with TWILIO_API_BASE if the region changes.
+export const TWILIO_API_BASE = process.env.TWILIO_API_BASE || 'https://api.au1.twilio.com';
 
 // normalise to Twilio's "whatsapp:+E164" form
 export function waAddr(n: string): string {
@@ -25,7 +28,7 @@ export async function sendWhatsApp(to: string, body: string, mediaUrl?: string):
   if (!sid || !token || !from) { console.error('Twilio env missing'); return false; }
   const params = new URLSearchParams({ To: waAddr(to), From: from, Body: body.slice(0, 1550) });
   if (mediaUrl) params.set('MediaUrl', mediaUrl);
-  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
+  const res = await fetch(`${TWILIO_API_BASE}/2010-04-01/Accounts/${sid}/Messages.json`, {
     method: 'POST',
     headers: {
       Authorization: 'Basic ' + Buffer.from(`${sid}:${token}`).toString('base64'),

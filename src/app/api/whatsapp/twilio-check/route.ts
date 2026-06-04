@@ -9,15 +9,12 @@ export async function GET(req: NextRequest) {
   }
   const sid = process.env.TWILIO_ACCOUNT_SID || '';
   const tok = process.env.TWILIO_AUTH_TOKEN || '';
-  let auth_status: number | string = 'not-attempted';
-  try {
-    const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}.json`, {
-      headers: { Authorization: `Basic ${Buffer.from(`${sid}:${tok}`).toString('base64')}` },
-    });
-    auth_status = res.status;
-  } catch (e) {
-    auth_status = `fetch-error: ${String(e).slice(0, 80)}`;
-  }
+  const headers = { Authorization: `Basic ${Buffer.from(`${sid}:${tok}`).toString('base64')}` };
+  const probe = async (host: string) => {
+    try { return (await fetch(`https://${host}/2010-04-01/Accounts/${sid}.json`, { headers })).status; }
+    catch (e) { return `fetch-error: ${String(e).slice(0, 60)}`; }
+  };
+  const [us1, au1] = await Promise.all([probe('api.twilio.com'), probe('api.au1.twilio.com')]);
   return NextResponse.json({
     account_sid: sid ? `${sid.slice(0, 6)}…${sid.slice(-4)}` : '(missing)',
     account_sid_ok: sid.startsWith('AC'),
@@ -25,6 +22,7 @@ export async function GET(req: NextRequest) {
     token_len: tok.length, // a real Twilio Auth Token is 32 hex chars
     token_preview: tok ? `${tok.slice(0, 4)}…${tok.slice(-2)}` : '(missing)',
     from_number: process.env.TWILIO_WHATSAPP_FROM || '(missing)',
-    auth_status, // 200 = creds valid, 401 = wrong token/SID
+    auth_status_us1: us1,
+    auth_status_au1: au1, // this is the one that matters — 200 = good
   });
 }
