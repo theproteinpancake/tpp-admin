@@ -2,6 +2,7 @@ import { Package, AlertTriangle, Boxes, TrendingDown, ArrowUp, ArrowDown, Minus 
 import { getStockData, summariseSite, computeStatus, STATUS_META, type StockStatus } from '@/lib/stock';
 import type { StockRow } from '@/lib/supabase-logistics';
 import { flavourColor } from '@/lib/flavours';
+import { getShortestDated, expiryStatus, EXPIRY_META } from '@/lib/lots';
 import TrendSparkline, { type Point } from '@/components/stock/TrendSparkline';
 import SyncNowButton from '@/components/stock/SyncNowButton';
 
@@ -177,6 +178,7 @@ function StockTable({
 
 export default async function StockOverviewPage() {
   const { sites, rows, history, lastSync } = await getStockData();
+  const shortestDated = await getShortestDated(6);
 
   // history -> product -> site -> points
   const historyByProduct = new Map<string, Record<string, Point[]>>();
@@ -283,6 +285,36 @@ export default async function StockOverviewPage() {
                 <div className="mt-2"><StatusPill status={computeStatus(r)} /></div>
               </div>
             ))}
+          </div>
+        </section>
+      )}
+
+      {/* Shortest-dated stock (best-before) */}
+      {shortestDated.length > 0 && (
+        <section className="mb-8">
+          <div className="mb-3 flex items-center gap-2">
+            <Boxes className="h-5 w-5 text-amber-500" />
+            <h2 className="text-lg font-semibold text-gray-900">Shortest-dated stock</h2>
+            <a href="/logistics/batches" className="text-[11px] font-medium text-maple underline">view all batches</a>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {shortestDated.map((l) => {
+              const meta = EXPIRY_META[expiryStatus(l.days_left)];
+              return (
+                <div key={l.id} className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white p-3 shadow-sm"
+                  style={{ borderLeft: `4px solid ${flavourColor(l.flavour)}` }}>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-semibold text-gray-900">{l.flavour ?? l.sku} {l.unit_size_g ? (l.unit_size_g >= 1000 ? `${l.unit_size_g / 1000}kg` : `${l.unit_size_g}g`) : ''}</div>
+                    <div className="text-[11px] text-gray-500">{l.site} · lot {l.lot_number} · {fmtInt(l.on_hand)} units</div>
+                    <div className="text-[11px] text-gray-500">
+                      best before {l.expiry_date ? new Date(l.expiry_date + 'T00:00:00').toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                      {l.days_left != null && <> · {l.days_left < 0 ? `${-l.days_left}d ago` : `${l.days_left}d left`}</>}
+                    </div>
+                  </div>
+                  <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset ${meta.chip}`}>{meta.label}</span>
+                </div>
+              );
+            })}
           </div>
         </section>
       )}

@@ -12,6 +12,7 @@ import {
   LogOut,
   Package,
   ClipboardList,
+  Layers,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -34,6 +35,7 @@ const groups: NavGroup[] = [
     items: [
       { name: 'Stock Overview', href: '/logistics/stock', icon: Package },
       { name: 'Purchase Orders', href: '/logistics/purchase-orders', icon: ClipboardList },
+      { name: 'Batches', href: '/logistics/batches', icon: Layers },
     ],
   },
 ];
