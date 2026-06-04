@@ -22,7 +22,7 @@ const groups: NavGroup[] = [
   {
     label: 'App',
     items: [
-      { name: 'App Dashboard', href: '/', icon: LayoutDashboard },
+      { name: 'App Dashboard', href: '/app', icon: LayoutDashboard },
       { name: 'Recipes', href: '/recipes', icon: UtensilsCrossed },
       { name: 'Creators', href: '/creators', icon: UserCircle },
       { name: 'Users', href: '/users', icon: Users },

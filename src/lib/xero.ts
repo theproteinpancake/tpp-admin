@@ -1,9 +1,9 @@
 // Xero OAuth2 (auth-code) + token storage/refresh + API helper. Server-side only.
 import { supabaseLogistics } from './supabase-logistics';
 
-export const XERO_SCOPES = [
-  'offline_access', 'accounting.transactions', 'accounting.contacts.read', 'accounting.settings.read',
-].join(' ');
+// Minimal valid scopes: offline_access (refresh token) + accounting.transactions
+// (read+write — covers reading Purchase Orders now and drafting them later).
+export const XERO_SCOPES = ['offline_access', 'accounting.transactions'].join(' ');
 
 const AUTHORIZE = 'https://login.xero.com/identity/connect/authorize';
 const TOKEN_URL = 'https://identity.xero.com/connect/token';
