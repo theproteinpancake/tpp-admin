@@ -1,6 +1,7 @@
-import { Package, AlertTriangle, TrendingUp, Boxes } from 'lucide-react';
+import { Package, AlertTriangle, Boxes, TrendingDown, ArrowUp, ArrowDown, Minus } from 'lucide-react';
 import { getStockData, summariseSite, computeStatus, STATUS_META, type StockStatus } from '@/lib/stock';
 import type { StockRow } from '@/lib/supabase-logistics';
+import { flavourColor } from '@/lib/flavours';
 import TrendSparkline, { type Point } from '@/components/stock/TrendSparkline';
 import SyncNowButton from '@/components/stock/SyncNowButton';
 
@@ -41,11 +42,20 @@ const SIZE_ORDER: Record<string, number> = { S: 0, M: 1, L: 2, SAMPLE: 3 };
 function StatusPill({ status }: { status: StockStatus }) {
   const meta = STATUS_META[status];
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${meta.chip}`}>
+    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset ${meta.chip}`}>
       <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
       {meta.label}
     </span>
   );
+}
+
+// Trend indicator — sparkline once we have history, otherwise a clear arrow.
+function Trend({ points, trend, color }: { points: Point[]; trend: string | null; color: string }) {
+  if (points && points.length >= 2) return <TrendSparkline data={points} color={color} />;
+  if (trend === 'up') return <span title="sales trending up" className="inline-flex items-center text-emerald-600"><ArrowUp className="h-4 w-4" /></span>;
+  if (trend === 'down') return <span title="sales trending down" className="inline-flex items-center text-red-500"><ArrowDown className="h-4 w-4" /></span>;
+  if (trend === 'flat') return <span title="steady" className="inline-flex items-center text-gray-400"><Minus className="h-4 w-4" /></span>;
+  return <span className="text-xs text-gray-300">—</span>;
 }
 
 function SiteCell({ row, points, color }: { row: StockRow | undefined; points: Point[]; color: string }) {
@@ -56,13 +66,13 @@ function SiteCell({ row, points, color }: { row: StockRow | undefined; points: P
       <div className="flex items-center gap-4">
         <div className="min-w-[78px]">
           <div className="text-base font-semibold text-gray-900 leading-none">{fmtInt(row.on_hand)}</div>
-          <div className="mt-0.5 text-[11px] text-gray-400">
+          <div className="mt-0.5 text-[11px] text-gray-500">
             {fmtInt(row.available)} avail · {cover(row.days_of_cover)}
-            {row.inbound > 0 && <span className="text-blue-500"> · +{fmtInt(row.inbound)} in</span>}
+            {row.inbound > 0 && <span className="text-blue-600"> · +{fmtInt(row.inbound)} in</span>}
           </div>
         </div>
         <StatusPill status={status} />
-        <div className="ml-auto"><TrendSparkline data={points} color={color} /></div>
+        <div className="ml-auto">{<Trend points={points} trend={row.trend} color={color} />}</div>
       </div>
     </td>
   );
@@ -87,9 +97,9 @@ function MobileSiteRow({ name, row }: { name: string; row: StockRow | undefined 
         <span className="text-xs font-medium text-gray-500">{name}</span>
         <div className="flex items-baseline gap-1.5">
           <span className="text-lg font-semibold leading-none text-gray-900">{fmtInt(row.on_hand)}</span>
-          <span className="truncate text-[11px] text-gray-400">
+          <span className="truncate text-[11px] text-gray-500">
             {fmtInt(row.available)} avail · {cover(row.days_of_cover)}
-            {row.inbound > 0 && <span className="text-blue-500"> · +{fmtInt(row.inbound)} in</span>}
+            {row.inbound > 0 && <span className="text-blue-600"> · +{fmtInt(row.inbound)} in</span>}
           </span>
         </div>
       </div>
@@ -126,8 +136,13 @@ function StockTable({
               return (
                 <tr key={g.product_id} className="hover:bg-cream/30">
                   <td className="px-4 py-3">
-                    <div className="font-medium text-gray-900">{g.flavour ?? g.name}</div>
-                    <div className="text-[11px] text-gray-400">{g.sku}{sizeText(g) ? ` · ${sizeText(g)}` : ''}</div>
+                    <div className="flex items-center gap-2.5">
+                      <span className="h-7 w-1.5 shrink-0 rounded-full" style={{ background: flavourColor(g.flavour) }} />
+                      <div>
+                        <div className="font-medium text-gray-900">{g.flavour ?? g.name}</div>
+                        <div className="text-[11px] text-gray-500">{g.sku}{sizeText(g) ? ` · ${sizeText(g)}` : ''}</div>
+                      </div>
+                    </div>
                   </td>
                   {sites.map((s) => (
                     <SiteCell key={s.code} row={g.bySite[s.code]} points={hist[s.code] ?? []} color={SITE_COLOR[s.code] ?? '#C4814A'} />
@@ -142,10 +157,11 @@ function StockTable({
       {/* Mobile: one card per SKU, sites stacked */}
       <div className="space-y-2.5 md:hidden">
         {groups.map((g) => (
-          <div key={g.product_id} className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+          <div key={g.product_id} className="overflow-hidden rounded-xl border border-gray-200 bg-white p-3 shadow-sm"
+            style={{ borderLeft: `4px solid ${flavourColor(g.flavour)}` }}>
             <div className="mb-1 flex items-baseline justify-between">
               <span className="font-semibold text-gray-900">{g.flavour ?? g.name}</span>
-              <span className="text-[11px] text-gray-400">{g.sku}{sizeText(g) ? ` · ${sizeText(g)}` : ''}</span>
+              <span className="text-[11px] text-gray-500">{g.sku}{sizeText(g) ? ` · ${sizeText(g)}` : ''}</span>
             </div>
             <div className="divide-y divide-gray-100">
               {sites.map((s) => (
@@ -181,6 +197,12 @@ export default async function StockOverviewPage() {
 
   const siteList = sites.map((s) => ({ code: s.code, name: s.name }));
   const hasVelocity = rows.some((r) => r.days_of_cover != null);
+
+  // 5 SKUs running out soonest at Altona (selling + lowest cover)
+  const urgent = rows
+    .filter((r) => r.active && r.category === 'mix' && r.location_code === 'ALTONA' && r.days_of_cover != null)
+    .sort((a, b) => (a.days_of_cover ?? 1e9) - (b.days_of_cover ?? 1e9))
+    .slice(0, 5);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
@@ -237,9 +259,37 @@ export default async function StockOverviewPage() {
         })}
       </div>
 
+      {/* Running out soonest */}
+      {urgent.length > 0 && (
+        <section className="mb-8">
+          <div className="mb-3 flex items-center gap-2">
+            <TrendingDown className="h-5 w-5 text-red-500" />
+            <h2 className="text-lg font-semibold text-gray-900">Running out soonest</h2>
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">Altona</span>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            {urgent.map((r) => (
+              <div key={r.product_id} className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm"
+                style={{ borderTop: `3px solid ${flavourColor(r.flavour)}` }}>
+                <div className="text-sm font-semibold text-gray-900">{r.flavour}</div>
+                <div className="text-[11px] text-gray-500">{r.sku} · {r.unit_size_g && r.unit_size_g >= 1000 ? `${r.unit_size_g / 1000}kg` : `${r.unit_size_g}g`}</div>
+                <div className="mt-2 flex items-baseline gap-1">
+                  <span className="text-xl font-bold text-gray-900">{cover(r.days_of_cover)}</span>
+                  <span className="text-[11px] text-gray-400">cover</span>
+                </div>
+                <div className="mt-0.5 text-[11px] text-gray-500">
+                  {fmtInt(r.available)} avail{r.inbound > 0 && <span className="text-blue-600"> · +{fmtInt(r.inbound)} in</span>}
+                </div>
+                <div className="mt-2"><StatusPill status={computeStatus(r)} /></div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {!hasVelocity && (
         <div className="mb-6 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          <TrendingUp className="mt-0.5 h-4 w-4 shrink-0" />
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
             Days-of-cover is shown as “—” until velocity is computed from sales history (next step).
             Trend sparklines fill in as daily snapshots accrue.
@@ -258,7 +308,7 @@ export default async function StockOverviewPage() {
       </section>
 
       {/* Secondary SKUs */}
-      <section className="mb-8 opacity-90">
+      <section className="mb-8">
         <div className="mb-3 flex items-center gap-2">
           <Boxes className="h-5 w-5 text-gray-400" />
           <h2 className="text-lg font-semibold text-gray-700">Secondary SKUs</h2>

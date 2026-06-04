@@ -27,13 +27,14 @@ export function computeStatus(row: Pick<StockRow, 'available' | 'days_of_cover' 
   return base;
 }
 
+// Stronger contrast (darker text, solid-ish fills) for readability.
 export const STATUS_META: Record<StockStatus, { label: string; dot: string; chip: string }> = {
-  healthy:      { label: 'Healthy',      dot: 'bg-emerald-500', chip: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20' },
-  reorder_soon: { label: 'Reorder soon', dot: 'bg-amber-500',   chip: 'bg-amber-50 text-amber-700 ring-amber-600/20' },
-  reorder_now:  { label: 'Reorder now',  dot: 'bg-red-500',     chip: 'bg-red-50 text-red-700 ring-red-600/20' },
-  oos:          { label: 'Out of stock', dot: 'bg-red-600',     chip: 'bg-red-100 text-red-800 ring-red-700/30' },
-  inbound:      { label: 'Inbound',      dot: 'bg-blue-500',    chip: 'bg-blue-50 text-blue-700 ring-blue-600/20' },
-  unknown:      { label: 'No velocity',  dot: 'bg-gray-300',    chip: 'bg-gray-50 text-gray-500 ring-gray-400/20' },
+  healthy:      { label: 'Healthy',      dot: 'bg-emerald-500', chip: 'bg-emerald-100 text-emerald-800 ring-emerald-600/30' },
+  reorder_soon: { label: 'Reorder soon', dot: 'bg-amber-500',   chip: 'bg-amber-100 text-amber-900 ring-amber-600/40' },
+  reorder_now:  { label: 'Reorder now',  dot: 'bg-red-500',     chip: 'bg-red-100 text-red-800 ring-red-600/40' },
+  oos:          { label: 'Out of stock', dot: 'bg-red-600',     chip: 'bg-red-100 text-red-800 ring-red-600/40' },
+  inbound:      { label: 'Inbound',      dot: 'bg-blue-500',    chip: 'bg-blue-100 text-blue-800 ring-blue-600/30' },
+  unknown:      { label: 'No velocity',  dot: 'bg-gray-400',    chip: 'bg-gray-100 text-gray-600 ring-gray-400/30' },
 };
 
 export interface StockData {
