@@ -14,12 +14,8 @@ function money(n: number | null, ccy: string | null) {
 }
 function sizeLabel(g: number | null) { return g == null ? '' : g >= 1000 ? `${g / 1000}kg` : `${g}g`; }
 
-export default async function PurchaseOrdersPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ xero?: string; org?: string; msg?: string }>;
-}) {
-  const [pos, conn, sp] = await Promise.all([getPurchaseOrders(), getConnection(), searchParams]);
+export default async function PurchaseOrdersPage() {
+  const [pos, conn] = await Promise.all([getPurchaseOrders(), getConnection()]);
   const open = pos.filter((p) => OPEN_STATUSES.includes(p.status));
   const inboundUnits = open.reduce((s, p) => s + poUnits(p).outstanding, 0);
   const openValue = open.reduce((s, p) => s + (p.total_cost || 0), 0);
@@ -40,16 +36,6 @@ export default async function PurchaseOrdersPage({
         </div>
       </div>
 
-      {sp.xero === 'connected' && (
-        <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
-          ✅ Connected to Xero{sp.org ? ` (${sp.org})` : ''}. Hit “Sync from Xero” to pull your purchase orders.
-        </div>
-      )}
-      {sp.xero === 'error' && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">
-          Xero connection failed{sp.msg ? `: ${sp.msg}` : ''}. Try again.
-        </div>
-      )}
 
       <div className="mb-8 grid gap-4 sm:grid-cols-3">
         <Card icon={<ClipboardList className="h-5 w-5 text-caramel" />} label="Open POs" value={String(open.length)} />
