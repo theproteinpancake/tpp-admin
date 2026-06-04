@@ -62,6 +62,11 @@ const tools: Anthropic.Tool[] = [
     input_schema: { type: 'object', properties: { site: { type: 'string', enum: ['ALTONA', 'MANCHESTER'] } } },
   },
   {
+    name: 'get_internal_transfers',
+    description: 'Internal stock transfers between sites (e.g. Altona AU → Manchester UK pallets). Returns reference, status, ETA, carrier/BL, and the SKUs + units inbound. These units already count toward the destination site\'s inbound stock. Use for "what\'s on the way to the UK / Manchester", "the pallet", "internal transfer", "INTERNAL2".',
+    input_schema: { type: 'object', properties: { reference: { type: 'string', description: 'optional transfer reference e.g. INTERNAL2' } } },
+  },
+  {
     name: 'get_shipping_billing',
     description: 'Shipping costs & billing: monthly ShipBob fulfilment spend per site, month-over-month change, cost OUTLIERS (overcharged orders worth disputing, e.g. an unexpectedly expensive delivery), and any logged invoices (paid/unpaid). Use for "shipping costs", "what did we spend on shipping", "any overcharges / outliers", "billing", "invoices".',
     input_schema: { type: 'object', properties: { site: { type: 'string', enum: ['ALTONA', 'MANCHESTER'] } } },
@@ -154,6 +159,24 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
       on_hand: l.on_hand, status: EXPIRY_META[expiryStatus(l.days_left)].label,
     }));
   }
+  if (name === 'get_internal_transfers') {
+    let q = supabaseLogistics.from('internal_transfers')
+      .select('reference,status,ship_date,eta,carrier,bl_ref,shipment_ref,currency,total_value,cartons,gross_kg,origin:origin_location_id(code),destination:destination_location_id(code),items:internal_transfer_items(qty,qty_received,product:product_id(sku,flavour,unit_size_g))')
+      .order('created_at', { ascending: false });
+    if (input.reference) q = q.eq('reference', String(input.reference));
+    const rows = ((await q).data ?? []) as any[];
+    return rows.map((t) => ({
+      reference: t.reference, status: t.status, route: `${t.origin?.code || '?'} → ${t.destination?.code || '?'}`,
+      eta: t.eta, ship_date: t.ship_date, carrier: t.carrier, bl_ref: t.bl_ref, shipment_ref: t.shipment_ref,
+      total_value: t.total_value, currency: t.currency, cartons: t.cartons, gross_kg: t.gross_kg,
+      units: (t.items ?? []).reduce((s: number, i: any) => s + (i.qty || 0), 0),
+      lines: (t.items ?? []).map((i: any) => ({
+        sku: i.product?.sku, flavour: i.product?.flavour,
+        size: i.product?.unit_size_g ? (i.product.unit_size_g >= 1000 ? `${i.product.unit_size_g / 1000}kg` : `${i.product.unit_size_g}g`) : null,
+        qty: i.qty, received: i.qty_received,
+      })),
+    }));
+  }
   if (name === 'get_shipping_billing') {
     const [{ outliers }, billing] = await Promise.all([getShippingData(), getBillingData()]);
     const highlights = buildHighlights(billing.monthly, billing.invoices, billing.outliers);
@@ -215,6 +238,7 @@ Your full toolkit:
 - get_purchase_orders — POs: supplier, status, expected date, outstanding units.
 - get_reorder_recommendations — what to order & how many (velocity × lead+target − stock − inbound).
 - get_shipping_billing — shipping cost trends, monthly spend, MoM change, cost OUTLIERS/overcharges, invoices.
+- get_internal_transfers — AU→UK stock transfers (pallets) in transit; their units already feed the destination site's inbound. Use for "what's on the way to the UK", "the pallet", "INTERNAL2".
 - draft_po → approve_po — draft a PO (ABC → Altona) with a screenshot, then push to Xero on approval.
 - check_docket → parse_docket → create_wro → draft_sharon_reply → send_email_draft — the receiving/WRO flow.
 
