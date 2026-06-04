@@ -7,6 +7,7 @@ export function middleware(request: NextRequest) {
   if (
     pathname === '/login' ||
     pathname.startsWith('/api/auth') ||
+    pathname.startsWith('/api/whatsapp') || // Twilio webhook + cron briefing (self-authenticated)
     pathname.startsWith('/_next') ||
     pathname.includes('.')
   ) {
