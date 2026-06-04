@@ -3,7 +3,7 @@ import { supabaseLogistics } from './supabase-logistics';
 import { getReorderRecommendations } from './reorder';
 import { getConnection, createXeroPurchaseOrder } from './xero';
 
-const APP_URL = process.env.PUBLIC_APP_URL || 'https://appadmin.theproteinpancake.co';
+const APP_URL = process.env.PUBLIC_APP_URL || 'https://admin.theproteinpancake.co';
 
 export interface DraftLine { product_id: string; qty_ordered: number; unit_cost: number | null }
 
