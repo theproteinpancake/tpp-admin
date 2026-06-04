@@ -27,14 +27,15 @@ export function computeStatus(row: Pick<StockRow, 'available' | 'days_of_cover' 
   return base;
 }
 
-// Solid status-coloured fills with white text — high contrast, unambiguous.
-export const STATUS_META: Record<StockStatus, { label: string; dot: string; chip: string }> = {
-  healthy:      { label: 'Healthy',      dot: 'bg-white/80', chip: 'bg-emerald-600 text-white ring-emerald-700/30' },
-  reorder_soon: { label: 'Reorder soon', dot: 'bg-white/80', chip: 'bg-amber-600 text-white ring-amber-700/30' },
-  reorder_now:  { label: 'Reorder now',  dot: 'bg-white/90', chip: 'bg-red-600 text-white ring-red-700/30' },
-  oos:          { label: 'Out of stock', dot: 'bg-white/90', chip: 'bg-red-600 text-white ring-red-700/30' },
-  inbound:      { label: 'Inbound',      dot: 'bg-white/90', chip: 'bg-blue-600 text-white ring-blue-700/30' },
-  unknown:      { label: 'No velocity',  dot: 'bg-white/70', chip: 'bg-gray-400 text-white ring-gray-500/30' },
+// Explicit hex (rendered via inline style) so colours always apply — green=healthy,
+// orange=reorder soon, red=reorder now/OOS, blue=inbound.
+export const STATUS_META: Record<StockStatus, { label: string; bg: string }> = {
+  healthy:      { label: 'Healthy',      bg: '#059669' }, // emerald-600
+  reorder_soon: { label: 'Reorder soon', bg: '#d97706' }, // amber-600
+  reorder_now:  { label: 'Reorder now',  bg: '#dc2626' }, // red-600
+  oos:          { label: 'Out of stock', bg: '#b91c1c' }, // red-700
+  inbound:      { label: 'Inbound',      bg: '#2563eb' }, // blue-600
+  unknown:      { label: 'No velocity',  bg: '#9ca3af' }, // gray-400
 };
 
 export interface StockData {

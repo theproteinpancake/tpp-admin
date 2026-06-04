@@ -58,7 +58,7 @@ export default async function BatchesPage() {
                   <td className="px-4 py-3 text-sm text-gray-700">{l.days_left == null ? '—' : `${l.days_left}d`}</td>
                   <td className="px-4 py-3 text-sm font-semibold text-gray-900">{fmtInt(l.on_hand)}</td>
                   <td className="px-4 py-3">
-                    <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset ${meta.chip}`}>{meta.label}</span>
+                    <span className="inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold text-white" style={{ backgroundColor: meta.bg }}>{meta.label}</span>
                   </td>
                 </tr>
               );

@@ -43,8 +43,9 @@ const SIZE_ORDER: Record<string, number> = { S: 0, M: 1, L: 2, SAMPLE: 3 };
 function StatusPill({ status }: { status: StockStatus }) {
   const meta = STATUS_META[status];
   return (
-    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset ${meta.chip}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold text-white"
+      style={{ backgroundColor: meta.bg }}>
+      <span className="h-1.5 w-1.5 rounded-full bg-white/85" />
       {meta.label}
     </span>
   );
@@ -266,7 +267,7 @@ export default async function StockOverviewPage() {
         <section className="mb-8">
           <div className="mb-3 flex items-center gap-2">
             <TrendingDown className="h-5 w-5 text-red-500" />
-            <h2 className="text-lg font-semibold text-gray-900">Running out soonest</h2>
+            <h2 className="text-lg font-semibold text-gray-900">Highest priority</h2>
             <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">Altona</span>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
@@ -311,7 +312,7 @@ export default async function StockOverviewPage() {
                       {l.days_left != null && <> · {l.days_left < 0 ? `${-l.days_left}d ago` : `${l.days_left}d left`}</>}
                     </div>
                   </div>
-                  <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset ${meta.chip}`}>{meta.label}</span>
+                  <span className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold text-white" style={{ backgroundColor: meta.bg }}>{meta.label}</span>
                 </div>
               );
             })}
