@@ -29,11 +29,11 @@ export function expiryStatus(daysLeft: number | null): ExpiryStatus {
 }
 
 export const EXPIRY_META: Record<ExpiryStatus, { label: string; chip: string }> = {
-  expired:  { label: 'Expired',      chip: 'bg-red-600 text-white ring-red-700/30' },
-  critical: { label: '< 30 days',    chip: 'bg-red-100 text-red-800 ring-red-600/40' },
-  warning:  { label: '< 3 months',   chip: 'bg-amber-100 text-amber-900 ring-amber-600/40' },
-  ok:       { label: 'OK',           chip: 'bg-emerald-100 text-emerald-800 ring-emerald-600/30' },
-  unknown:  { label: 'No date',      chip: 'bg-gray-100 text-gray-600 ring-gray-400/30' },
+  expired:  { label: 'Expired',    chip: 'bg-red-700 text-white ring-red-800/30' },
+  critical: { label: '< 30 days',  chip: 'bg-red-600 text-white ring-red-700/30' },
+  warning:  { label: '< 3 months', chip: 'bg-amber-600 text-white ring-amber-700/30' },
+  ok:       { label: 'OK',         chip: 'bg-emerald-600 text-white ring-emerald-700/30' },
+  unknown:  { label: 'No date',    chip: 'bg-gray-400 text-white ring-gray-500/30' },
 };
 
 export async function getLots(): Promise<LotRow[]> {
