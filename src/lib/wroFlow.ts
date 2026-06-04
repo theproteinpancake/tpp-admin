@@ -97,6 +97,6 @@ export async function createWROFromParsed(parsed: ParsedDocket, site = 'ALTONA')
 // Draft the reply to Sharon (does not send).
 export async function draftSharonReply(to: string, docketRef: string | null, wroId: number) {
   const subject = `WRO ${wroId} — ready for freight${docketRef ? ` (docket ${docketRef})` : ''}`;
-  const body = `Hi Sharon,\n\nThanks — I've created the WRO in ShipBob (WRO ${wroId}). You're right to organise freight to ShipBob now; the WRO labels are attached.\n\nCheers,\nLuke`;
+  const body = `Hi Sharon,\n\nThanks — I've created the WRO in ShipBob (WRO ${wroId}). Good to organise freight to ShipBob now.\n\nCheers,\nLuke`;
   return gmailCreateDraft(to, subject, body);
 }
