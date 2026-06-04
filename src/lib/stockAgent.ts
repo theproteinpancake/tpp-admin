@@ -8,6 +8,8 @@ import { draftWhatsAppPO, approveLatestWhatsAppDraft } from './poActions';
 import { findLatestDocket, parseDocket, createWROFromParsed, draftSharonReply } from './wroFlow';
 import { gmailSendDraft } from './google';
 import { getLots, expiryStatus, EXPIRY_META } from './lots';
+import { getShippingData } from './shipping';
+import { getBillingData, buildHighlights } from './billing';
 
 const MODEL = 'claude-sonnet-4-6';
 
@@ -57,6 +59,11 @@ const tools: Anthropic.Tool[] = [
   {
     name: 'get_expiring_stock',
     description: 'Batch/lot best-before data — stock with the soonest expiry per site (lot number, best-before date, days left, units, status). Use for "what expires soonest / shortest-dated / batch best-befores / expiry".',
+    input_schema: { type: 'object', properties: { site: { type: 'string', enum: ['ALTONA', 'MANCHESTER'] } } },
+  },
+  {
+    name: 'get_shipping_billing',
+    description: 'Shipping costs & billing: monthly ShipBob fulfilment spend per site, month-over-month change, cost OUTLIERS (overcharged orders worth disputing, e.g. an unexpectedly expensive delivery), and any logged invoices (paid/unpaid). Use for "shipping costs", "what did we spend on shipping", "any overcharges / outliers", "billing", "invoices".',
     input_schema: { type: 'object', properties: { site: { type: 'string', enum: ['ALTONA', 'MANCHESTER'] } } },
   },
   {
@@ -140,11 +147,33 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
   if (name === 'get_expiring_stock') {
     let lots = await getLots();
     if (input.site) lots = lots.filter((l) => l.site === input.site);
+    if (lots.length === 0) return { note: `No batch/best-before data on record${input.site ? ` for ${input.site}` : ''} right now.` };
     return lots.slice(0, 20).map((l) => ({
       flavour: l.flavour, size: l.unit_size_g && l.unit_size_g >= 1000 ? `${l.unit_size_g / 1000}kg` : `${l.unit_size_g}g`,
       site: l.site, lot: l.lot_number, best_before: l.expiry_date, days_left: l.days_left,
       on_hand: l.on_hand, status: EXPIRY_META[expiryStatus(l.days_left)].label,
     }));
+  }
+  if (name === 'get_shipping_billing') {
+    const [{ outliers }, billing] = await Promise.all([getShippingData(), getBillingData()]);
+    const highlights = buildHighlights(billing.monthly, billing.invoices, billing.outliers);
+    let monthly = billing.monthly;
+    let outs = outliers;
+    let inv = billing.invoices;
+    if (input.site) {
+      monthly = monthly.filter((m) => m.site === input.site);
+      outs = outs.filter((o) => o.site === input.site);
+      inv = inv.filter((i) => i.site === input.site);
+    }
+    return {
+      monthly_spend: monthly.slice(-8).map((m) => ({ site: m.site, month: m.month, currency: m.currency, total: m.total, shipments: m.shipments, avg_per_order: m.avg })),
+      highlights: highlights.filter((h) => !input.site || h.site === input.site).map((h) => ({
+        site: h.site, currency: h.currency, this_month: h.thisMonth, last_month: h.lastMonth, mom_pct: h.momPct,
+        outlier_overcharge: h.outlierExposure, outlier_orders: h.outlierCount, unpaid_invoices: h.unpaidCount, unpaid_total: h.unpaidTotal,
+      })),
+      top_outliers: outs.slice(0, 8).map((o) => ({ order: o.order_number || o.shipbob_order_id, site: o.site, cost: o.cost, currency: o.currency, x_median: o.x_median, ship_option: o.ship_option, date: o.ship_date, city: o.city })),
+      invoices: inv.slice(0, 10).map((i) => ({ invoice: i.invoice_number, site: i.site, date: i.invoice_date, total: i.total_amount, currency: i.currency, status: i.status })),
+    };
   }
   if (name === 'check_docket') {
     const d = await findLatestDocket();
@@ -174,37 +203,71 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
   return { error: 'unknown tool' };
 }
 
-const SYSTEM = `You are the operations assistant for The Protein Pancake (TPP), messaging the founder on WhatsApp.
-Live data + actions via tools. Sites: Altona (AU), Manchester (UK). Primary SKUs: ${PRIMARY_FLAVOURS.join(', ')}.
+const SYSTEM = `You are the logistics operations assistant for The Protein Pancake (TPP), messaging the founder on WhatsApp. You are the single point of contact for ALL logistics tasks.
+Live data + real actions via tools. Sites: Altona (AU, AUD) & Manchester (UK, GBP). Primary SKUs: ${PRIMARY_FLAVOURS.join(', ')}.
 "Days of cover" = available ÷ daily sales. "Inbound" = units on open POs.
-You DO have batch/best-before data — use get_expiring_stock for expiry / shortest-dated / lot questions.
 
-Capabilities:
-- Answer stock/velocity/PO questions (get_stock, get_purchase_orders).
-- Recommend what to order (get_reorder_recommendations).
-- Draft a purchase order (draft_po) — this creates a DRAFT only and attaches a screenshot image; then tell the user to reply "SEND" to approve.
-- Approve & push to Xero (approve_po) — ONLY when the user has explicitly said to send/approve. Never approve on your own.
+CRITICAL RULE — never say you can't do something logistics-related without FIRST calling the relevant tool. If a tool returns no rows, say "no data found right now", NOT "I don't have access". You DO have every capability below. Do not describe your own tool list to the user; just answer.
+
+Your full toolkit:
+- get_stock — live on-hand, available, days of cover, inbound, velocity, status, per SKU per site.
+- get_expiring_stock — batch/lot best-before dates, days left, soonest-expiring stock (BOTH sites). This covers ALL expiry / shortest-dated / batch / best-before questions.
+- get_purchase_orders — POs: supplier, status, expected date, outstanding units.
+- get_reorder_recommendations — what to order & how many (velocity × lead+target − stock − inbound).
+- get_shipping_billing — shipping cost trends, monthly spend, MoM change, cost OUTLIERS/overcharges, invoices.
+- draft_po → approve_po — draft a PO (ABC → Altona) with a screenshot, then push to Xero on approval.
+- check_docket → parse_docket → create_wro → draft_sharon_reply → send_email_draft — the receiving/WRO flow.
+
+Purchase orders: draft_po creates a DRAFT only + attaches a screenshot; then tell the user to reply "SEND". Only call approve_po when the user EXPLICITLY approves ("SEND"/"approve"/"yes send it"). Never approve on your own. After approving, confirm the Xero PO number.
 
 Receiving (WRO) flow — when the user says a packing slip / docket arrived from Sharon/ABC:
-1. check_docket → parse_docket. 2. Show the parsed lines with LOT NUMBERS and BEST-BEFORE dates clearly, and ask the user to confirm the best-befores (this is critical — expirable stock). 3. Only after they confirm, create_wro. 4. Then offer to reply to Sharon: draft_sharon_reply, show it, and only send_email_draft when they say send. Never create a WRO or send email without explicit confirmation.
+1. check_docket → parse_docket. 2. Show the parsed lines with LOT NUMBERS and BEST-BEFORE dates clearly, and ask the user to confirm before proceeding (critical — expirable stock). 3. Only after they confirm, create_wro. 4. Then offer to reply to Sharon: draft_sharon_reply, show it, and only send_email_draft when they say send. Never create a WRO or send an email without explicit confirmation.
 
-Style: concise, WhatsApp-friendly, short lines, a few emojis (📦 ⚠️ ✅). Lead with the answer. Always use tools for numbers — never guess.
-After drafting a PO, end with: "Reply SEND to approve and push to Xero." After approving, confirm the Xero PO number.`;
+Multi-step memory: you can see the recent conversation. When the user replies "yes"/"confirm"/"SEND"/"do it", act on what you just proposed — re-fetch any IDs you need (e.g. call check_docket again to get the docket, then create_wro). Never lose the thread.
 
-export async function askStockAgent(question: string): Promise<{ text: string; media?: string }> {
+Style: concise, WhatsApp-friendly, short lines, a few emojis (📦 ⚠️ ✅). Lead with the answer. Use tools for every number — never guess. If a request is ambiguous, make the most reasonable assumption and say what you assumed, rather than refusing.`;
+
+// Recent conversation history (last 6h) so multi-step flows (confirm / SEND / yes) work.
+const HISTORY_LIMIT = 12;
+async function loadHistory(phone: string): Promise<Anthropic.MessageParam[]> {
+  const { data } = await supabaseLogistics
+    .from('wa_conversation')
+    .select('role, content')
+    .eq('phone', phone)
+    .gt('created_at', new Date(Date.now() - 6 * 3600_000).toISOString())
+    .order('created_at', { ascending: false })
+    .limit(HISTORY_LIMIT);
+  const rows = (data ?? []).reverse() as { role: string; content: string }[];
+  // ensure it starts with a user turn (Anthropic requires user-first)
+  while (rows.length && rows[0].role !== 'user') rows.shift();
+  return rows.map((r) => ({ role: r.role === 'assistant' ? 'assistant' : 'user', content: r.content }));
+}
+async function saveTurn(phone: string, userText: string, assistantText: string) {
+  await supabaseLogistics.from('wa_conversation').insert([
+    { phone, role: 'user', content: userText },
+    { phone, role: 'assistant', content: assistantText },
+  ]);
+}
+
+export async function askStockAgent(question: string, phone?: string): Promise<{ text: string; media?: string }> {
   _media = null;
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return { text: 'Assistant is not configured (missing API key).' };
   const client = new Anthropic({ apiKey });
-  const messages: Anthropic.MessageParam[] = [{ role: 'user', content: question }];
 
-  for (let i = 0; i < 6; i++) {
-    const resp = await client.messages.create({ model: MODEL, max_tokens: 1024, system: SYSTEM, tools, messages });
+  const history = phone ? await loadHistory(phone) : [];
+  const messages: Anthropic.MessageParam[] = [...history, { role: 'user', content: question }];
+
+  let answer = '';
+  for (let i = 0; i < 8; i++) {
+    const resp = await client.messages.create({ model: MODEL, max_tokens: 1500, system: SYSTEM, tools, messages });
     if (resp.stop_reason === 'tool_use') {
       const results: Anthropic.ToolResultBlockParam[] = [];
       for (const block of resp.content) {
         if (block.type === 'tool_use') {
-          const out = await runTool(block.name, block.input as Record<string, unknown>);
+          let out: unknown;
+          try { out = await runTool(block.name, block.input as Record<string, unknown>); }
+          catch (e) { out = { error: String(e).slice(0, 200) }; }
           results.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(out).slice(0, 7000) });
         }
       }
@@ -212,8 +275,10 @@ export async function askStockAgent(question: string): Promise<{ text: string; m
       messages.push({ role: 'user', content: results });
       continue;
     }
-    const text = resp.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('\n').trim();
-    return { text: text || 'Done.', media: _media || undefined };
+    answer = resp.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('\n').trim();
+    break;
   }
-  return { text: 'That took too many steps — try narrowing the request.', media: _media || undefined };
+  if (!answer) answer = 'That took too many steps — try narrowing the request.';
+  if (phone) await saveTurn(phone, question, answer).catch(() => {});
+  return { text: answer, media: _media || undefined };
 }

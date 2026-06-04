@@ -12,8 +12,9 @@ const reply = (msg?: string) =>
     { headers: { 'Content-Type': 'text/xml' } });
 const empty = () => reply();
 
-// heavier requests (docket parse, PO drafting, reorder, order-history) take ~20-30s
-const SLOW = /docket|packing|slip|\bwro\b|purchase|\bpo\b|draft|order|reorder|recommend|create|expir|shortest/i;
+// heavier / multi-step requests take ~20-30s — ack instantly so the user knows it landed.
+// Includes short approvals (yes/send/confirm) because they trigger slow actions (WRO/Xero push).
+const SLOW = /docket|packing|slip|\bwro\b|purchase|\bpo\b|draft|order|reorder|recommend|create|expir|shortest|batch|best.?before|shipping|billing|invoice|spend|outlier|overcharge|^(yes|yep|send|confirm|approve|do it|go ahead)\b/i;
 
 // Twilio inbound WhatsApp webhook. Twilio drops the reply if we don't respond in
 // ~15s, so we ACK immediately and do the (slower) agent work + send via REST after().
@@ -31,7 +32,7 @@ export async function POST(req: NextRequest) {
 
   after(async () => {
     try {
-      const answer = await askStockAgent(body);
+      const answer = await askStockAgent(body, from);
       await sendWhatsApp(from, answer.text, answer.media);
     } catch (e) {
       console.error('whatsapp agent error', e);
