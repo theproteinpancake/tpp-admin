@@ -194,7 +194,7 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
         site: h.site, currency: h.currency, this_month: h.thisMonth, last_month: h.lastMonth, mom_pct: h.momPct,
         outlier_overcharge: h.outlierExposure, outlier_orders: h.outlierCount, unpaid_invoices: h.unpaidCount, unpaid_total: h.unpaidTotal,
       })),
-      top_outliers: outs.slice(0, 8).map((o) => ({ order: o.order_number || o.shipbob_order_id, site: o.site, cost: o.cost, currency: o.currency, x_median: o.x_median, ship_option: o.ship_option, date: o.ship_date, city: o.city })),
+      top_outliers: outs.slice(0, 8).map((o: any) => ({ shipment_id: o.shipbob_shipment_id, order: o.order_number, site: o.site, cost: o.cost, currency: o.currency, x_median: o.x_median, ship_option: o.ship_option, date: o.ship_date, city: o.city })),
       invoices: inv.slice(0, 10).map((i) => ({ invoice: i.invoice_number, site: i.site, date: i.invoice_date, total: i.total_amount, currency: i.currency, status: i.status })),
     };
   }

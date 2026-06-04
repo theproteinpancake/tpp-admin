@@ -73,7 +73,7 @@ export default async function ShippingPage() {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                {['Order', 'Site', 'Date', 'Ship cost', 'vs median', 'Option', ''].map((h) => (
+                {['Shipment', 'Site', 'Date', 'Ship cost', 'vs median', 'Option', ''].map((h) => (
                   <th key={h} className="whitespace-nowrap px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">{h}</th>
                 ))}
               </tr>
@@ -81,7 +81,10 @@ export default async function ShippingPage() {
             <tbody className="divide-y divide-gray-100">
               {outliers.map((o) => (
                 <tr key={o.id} className="hover:bg-cream/30">
-                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{o.order_number || o.shipbob_order_id}</td>
+                  <td className="px-4 py-3 text-sm">
+                    <div className="font-medium text-gray-900">{o.shipbob_shipment_id}</div>
+                    {o.order_number && <div className="text-[11px] text-gray-400">order {o.order_number}</div>}
+                  </td>
                   <td className="px-4 py-3 text-sm text-gray-600">{o.site}</td>
                   <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-600">{fmtDate(o.ship_date)}</td>
                   <td className="px-4 py-3 text-sm font-semibold text-gray-900">{money(o.cost, o.currency)}</td>
@@ -90,7 +93,7 @@ export default async function ShippingPage() {
                   </td>
                   <td className="px-4 py-3 text-xs text-gray-500">{o.ship_option || '—'}</td>
                   <td className="px-4 py-3">
-                    <a href={shipbobOrderUrl(o.shipbob_order_id)} target="_blank" rel="noreferrer"
+                    <a href={shipbobOrderUrl(o.shipbob_shipment_id)} target="_blank" rel="noreferrer"
                       className="inline-flex items-center gap-1 text-xs font-medium text-maple hover:underline">
                       ShipBob <ExternalLink className="h-3 w-3" />
                     </a>
