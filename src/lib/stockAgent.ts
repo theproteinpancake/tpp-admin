@@ -5,6 +5,8 @@ import { computeStatus, STATUS_META, PRIMARY_FLAVOURS } from './stock';
 import { OPEN_STATUSES } from './po-types';
 import { getReorderRecommendations } from './reorder';
 import { draftWhatsAppPO, approveLatestWhatsAppDraft } from './poActions';
+import { findLatestDocket, parseDocket, createWROFromParsed, draftSharonReply } from './wroFlow';
+import { gmailSendDraft } from './google';
 
 const MODEL = 'claude-sonnet-4-6';
 
@@ -50,6 +52,31 @@ const tools: Anthropic.Tool[] = [
     name: 'approve_po',
     description: 'ONLY call when the user has EXPLICITLY approved sending (e.g. "send it", "approve", "yes send to ABC"). Pushes the most recent draft PO to Xero as an approved order.',
     input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'check_docket',
+    description: 'Find the latest ABC Blending delivery docket / packing slip email in Gmail (e.g. when the user says "Sharon sent a packing slip").',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'parse_docket',
+    description: 'Read & parse the docket PDF → SKUs, lots, best-before dates, qty, linked PO. Use messageId from check_docket. ALWAYS show the user the lots + best-befores and ask them to confirm before creating a WRO.',
+    input_schema: { type: 'object', properties: { messageId: { type: 'string' } }, required: ['messageId'] },
+  },
+  {
+    name: 'create_wro',
+    description: 'Create the ShipBob WRO from the docket (with lots + expiry) and link the PO. ONLY after the user has confirmed the best-befores. Returns the WRO number.',
+    input_schema: { type: 'object', properties: { messageId: { type: 'string' } }, required: ['messageId'] },
+  },
+  {
+    name: 'draft_sharon_reply',
+    description: 'Draft (NOT send) a reply to Sharon with the WRO labels. Use her email + docket ref from check_docket and the WRO id from create_wro.',
+    input_schema: { type: 'object', properties: { to: { type: 'string' }, docket_ref: { type: 'string' }, wro_id: { type: 'number' } }, required: ['to', 'wro_id'] },
+  },
+  {
+    name: 'send_email_draft',
+    description: 'Send a Gmail draft. ONLY when the user explicitly approves sending (e.g. "send it to Sharon").',
+    input_schema: { type: 'object', properties: { draft_id: { type: 'string' } }, required: ['draft_id'] },
   },
 ];
 
@@ -104,6 +131,31 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
   if (name === 'approve_po') {
     return await approveLatestWhatsAppDraft();
   }
+  if (name === 'check_docket') {
+    const d = await findLatestDocket();
+    return d ?? { error: 'No recent ABC docket email found.' };
+  }
+  if (name === 'parse_docket') {
+    try { return await parseDocket(String(input.messageId)); }
+    catch (e) { return { error: String(e).slice(0, 160) }; }
+  }
+  if (name === 'create_wro') {
+    try {
+      const parsed = await parseDocket(String(input.messageId));
+      const res = await createWROFromParsed(parsed);
+      return { ...res, docket_ref: parsed.docket_ref, po_ref: parsed.po_ref };
+    } catch (e) { return { error: String(e).slice(0, 160) }; }
+  }
+  if (name === 'draft_sharon_reply') {
+    try {
+      const draftId = await draftSharonReply(String(input.to), (input.docket_ref as string) || null, Number(input.wro_id));
+      return { draft_id: draftId };
+    } catch (e) { return { error: String(e).slice(0, 160) }; }
+  }
+  if (name === 'send_email_draft') {
+    try { await gmailSendDraft(String(input.draft_id)); return { sent: true }; }
+    catch (e) { return { error: String(e).slice(0, 160) }; }
+  }
   return { error: 'unknown tool' };
 }
 
@@ -116,6 +168,9 @@ Capabilities:
 - Recommend what to order (get_reorder_recommendations).
 - Draft a purchase order (draft_po) — this creates a DRAFT only and attaches a screenshot image; then tell the user to reply "SEND" to approve.
 - Approve & push to Xero (approve_po) — ONLY when the user has explicitly said to send/approve. Never approve on your own.
+
+Receiving (WRO) flow — when the user says a packing slip / docket arrived from Sharon/ABC:
+1. check_docket → parse_docket. 2. Show the parsed lines with LOT NUMBERS and BEST-BEFORE dates clearly, and ask the user to confirm the best-befores (this is critical — expirable stock). 3. Only after they confirm, create_wro. 4. Then offer to reply to Sharon: draft_sharon_reply, show it, and only send_email_draft when they say send. Never create a WRO or send email without explicit confirmation.
 
 Style: concise, WhatsApp-friendly, short lines, a few emojis (📦 ⚠️ ✅). Lead with the answer. Always use tools for numbers — never guess.
 After drafting a PO, end with: "Reply SEND to approve and push to Xero." After approving, confirm the Xero PO number.`;

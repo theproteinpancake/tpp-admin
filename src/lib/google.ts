@@ -113,6 +113,24 @@ export async function gmailGetBody(id: string): Promise<string> {
   return walk(m.payload || {}).slice(0, 8000);
 }
 
+// Find the first PDF attachment on a message and return it as standard base64.
+function findPdfPart(p: any): { filename: string; attachmentId: string } | null {
+  if (p?.filename && /\.pdf$/i.test(p.filename) && p.body?.attachmentId) {
+    return { filename: p.filename, attachmentId: p.body.attachmentId };
+  }
+  for (const part of p?.parts || []) { const r = findPdfPart(part); if (r) return r; }
+  return null;
+}
+
+export async function gmailGetPdfAttachment(messageId: string): Promise<{ filename: string; base64: string } | null> {
+  const m = await gget(`/messages/${messageId}?format=full`);
+  const f = findPdfPart(m.payload || {});
+  if (!f) return null;
+  const att = await gget(`/messages/${messageId}/attachments/${f.attachmentId}`);
+  const std = (att.data as string).replace(/-/g, '+').replace(/_/g, '/'); // url-safe -> std base64
+  return { filename: f.filename, base64: std };
+}
+
 function rawMessage(to: string, subject: string, body: string, from?: string) {
   const lines = [
     from ? `From: ${from}` : '', `To: ${to}`, `Subject: ${subject}`,
