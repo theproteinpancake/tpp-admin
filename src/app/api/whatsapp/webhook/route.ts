@@ -5,8 +5,15 @@ import { isAllowed, sendWhatsApp } from '@/lib/whatsapp';
 
 export const maxDuration = 120; // agent + docket parse can take ~30s
 
-const empty = () =>
-  new Response('<?xml version="1.0" encoding="UTF-8"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
+const xml = (s: string) => s.replace(/[<>&'"]/g, (c) => (
+  { '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' }[c] as string));
+const reply = (msg?: string) =>
+  new Response(`<?xml version="1.0" encoding="UTF-8"?><Response>${msg ? `<Message>${xml(msg)}</Message>` : ''}</Response>`,
+    { headers: { 'Content-Type': 'text/xml' } });
+const empty = () => reply();
+
+// heavier requests (docket parse, PO drafting, reorder, order-history) take ~20-30s
+const SLOW = /docket|packing|slip|\bwro\b|purchase|\bpo\b|draft|order|reorder|recommend|create|expir|shortest/i;
 
 // Twilio inbound WhatsApp webhook. Twilio drops the reply if we don't respond in
 // ~15s, so we ACK immediately and do the (slower) agent work + send via REST after().
@@ -32,5 +39,6 @@ export async function POST(req: NextRequest) {
     }
   });
 
-  return empty();
+  // instant ack for slower tasks so the user knows it's received (TwiML — no creds needed)
+  return SLOW.test(body) ? reply('🔎 On it — give me ~30 sec…') : empty();
 }
