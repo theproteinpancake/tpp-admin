@@ -92,6 +92,51 @@ export async function getXeroAuth(): Promise<{ token: string; tenant: string } |
   return { token, tenant: c.tenant_id };
 }
 
+export async function xeroPost(path: string, body: unknown): Promise<any> {
+  const auth = await getXeroAuth();
+  if (!auth) throw new Error('Xero not connected');
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${auth.token}`,
+      'Xero-tenant-id': auth.tenant,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Xero POST ${path} failed: ${res.status} ${await res.text()}`);
+  return res.json();
+}
+
+// Create a purchase order in Xero. lines: [{ ItemCode, Quantity, UnitAmount }]
+export async function createXeroPurchaseOrder(opts: {
+  contactName: string;
+  lines: { ItemCode: string; Quantity: number; UnitAmount: number | null }[];
+  reference?: string;
+  deliveryDate?: string | null;
+  status?: 'DRAFT' | 'AUTHORISED';
+}): Promise<{ id: string; number: string }> {
+  const body = {
+    PurchaseOrders: [{
+      Contact: { Name: opts.contactName },
+      Date: new Date().toISOString().slice(0, 10),
+      DeliveryDate: opts.deliveryDate || undefined,
+      Reference: opts.reference || undefined,
+      Status: opts.status || 'AUTHORISED',
+      LineItems: opts.lines.map((l) => ({
+        ItemCode: l.ItemCode,
+        Quantity: l.Quantity,
+        UnitAmount: l.UnitAmount ?? 0,
+        AccountCode: '310', // Cost of Goods Sold (matches existing ABC POs)
+      })),
+    }],
+  };
+  const res = await xeroPost('/PurchaseOrders', body);
+  const po = res.PurchaseOrders?.[0];
+  return { id: po?.PurchaseOrderID, number: po?.PurchaseOrderNumber };
+}
+
 export async function xeroGet(path: string): Promise<any> {
   const auth = await getXeroAuth();
   if (!auth) throw new Error('Xero not connected');

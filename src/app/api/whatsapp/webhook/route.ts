@@ -7,9 +7,13 @@ export const maxDuration = 30;
 // escape for TwiML XML
 const xml = (s: string) => s.replace(/[<>&'"]/g, (c) => (
   { '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' }[c] as string));
-const twiml = (msg?: string) =>
-  new Response(`<?xml version="1.0" encoding="UTF-8"?><Response>${msg ? `<Message>${xml(msg)}</Message>` : ''}</Response>`,
+const twiml = (msg?: string, media?: string) => {
+  const body = msg || media
+    ? `<Message>${msg ? `<Body>${xml(msg)}</Body>` : ''}${media ? `<Media>${xml(media)}</Media>` : ''}</Message>`
+    : '';
+  return new Response(`<?xml version="1.0" encoding="UTF-8"?><Response>${body}</Response>`,
     { headers: { 'Content-Type': 'text/xml' } });
+};
 
 // Twilio inbound WhatsApp webhook.
 export async function POST(req: NextRequest) {
@@ -29,7 +33,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const answer = await askStockAgent(body);
-    return twiml(answer);
+    return twiml(answer.text, answer.media);
   } catch (e) {
     console.error('whatsapp agent error', e);
     // best-effort async fallback so the user gets *something*
