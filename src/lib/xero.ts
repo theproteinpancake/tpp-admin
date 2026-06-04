@@ -6,8 +6,10 @@ const TOKEN_URL = 'https://identity.xero.com/connect/token';
 const CONNECTIONS = 'https://api.xero.com/connections';
 const API_BASE = 'https://api.xero.com/api.xro/2.0';
 
-// Custom-connection scopes (must be a subset of what you ticked when creating it).
-export const XERO_SCOPES = 'accounting.transactions accounting.contacts';
+// For a Custom Connection, request NO scope — Xero issues a token carrying all
+// scopes the connection was granted (requesting a specific scope it lacks 500s
+// with invalid_scope). The granted set already permits the PurchaseOrders API.
+export const XERO_SCOPES = '';
 
 export function xeroConfigured(): boolean {
   return !!process.env.XERO_CLIENT_ID && !!process.env.XERO_CLIENT_SECRET;
@@ -43,10 +45,12 @@ export async function getXeroAuth(): Promise<{ token: string; tenant: string } |
   }
 
   // fetch a fresh client-credentials token
+  const form = new URLSearchParams({ grant_type: 'client_credentials' });
+  if (XERO_SCOPES) form.set('scope', XERO_SCOPES);
   const res = await fetch(TOKEN_URL, {
     method: 'POST',
     headers: { Authorization: basicAuth(), 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ grant_type: 'client_credentials', scope: XERO_SCOPES }),
+    body: form,
   });
   if (!res.ok) throw new Error(`Xero token failed: ${res.status} ${await res.text()}`);
   const tok = await res.json();
