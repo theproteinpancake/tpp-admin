@@ -43,7 +43,9 @@ export async function parseDocket(messageId: string, subject = ''): Promise<Pars
     model: MODEL, max_tokens: 1500,
     system: `You read an ABC Blending delivery docket PDF and extract receiving data as JSON.
 Our SKUs: ${skuList}.
-Map each product line to the matching SKU by flavour + size. Lot is the "Serial/Lot Nbr". Expiry is its Expiry date (output YYYY-MM-DD). Qty is units shipped. "Your Reference: NN" maps to po_ref "PO-00NN" (zero-pad to 4 digits). Reply ONLY with JSON: {"docket_ref":"","po_ref":"PO-00NN","expected_date":"YYYY-MM-DD or null","package_type":"Pallet","lines":[{"sku":"","flavour":"","size_g":520,"lot":"","expiry":"YYYY-MM-DD","qty":0}]}`,
+Map each product line to the matching SKU by flavour + size. Lot is the "Serial/Lot Nbr". Expiry is its Expiry/Best-Before date.
+CRITICAL — dates: ABC/Sharon write dates in AUSTRALIAN format DD/MM/YYYY (day first). Interpret every date that way and output ISO YYYY-MM-DD. NEVER swap day and month — e.g. "03/08/2027" = 3 August 2027 = 2027-08-03 (not 8 March). A "21/08/2027" style value where the first number is >12 is your confirmation day comes first. Best-befores must be a FUTURE date; if your parse yields a past date you've misread it.
+Qty is units shipped. "Your Reference: NN" maps to po_ref "PO-00NN" (zero-pad to 4 digits). Reply ONLY with JSON: {"docket_ref":"","po_ref":"PO-00NN","expected_date":"YYYY-MM-DD or null","package_type":"Pallet","lines":[{"sku":"","flavour":"","size_g":520,"lot":"","expiry":"YYYY-MM-DD","qty":0}]}`,
     messages: [{
       role: 'user',
       content: [

@@ -37,7 +37,9 @@ export async function createWRO(opts: {
         inventory_id: i.inventory_id,
         quantity: i.quantity,
         lot_number: i.lot_number || undefined,
-        expiration_date: i.expiration_date ? `${i.expiration_date}T00:00:00` : undefined,
+        // ShipBob's field is `lot_date` (best-before), ISO 8601. Noon UTC keeps the
+        // same calendar date in both AU and US timezones (no day-shift on display).
+        lot_date: i.expiration_date ? `${i.expiration_date}T12:00:00Z` : undefined,
       })),
     }],
   };
