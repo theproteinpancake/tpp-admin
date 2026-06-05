@@ -12,9 +12,9 @@ const reply = (msg?: string) =>
     { headers: { 'Content-Type': 'text/xml' } });
 const empty = () => reply();
 
-// heavier / multi-step requests take ~20-30s — ack instantly so the user knows it landed.
-// Includes short approvals (yes/send/confirm) because they trigger slow actions (WRO/Xero push).
-const SLOW = /docket|packing|slip|\bwro\b|purchase|\bpo\b|draft|order|reorder|recommend|create|expir|shortest|batch|best.?before|shipping|billing|invoice|spend|outlier|overcharge|^(yes|yep|send|confirm|approve|do it|go ahead)\b/i;
+// Only the genuinely heavy tasks (PDF parse/generate, Xero/ShipBob writes) get a "brb".
+// Fast read queries (stock, expiry, billing, forecast) just return the answer in <30s.
+const SLOW = /docket|packing|slip|\bwro\b|transfer|\bdocs?\b|draft|approve|^(yes|yep|send|confirm|do it|go ahead)\b/i;
 
 // Twilio inbound WhatsApp webhook. Twilio drops the reply if we don't respond in
 // ~15s, so we ACK immediately and do the (slower) agent work + send via REST after().
@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
     }
   });
 
-  // instant ack for slower tasks so the user knows it's received (TwiML — no creds needed)
-  return SLOW.test(body) ? reply('🔎 On it — give me ~30 sec…') : empty();
+  // Most replies land in <30s (no ack needed). Only the genuinely heavy tasks
+  // (docket/WRO/PO draft/transfer/doc-gen) get a quick witty ack.
+  return SLOW.test(body) ? reply('brb 👀') : empty();
 }

@@ -71,8 +71,14 @@ export async function createWROFromParsed(parsed: ParsedDocket, site = 'ALTONA')
   })).filter((i) => i.inventory_id);
   if (!items.length) throw new Error('No docket lines matched a known SKU.');
 
+  // ShipBob rejects past arrival dates. The date is only a rough guide, so if the
+  // docket's date is missing or in the past, default to tomorrow (T+1).
+  const today = new Date().toISOString().slice(0, 10);
+  const tomorrow = new Date(Date.now() + 86400_000).toISOString().slice(0, 10);
+  const expected_arrival_date = parsed.expected_date && parsed.expected_date > today ? parsed.expected_date : tomorrow;
+
   const wro = await createWRO({
-    site, expected_arrival_date: parsed.expected_date || new Date().toISOString().slice(0, 10),
+    site, expected_arrival_date,
     tracking_ref: parsed.docket_ref || 'ABC docket', purchase_order_number: parsed.po_ref || undefined,
     package_type: 'Pallet', items,
   });
