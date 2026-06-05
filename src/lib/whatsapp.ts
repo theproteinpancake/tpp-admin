@@ -37,8 +37,12 @@ export function isAllowed(from: string): boolean {
 export async function sendWhatsApp(to: string, body: string, mediaUrl?: string): Promise<boolean> {
   const sid = SID(), from = FROM();
   const auth = twilioAuthHeader();
-  if (!sid || !auth || !from) { console.error('Twilio env missing'); return false; }
-  const params = new URLSearchParams({ To: waAddr(to), From: from, Body: body.slice(0, 1550) });
+  const msgService = process.env.TWILIO_MESSAGING_SERVICE_SID || '';
+  if (!sid || !auth || (!from && !msgService)) { console.error('Twilio env missing'); return false; }
+  const params = new URLSearchParams({ To: waAddr(to), Body: body.slice(0, 1550) });
+  // Prefer the Messaging Service when configured; otherwise send directly from the number.
+  if (msgService) params.set('MessagingServiceSid', msgService);
+  else params.set('From', from);
   if (mediaUrl) params.set('MediaUrl', mediaUrl);
   const res = await fetch(`${TWILIO_API_BASE}/2010-04-01/Accounts/${sid}/Messages.json`, {
     method: 'POST',
