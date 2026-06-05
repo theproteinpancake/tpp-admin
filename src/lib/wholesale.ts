@@ -73,8 +73,23 @@ export async function getWholesaleDashboard() {
         expected_next: expected.toISOString().slice(0, 10), total_value: c.total_value,
       };
     })
-    .filter((c) => c.overdue_days >= -10)            // due now or within ~10 days
+    // ACTIVE + due: due now or within ~7 days, but not so far past their cadence that
+    // they've clearly churned (within 2.5× their normal interval). Churned/lapsed
+    // customers are a separate re-engagement list, not "due to reorder".
+    .filter((c) => c.overdue_days >= -7 && !!c.avg_interval_days && c.days_since <= c.avg_interval_days * 2.5)
     .sort((a, b) => b.overdue_days - a.overdue_days);
+
+  // lapsed = had a steady cadence but are now well past it (likely stopped ordering)
+  const lapsed = whCust
+    .filter((c: any) => c.order_count >= 3 && c.avg_interval_days && c.last_order_date)
+    .map((c: any) => {
+      const last = new Date(c.last_order_date + 'T00:00:00');
+      const daysSince = Math.round((now.getTime() - last.getTime()) / DAY);
+      return { name: c.name, last_order: c.last_order_date, days_since: daysSince, avg_interval_days: Math.round(c.avg_interval_days), total_value: c.total_value };
+    })
+    .filter((c) => c.days_since > c.avg_interval_days * 3 && c.days_since <= 365)
+    .sort((a, b) => b.total_value - a.total_value)
+    .slice(0, 8);
 
   // 320g wholesale stock summary + when to reorder from ABC
   const stockLines: WholesaleStockLine[] = (stock ?? [])
@@ -91,7 +106,7 @@ export async function getWholesaleDashboard() {
     })
     .sort((a, b) => (a.days_cover ?? 9999) - (b.days_cover ?? 9999));
 
-  return { totals, months, topCustomers, due, stock: stockLines, customer_count: whCust.length };
+  return { totals, months, topCustomers, due, lapsed, stock: stockLines, customer_count: whCust.length };
 }
 
 export async function getWholesaleOrders(limit = 60) {

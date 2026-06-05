@@ -102,6 +102,21 @@ export default async function WholesaleDashboard() {
         </div>
       </div>
 
+      {/* Lapsed customers (re-engagement) */}
+      {d.lapsed.length > 0 && (
+        <div className="mt-6 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+          <p className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-700"><AlertTriangle className="h-4 w-4 text-amber-500" /> Lapsed — worth a re-engagement nudge</p>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {d.lapsed.map((c) => (
+              <div key={c.name} className="flex items-center justify-between gap-2 text-sm">
+                <span className="truncate text-gray-800">{c.name}</span>
+                <span className="shrink-0 text-xs text-gray-400">last {fmtDate(c.last_order)} · {c.days_since}d ago · {money(c.total_value)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* 320g stock + reorder timing */}
       <div className="mt-6 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
         <p className="mb-3 text-sm font-semibold text-gray-700">320g wholesale stock (Altona) — when to reorder from ABC</p>
