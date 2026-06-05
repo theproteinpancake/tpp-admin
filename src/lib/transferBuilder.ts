@@ -7,16 +7,21 @@ export const TRIGGER_DAYS = 90;   // build a transfer when destination cover fal
 export const TARGET_DAYS = 180;   // restock up to this many days of cover
 const UK_FALLBACK_FRACTION = 0.2; // if a SKU has no destination velocity yet, assume 20% of origin's rate
 
-// Export shipping cartons: units per carton (ABC carton specs). 320g bags are
-// AU wholesale-only and NEVER shipped to the UK — only 520g + 1kg are eligible.
+// UK roll-out strategy (2026-06): UK transfers are 520g MEDIUM bags only (simplest to
+// ship). 320g = AU wholesale only; 1kg dropped from UK. Syrup/accessories are added
+// manually as the odd extra, not auto-built.
+const UK_SIZE_G = 520;
+
+// Export shipping cartons: units per carton (ABC carton specs).
 const SHIP_CARTON: Record<number, number> = { 520: 12, 1000: 8 };
 const cartonUnits = (g: number) => SHIP_CARTON[g] ?? 12;
 
-// Pallet logistics — used to MAXIMISE each pallet. NOTE: these are ESTIMATES pending
-// Luke's confirmation. INTERNAL2 shipped 85 cartons (~1 pallet), which matches ~80
-// cartons/pallet. Override via env once the real figures are known.
-export const CARTONS_PER_PALLET = Number(process.env.CARTONS_PER_PALLET) || 80;
-export const MAX_KG_PER_PALLET = Number(process.env.MAX_KG_PER_PALLET) || 700;
+// Pallet capacity for 520g cartons (23×23×33cm): 15 cases/layer × 5 layers = 75 cases
+// = 900 units (~468 kg product, ~530 kg gross) at ~134cm. A 6th layer (~1,080 units)
+// is possible if the carrier allows ~155-160cm — confirm weight with Maersk first.
+// Override via env if needed.
+export const CARTONS_PER_PALLET = Number(process.env.CARTONS_PER_PALLET) || 75;
+export const MAX_KG_PER_PALLET = Number(process.env.MAX_KG_PER_PALLET) || 480;
 
 const HS_BY_CATEGORY: Record<string, { hs: string; coo: string }> = {
   mix: { hs: '1901200000', coo: 'AU' },
@@ -62,8 +67,8 @@ export async function suggestRestock(
   }
   const cands: Cand[] = [];
   for (const r of (destRows ?? []) as any[]) {
-    if (r.category !== 'mix') continue;       // transfers are finished mix product
-    if (r.unit_size_g === 320) continue;      // 320g wholesale never ships to the UK
+    if (r.category !== 'mix') continue;       // auto-build is finished mix product
+    if (r.unit_size_g !== UK_SIZE_G) continue; // UK = 520g medium bags only (no 320g/1kg)
     const o = orig.get(r.product_id);
     const originAvail = o?.available ?? 0;
     if (originAvail <= 0) continue;           // can't send what Altona doesn't have
@@ -159,7 +164,7 @@ export async function createDraftTransfer(s: RestockSuggestion): Promise<{ refer
   const { data: t, error } = await supabaseLogistics.from('internal_transfers').insert({
     reference, origin_location_id: originId, destination_location_id: destId, status: 'draft',
     currency: 'AUD', total_value: s.total_value, cartons: s.cartons,
-    notes: `Auto-built ${s.origin}→${s.destination} restock: cover to ~${s.target_days}d + best-seller top-up, maximising ${s.pallets} pallet(s) (${s.cartons} cartons / ~${s.total_kg}kg). 520g + 1kg only (no 320g). Pick the LONGEST-dated stock so the UK holds maximum shelf life.`,
+    notes: `Auto-built ${s.origin}→${s.destination} restock: cover to ~${s.target_days}d + best-seller top-up, maximising ${s.pallets} pallet(s) (${s.cartons} cartons / ~${s.total_kg}kg). 520g medium bags only (75 cartons = 900 units/pallet). Add syrup/accessories manually if needed. Pick the LONGEST-dated stock so the UK holds maximum shelf life.`,
   }).select('id').single();
   if (error || !t) return { error: error?.message || 'Failed to create transfer' };
 

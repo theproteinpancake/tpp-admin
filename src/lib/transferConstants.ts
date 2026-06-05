@@ -57,6 +57,21 @@ export const CUSTOMS_NOTES = [
   'Incoterms DDP; inland (UK) transport costs declared as zero. GST: NIL (export sale, zero-rated).',
 ];
 
+// UK transfer pallet logistics (520g roll-out). 520g carton = 23×23×33cm, 12 units.
+// Standard 1200×1000mm pallet, ~150cm max height: 15 cartons/layer × 5 layers =
+// 75 cartons = 900 units (~468kg product, ~530kg gross) at ~134cm. A 6th layer
+// (~1,080 units, ~157cm) only if the carrier allows — confirm weight with Maersk.
+export const UK_PALLET = {
+  unitSizeG: 520,
+  cartonDimsCm: [23, 23, 33] as const,
+  unitsPerCarton: 12,
+  cartonsPerLayer: 15,
+  layers: 5,
+  cartonsPerPallet: 75,
+  unitsPerPallet: 900,
+  productKgPerPallet: 468,
+};
+
 // Maersk freight contact (commercial-invoice recipient to start a transfer)
 export const MAERSK = {
   name: 'Jordan Burnes',
