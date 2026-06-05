@@ -18,6 +18,10 @@ import {
   ArrowLeftRight,
   Package2,
   Sparkles,
+  Store,
+  ShoppingCart,
+  Megaphone,
+  Handshake,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -45,6 +49,20 @@ const groups: NavGroup[] = [
       { name: 'Packaging', href: '/logistics/packaging', icon: Package2 },
       { name: 'Transfers', href: '/logistics/transfers', icon: ArrowLeftRight },
       { name: 'Shipping & Billing', href: '/logistics/shipping', icon: Truck },
+    ],
+  },
+  {
+    label: 'Wholesale',
+    items: [
+      { name: 'Dashboard', href: '/wholesale', icon: Store },
+      { name: 'Orders', href: '/wholesale/orders', icon: ShoppingCart },
+    ],
+  },
+  {
+    label: 'Marketing',
+    items: [
+      { name: 'Influencers', href: '/marketing/influencers', icon: Megaphone },
+      { name: 'Collabs', href: '/marketing/collabs', icon: Handshake },
     ],
   },
 ];
