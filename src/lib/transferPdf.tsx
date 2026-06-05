@@ -1,7 +1,8 @@
 /* eslint-disable jsx-a11y/alt-text */
 // react-pdf document generators for internal-transfer shipping paperwork.
-import { Document, Page, View, Text, StyleSheet, renderToBuffer } from '@react-pdf/renderer';
+import { Document, Page, View, Text, Image, StyleSheet, renderToBuffer } from '@react-pdf/renderer';
 import type { Transfer } from './transfers';
+import { TPP_LOGO } from './logo';
 import {
   EXPORTER, IMPORTER, SHIPMENT_DEFAULTS, CUSTOMS_NOTES, declaredValue, originFor, hsFor, sizeLabel,
 } from './transferConstants';
@@ -48,7 +49,7 @@ function Head({ title }: { title: string }) {
     <>
       <View style={s.rowBetween}>
         <View>
-          <Text style={s.brand}>The Protein Pancake.</Text>
+          <Image src={TPP_LOGO} style={{ width: 150, height: 13, marginBottom: 5 }} />
           <Text style={s.sub}>{EXPORTER.addr[0]}</Text>
           <Text style={s.sub}>{EXPORTER.phone} · {EXPORTER.email}</Text>
           <Text style={s.sub}>ABN: {EXPORTER.abn} · ACN: {EXPORTER.acn}</Text>
