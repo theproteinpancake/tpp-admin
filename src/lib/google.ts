@@ -135,7 +135,13 @@ export interface MailAttachment { filename: string; base64: string; mime?: strin
 
 function b64url(s: string) { return Buffer.from(s, 'utf-8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
 
+// RFC 2047 encode a header value if it contains non-ASCII (else it mojibakes in the header).
+function encHeader(s: string) {
+  return /[^\x00-\x7F]/.test(s) ? `=?UTF-8?B?${Buffer.from(s, 'utf-8').toString('base64')}?=` : s;
+}
+
 function rawMessage(to: string, subject: string, body: string, attachment?: MailAttachment) {
+  subject = encHeader(subject);
   if (!attachment) {
     const lines = [`To: ${to}`, `Subject: ${subject}`, 'Content-Type: text/plain; charset=UTF-8', '', body].join('\r\n');
     return b64url(lines);

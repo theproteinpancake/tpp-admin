@@ -107,7 +107,7 @@ const SIGNATURE = 'Luke Rolls\nOwner | The Protein Pancake\nP: +61 0412 474 330\
 // Draft the reply to Sharon with the WRO box labels attached (does not send).
 // Returns the EXACT draft so the agent can show it verbatim before sending.
 export async function draftSharonReply(to: string, docketRef: string | null, wroId: number, site = 'ALTONA') {
-  const subject = `WRO ${wroId} — labels attached${docketRef ? ` (docket ${docketRef})` : ''}`;
+  const subject = 'Pallet labels';
   const body = `Hi Sharon,\n\nThanks for that. Labels attached!\n\n${SIGNATURE}`;
   let attached = false;
   let attachment;
