@@ -42,6 +42,7 @@ export async function runScour(): Promise<{ scanned: number; insights: number; e
     system: `You triage the logistics inbox for The Protein Pancake (a pancake-mix brand). Senders: Maersk (sea freight of AU→UK pallets), ABC Blending (AU co-packer who makes the mix and sends packing slips/dockets), ShipBob (3PL — WROs, receiving, billing).
 Group the emails into ongoing JOBS (one per shipment/topic) and for each return the CURRENT status and whether the founder must act.
 Rules: ignore auto-replies, out-of-office, marketing, and anything not logistics-operational. Only flag needs_action=true when the founder personally must do something (sign a doc, pay, book a slot, create a WRO, reply). Be concise.
+IMPORTANT — ShipBob receiving: if a ShipBob email says goods / a WRO / an inbound shipment have been RECEIVED or receiving is COMPLETE at a fulfilment centre, set needs_action=true and make the action "Mark the matching transfer/PO as received" (name the shipment/WRO if shown) — this is how we confirm stock has actually landed.
 Return ONLY a JSON array, no prose: [{"source_key": "<short topic>", "category": "maersk|abc|shipbob", "summary": "<=140 char status", "needs_action": true|false, "action": "<=90 char next step or empty"}]`,
     messages: [{ role: 'user', content: `Recent logistics emails:\n\n${list}` }],
   });

@@ -46,6 +46,22 @@ function mapTransfer(t: any): Transfer {
   };
 }
 
+export const TRANSFER_STATUSES = ['draft', 'in_transit', 'customs', 'arrived', 'received', 'cancelled'] as const;
+export type TransferStatus = typeof TRANSFER_STATUSES[number];
+
+// Update a transfer's status. 'received' should ONLY be set once ShipBob has actually
+// received the goods into inventory (confirmed via the ShipBob receiving email or WRO
+// completion) — never on the basis of an ETA or "arrived in country".
+export async function setTransferStatus(reference: string, status: TransferStatus):
+  Promise<{ ok: true; reference: string; status: string } | { error: string }> {
+  if (!TRANSFER_STATUSES.includes(status)) return { error: `Invalid status "${status}".` };
+  const { data, error } = await supabaseLogistics.from('internal_transfers')
+    .update({ status }).eq('reference', reference).select('reference').maybeSingle();
+  if (error) return { error: error.message };
+  if (!data) return { error: `No transfer found matching "${reference}".` };
+  return { ok: true, reference, status };
+}
+
 export const transferUnits = (t: Transfer) => t.lines.reduce((s, l) => s + l.qty, 0);
 export const transferValue = (t: Transfer) =>
   t.total_value ?? t.lines.reduce((s, l) => s + l.qty * (l.unit_value ?? 0), 0);

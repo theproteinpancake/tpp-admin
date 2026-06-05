@@ -6,8 +6,10 @@ import { supabaseLogistics } from './supabase-logistics';
 import { markXeroPOBilled, xeroConfigured } from './xero';
 import { getWRO } from './shipbob';
 
-// ShipBob WRO statuses that mean the stock has physically arrived/been counted.
-const WRO_DONE = /complete|completed|received|arrived|closed|fulfilled/i;
+// ShipBob WRO statuses that mean the stock is actually COUNTED INTO inventory — i.e.
+// truly received, not merely arrived at the dock. We only mark received on completion
+// (ShipBob "Completed"); "Arrived"/"Processing" are NOT received yet.
+const WRO_DONE = /complete|completed|fully.?received/i;
 
 // Mark a single PO received locally and (best-effort) BILLED in Xero so it stops
 // being treated as inbound and won't be re-pulled by the AUTHORISED-only sync.

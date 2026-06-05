@@ -11,7 +11,7 @@ import { gmailSendDraft, gmailCreateDraft } from './google';
 import { getLots, expiryStatus, EXPIRY_META } from './lots';
 import { getShippingData } from './shipping';
 import { getBillingData, buildHighlights } from './billing';
-import { getTransfer, transferUnits, transferValue } from './transfers';
+import { getTransfer, transferUnits, transferValue, setTransferStatus } from './transfers';
 import { suggestRestock, createDraftTransfer } from './transferBuilder';
 import { getActionCenter } from './actionCenter';
 import { getPoForecast } from './poForecast';
@@ -116,6 +116,18 @@ const tools: Anthropic.Tool[] = [
     name: 'draft_transfer_email',
     description: 'Draft (NOT send) an email to Jordan at Maersk to start/progress a transfer, with links to the Commercial Invoice + Packing List. Show the user the draft; only send_email_draft when they explicitly approve.',
     input_schema: { type: 'object', properties: { reference: { type: 'string' } }, required: ['reference'] },
+  },
+  {
+    name: 'update_transfer_status',
+    description: 'Move a transfer to a new status as it progresses: in_transit (en route) → customs (clearing customs in-country) → arrived (at the ShipBob FC, being put away) → received (counted into ShipBob inventory, now sellable). CRITICAL: only set "received" once ShipBob has ACTUALLY received the goods into inventory — confirmed by the ShipBob receiving/goods-in EMAIL or the WRO receiving status showing complete. NEVER mark received off an ETA or because it "arrived in country". Use when the user says e.g. "INTERNAL2 cleared customs", "ShipBob received INTERNAL2", "the pallet landed".',
+    input_schema: {
+      type: 'object',
+      properties: {
+        reference: { type: 'string', description: 'transfer reference e.g. INTERNAL2' },
+        status: { type: 'string', enum: ['draft', 'in_transit', 'customs', 'arrived', 'received', 'cancelled'] },
+      },
+      required: ['reference', 'status'],
+    },
   },
   {
     name: 'get_internal_transfers',
@@ -299,6 +311,13 @@ Luke`;
       return { draft_id: draftId, to: MAERSK.email, subject, note: 'Draft created — show the user and ask before sending.' };
     } catch (e) { return { error: String(e).slice(0, 160) }; }
   }
+  if (name === 'update_transfer_status') {
+    const ref = String(input.reference || '').trim().toUpperCase();
+    const res = await setTransferStatus(ref, input.status as any);
+    if ('error' in res) return res;
+    const sellable = res.status === 'received';
+    return { ...res, note: `${res.reference} → ${res.status}.${sellable ? ' Now counted as available ShipBob stock (and dropped from inbound).' : ' Still inbound, not yet sellable.'}` };
+  }
   if (name === 'get_internal_transfers') {
     let q = supabaseLogistics.from('internal_transfers')
       .select('reference,status,ship_date,eta,carrier,bl_ref,shipment_ref,currency,total_value,cartons,gross_kg,origin:origin_location_id(code),destination:destination_location_id(code),items:internal_transfer_items(qty,qty_received,product:product_id(sku,flavour,unit_size_g))')
@@ -392,6 +411,7 @@ Your full toolkit:
 - get_internal_transfers — AU→UK stock transfers (pallets) in transit; their units already feed the destination site's inbound. Use for "what's on the way to the UK", "the pallet", "INTERNAL2".
 - suggest_transfer → create_transfer — propose a UK restock transfer (520g medium bags ONLY; live velocity, 180-day cover + best-seller pallet-fill, Altona-capped); show the preview, confirm, then create the draft. send_transfer_docs — WhatsApp the Commercial Invoice + Packing List PDFs for a transfer to the user. draft_transfer_email — draft (not send) the Maersk/Jordan email to start the transfer. For sending the email, use send_email_draft only after explicit approval.
 Transfer STATUS — never overstate it. in_transit = en route (not landed); customs = arrived in-country, CLEARING CUSTOMS (NOT landed/received, not sellable); arrived = at the ShipBob FC being put away (not sellable); received = in available stock. in_transit/customs/arrived all count as INBOUND (baked into cover) but are NOT "landed". Use get_internal_transfers' status_meaning field; describe the real stage (e.g. "INTERNAL2 is clearing UK customs"), don't say a transfer has "landed/arrived" unless status is received.
+MARKING RECEIVED (transfers AND POs) — stock is only "received" once ShipBob has ACTUALLY counted it into inventory, confirmed by the ShipBob receiving/goods-in EMAIL or the WRO receiving status = complete. NEVER mark received off an ETA, a customs update, or "it arrived in country". Use update_transfer_status(reference,'received') for transfers / mark_po_received for POs only when that ShipBob confirmation exists. If a ShipBob "received/goods-in" email appears (in the Gmail scour / action center), proactively offer to mark the matching transfer/PO received — but still wait for the user's go-ahead.
 - draft_po → approve_po — draft a PO (ABC → Altona) with a screenshot, then push to Xero on approval.
 - check_docket → parse_docket → create_wro → draft_sharon_reply → send_email_draft — the receiving/WRO flow.
 
