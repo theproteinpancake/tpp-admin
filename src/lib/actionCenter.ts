@@ -5,6 +5,7 @@ import { getReorderRecommendations } from './reorder';
 import { getPouchTracking, getCustomPackaging } from './packaging';
 import { getShortestDated, expiryStatus } from './lots';
 import { getBillingData, buildHighlights, SITE_CCY } from './billing';
+import { getGmailInsights } from './gmailScour';
 
 export type Severity = 'critical' | 'warning' | 'info';
 export interface Action {
@@ -20,16 +21,30 @@ export interface Action {
 const money = (n: number, ccy: string) => new Intl.NumberFormat('en-AU', { style: 'currency', currency: ccy || 'AUD', maximumFractionDigits: 0 }).format(n);
 
 export async function getActionCenter(): Promise<Action[]> {
-  const [restock, recsAU, pouches, custom, lots, billing] = await Promise.all([
+  const [restock, recsAU, pouches, custom, lots, billing, gmail] = await Promise.all([
     suggestRestock('MANCHESTER').catch(() => null),
     getReorderRecommendations('ALTONA').catch(() => []),
     getPouchTracking().catch(() => []),
     getCustomPackaging().catch(() => []),
     getShortestDated(60).catch(() => []),
     getBillingData().catch(() => ({ monthly: [], invoices: [], outliers: [] } as any)),
+    getGmailInsights().catch(() => []),
   ]);
 
   const actions: Action[] = [];
+
+  // 0. Inbox-driven jobs needing action (from the daily Gmail scour)
+  for (const g of gmail.filter((x) => x.needs_action)) {
+    actions.push({
+      key: `mail:${g.source_key}`,
+      severity: 'warning',
+      title: g.category === 'abc' ? 'ABC update' : g.category === 'maersk' ? 'Maersk update' : g.category === 'shipbob' ? 'ShipBob update' : 'Inbox',
+      detail: g.summary,
+      command: g.action || 'open the relevant thread',
+      href: '/logistics/stock',
+      count: 1,
+    });
+  }
 
   // 1. UK transfers due (90-day trigger, Altona-capped)
   if (restock && restock.lines.length) {
