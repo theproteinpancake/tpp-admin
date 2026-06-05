@@ -14,7 +14,7 @@ const empty = () => reply();
 
 // Only the genuinely heavy tasks (PDF parse/generate, Xero/ShipBob writes) get a "brb".
 // Fast read queries (stock, expiry, billing, forecast) just return the answer in <30s.
-const SLOW = /docket|packing|slip|\bwro\b|transfer|\bdocs?\b|draft|approve|^(yes|yep|send|confirm|do it|go ahead)\b/i;
+const SLOW = /docket|packing|slip|\bwro\b|transfer|\bdocs?\b|draft|approve|received|delivered|landed|mark|^(yes|yep|send|confirm|do it|go ahead)\b/i;
 
 // Twilio inbound WhatsApp webhook. Twilio drops the reply if we don't respond in
 // ~15s, so we ACK immediately and do the (slower) agent work + send via REST after().

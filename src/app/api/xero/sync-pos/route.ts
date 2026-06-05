@@ -30,6 +30,13 @@ export async function POST() {
     const supByName = new Map((suppliers ?? []).map((s: any) => [s.name.toLowerCase(), s.id]));
     const { data: altona } = await supabaseLogistics.from('locations').select('id').eq('code', 'ALTONA').single();
 
+    // existing local statuses — so a re-sync never downgrades a PO we've already
+    // reconciled (received/cancelled) back to 'placed' just because Xero still
+    // lists it as AUTHORISED. Local reconciliation is the source of truth here.
+    const { data: existing } = await supabaseLogistics.from('purchase_orders').select('xero_po_id, status');
+    const CLOSED = new Set(['received', 'cancelled']);
+    const localStatus = new Map((existing ?? []).map((p: any) => [p.xero_po_id, p.status]));
+
     // pull approved (and submitted) POs
     const data = await xeroGet('/PurchaseOrders?Status=AUTHORISED');
     const pos = data.PurchaseOrders ?? [];
@@ -37,13 +44,16 @@ export async function POST() {
     let upserted = 0, linesMapped = 0, linesSkipped = 0;
     for (const po of pos) {
       const total = Number(po.Total) || null;
+      const prior = localStatus.get(po.PurchaseOrderID);
+      // keep a locally-reconciled close; otherwise map from Xero's status
+      const status = prior && CLOSED.has(prior) ? prior : (STATUS_MAP[po.Status] || 'placed');
       const row = {
         xero_po_id: po.PurchaseOrderID,
         po_number: po.PurchaseOrderNumber || null,
         reference: po.Reference || null,
         supplier_id: supByName.get((po.Contact?.Name || '').toLowerCase()) || null,
         destination_location_id: altona?.id || null,
-        status: STATUS_MAP[po.Status] || 'placed',
+        status,
         xero_status: po.Status || null,
         currency: po.CurrencyCode || 'AUD',
         order_date: xeroDate(po.Date),

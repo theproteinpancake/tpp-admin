@@ -5,6 +5,7 @@ import { computeStatus, STATUS_META, PRIMARY_FLAVOURS } from './stock';
 import { OPEN_STATUSES } from './po-types';
 import { proposeFlavourPOs, proposeOneFlavour } from './poBuilder';
 import { draftWhatsAppPO, approveLatestWhatsAppDraft } from './poActions';
+import { markPOReceived } from './poReconcile';
 import { findLatestDocket, parseDocket, createWROFromParsed, draftSharonReply } from './wroFlow';
 import { gmailSendDraft, gmailCreateDraft } from './google';
 import { getLots, expiryStatus, EXPIRY_META } from './lots';
@@ -70,6 +71,15 @@ const tools: Anthropic.Tool[] = [
     name: 'approve_po',
     description: 'ONLY call when the user has EXPLICITLY approved sending (e.g. "send it", "approve", "yes send to ABC"). Pushes the most recent draft PO to Xero as an approved order.',
     input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'mark_po_received',
+    description: 'Mark a PO as RECEIVED/DELIVERED (e.g. "mark PO-0033 as delivered", "PO-0021 has landed, close it"). Removes it from inbound-stock estimates and marks it Billed in Xero so it is no longer "expected". Use this when a PO is old/stale or its goods have arrived. Pass the exact po_number (from get_purchase_orders).',
+    input_schema: {
+      type: 'object',
+      properties: { po_number: { type: 'string', description: 'exact PO number, e.g. "PO-0033"' } },
+      required: ['po_number'],
+    },
   },
   {
     name: 'get_expiring_stock',
@@ -163,12 +173,12 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
   }
   if (name === 'get_purchase_orders') {
     const { data } = await supabaseLogistics.from('purchase_orders')
-      .select(`status, expected_date, total_cost, currency, supplier:supplier_id(name), items:po_items(qty_ordered,qty_received,product:product_id(sku))`)
+      .select(`po_number, status, expected_date, total_cost, currency, supplier:supplier_id(name), items:po_items(qty_ordered,qty_received,product:product_id(sku))`)
       .order('created_at', { ascending: false });
     let pos = (data ?? []) as any[];
     if (input.open_only) pos = pos.filter((p) => OPEN_STATUSES.includes(p.status));
     return pos.map((p) => ({
-      supplier: p.supplier?.name, status: p.status, expected: p.expected_date, value: p.total_cost,
+      po_number: p.po_number, supplier: p.supplier?.name, status: p.status, expected: p.expected_date, value: p.total_cost,
       items: (p.items ?? []).map((i: any) => ({ sku: i.product?.sku, ordered: i.qty_ordered, received: i.qty_received })),
     }));
   }
@@ -206,6 +216,13 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
   }
   if (name === 'approve_po') {
     return await approveLatestWhatsAppDraft();
+  }
+  if (name === 'mark_po_received') {
+    const po = String(input.po_number || '').trim().toUpperCase();
+    if (!po) return { error: 'Need the PO number, e.g. "PO-0033".' };
+    const r = await markPOReceived(po, { pushXero: true });
+    if (!r.local) return { error: `No PO found matching "${po}".` };
+    return { ok: true, po_number: r.po_number, note: `${r.po_number} marked received — dropped from inbound${r.xero ? ' and marked Billed in Xero' : ' (Xero update skipped/failed)'}.` };
   }
   if (name === 'get_expiring_stock') {
     let lots = await getLots();
@@ -362,6 +379,7 @@ ABC purchase-order rules (IMPORTANT — get these right):
 - 320g bags are WHOLESALE, packed by ABC in Shelf-Ready Cartons of 4. The PO is placed in TOTAL UNITS (individual bags), but ShipBob counts them as cartons (units ÷ 4). ALWAYS present 320g lines as "X units (Y cartons)".
 - Account for inbound stock. get_reorder_recommendations gives the per-flavour 500kg proposals; draft_po with a flavour drafts one.
 Purchase orders: draft_po creates a DRAFT only + attaches a screenshot; then tell the user to reply "SEND". Only call approve_po when the user EXPLICITLY approves ("SEND"/"approve"/"yes send it"). Never approve on your own. After approving, confirm the Xero PO number.
+Inbound accuracy (CRITICAL — don't hallucinate inbound): "inbound" = OPEN POs only (status placed/in_production/partially_received). A PO marked received/delivered does NOT count as inbound — never add it to inbound totals. Old POs that have already landed should be marked received: use mark_po_received with the exact po_number (it drops them from inbound and marks them Billed in Xero). WROs received at ShipBob are auto-reconciled to their PO daily. If the user says a PO has landed / is old / was already delivered, call mark_po_received. When inbound numbers look suspiciously high, suspect stale POs that were never closed — check get_purchase_orders and offer to mark the delivered ones received.
 
 Receiving (WRO) flow — TWO distinct steps, decided by the conversation so far:
 A) FIRST time the user mentions a docket/packing slip from Sharon/ABC: check_docket → parse_docket → show the parsed lines (LOT NUMBERS + BEST-BEFORE dates) and ask them to confirm. Then STOP and wait.

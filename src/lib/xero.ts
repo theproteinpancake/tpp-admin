@@ -96,6 +96,21 @@ export async function xeroPost(path: string, body: unknown): Promise<any> {
   return res.json();
 }
 
+// Mark a Xero PO as BILLED (= delivered/closed for us). Xero allows a direct status
+// change on the PurchaseOrders endpoint; it's a status flag, not a ledger posting.
+// Best-effort: returns false on any failure so callers can still reconcile locally.
+export async function markXeroPOBilled(xeroPoId: string): Promise<boolean> {
+  if (!xeroPoId) return false;
+  try {
+    await xeroPost('/PurchaseOrders', {
+      PurchaseOrders: [{ PurchaseOrderID: xeroPoId, Status: 'BILLED' }],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function createXeroPurchaseOrder(opts: {
   contactName: string;
   lines: { ItemCode: string; Quantity: number; UnitAmount: number | null }[];
