@@ -7,7 +7,9 @@ export async function GET(req: NextRequest) {
   if (searchParams.get('secret') !== process.env.CRON_SECRET) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
-  const sid = process.env.TWILIO_ACCOUNT_SID || '';
+  // optional ?sid= override lets us test the env token against a known-good SID
+  const sid = searchParams.get('sid') || process.env.TWILIO_ACCOUNT_SID || '';
+  const sid_source = searchParams.get('sid') ? 'override' : 'env';
   const tok = process.env.TWILIO_AUTH_TOKEN || '';
   const headers = { Authorization: `Basic ${Buffer.from(`${sid}:${tok}`).toString('base64')}` };
   const probe = async (host: string) => {
@@ -19,6 +21,7 @@ export async function GET(req: NextRequest) {
   const [us1, au1] = await Promise.all([probe('api.twilio.com'), probe('api.au1.twilio.com')]);
   return NextResponse.json({
     account_sid: sid ? `${sid.slice(0, 6)}…${sid.slice(-4)}` : '(missing)',
+    sid_source,
     account_sid_len: sid.length, // a real Account SID is 34 chars (AC + 32 hex)
     account_sid_ok: sid.startsWith('AC') && sid.length === 34,
     token_present: !!tok,
