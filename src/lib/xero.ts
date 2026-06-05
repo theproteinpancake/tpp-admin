@@ -84,6 +84,22 @@ export async function xeroGet(path: string): Promise<any> {
   return res.json();
 }
 
+// Fetch a PO as a PDF (Xero's official template) → base64, or null on failure.
+export async function getXeroPOPdf(xeroPoId: string): Promise<string | null> {
+  if (!xeroPoId) return null;
+  try {
+    const auth = await getXeroAuth();
+    if (!auth) return null;
+    const res = await fetch(`${API_BASE}/PurchaseOrders/${xeroPoId}`, {
+      headers: { Authorization: `Bearer ${auth.token}`, 'Xero-tenant-id': auth.tenant, Accept: 'application/pdf' },
+    });
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length > 1000 && buf.subarray(0, 4).toString('latin1') === '%PDF') return buf.toString('base64');
+  } catch { /* pdf optional */ }
+  return null;
+}
+
 export async function xeroPost(path: string, body: unknown): Promise<any> {
   const auth = await getXeroAuth();
   if (!auth) throw new Error('Xero not configured');

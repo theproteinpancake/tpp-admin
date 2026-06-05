@@ -140,16 +140,17 @@ function encHeader(s: string) {
   return /[^\x00-\x7F]/.test(s) ? `=?UTF-8?B?${Buffer.from(s, 'utf-8').toString('base64')}?=` : s;
 }
 
-function rawMessage(to: string, subject: string, body: string, attachment?: MailAttachment) {
+function rawMessage(to: string, subject: string, body: string, attachment?: MailAttachment, cc?: string) {
   subject = encHeader(subject);
+  const ccLine = cc ? [`Cc: ${cc}`] : [];
   if (!attachment) {
-    const lines = [`To: ${to}`, `Subject: ${subject}`, 'Content-Type: text/plain; charset=UTF-8', '', body].join('\r\n');
+    const lines = [`To: ${to}`, ...ccLine, `Subject: ${subject}`, 'Content-Type: text/plain; charset=UTF-8', '', body].join('\r\n');
     return b64url(lines);
   }
   const boundary = 'tpp_' + Math.random().toString(36).slice(2);
   const wrapped = attachment.base64.replace(/[\r\n]/g, '').replace(/(.{76})/g, '$1\r\n');
   const lines = [
-    `To: ${to}`, `Subject: ${subject}`, 'MIME-Version: 1.0',
+    `To: ${to}`, ...ccLine, `Subject: ${subject}`, 'MIME-Version: 1.0',
     `Content-Type: multipart/mixed; boundary="${boundary}"`, '',
     `--${boundary}`, 'Content-Type: text/plain; charset=UTF-8', '', body, '',
     `--${boundary}`,
@@ -161,15 +162,27 @@ function rawMessage(to: string, subject: string, body: string, attachment?: Mail
   return b64url(lines);
 }
 
-// Create a DRAFT (does not send), optionally with a PDF attachment. Returns draft id.
-export async function gmailCreateDraft(to: string, subject: string, body: string, attachment?: MailAttachment): Promise<string> {
+// Create a DRAFT (does not send), optionally with a PDF attachment + CC. Returns draft id.
+export async function gmailCreateDraft(to: string, subject: string, body: string, attachment?: MailAttachment, cc?: string): Promise<string> {
   const token = await getGoogleToken();
   if (!token) throw new Error('Gmail not connected');
   const res = await fetch(`${GMAIL}/drafts`, {
     method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message: { raw: rawMessage(to, subject, body, attachment) } }),
+    body: JSON.stringify({ message: { raw: rawMessage(to, subject, body, attachment, cc) } }),
   });
   if (!res.ok) throw new Error(`Gmail draft failed: ${res.status} ${await res.text()}`);
+  return (await res.json()).id;
+}
+
+// Send an email immediately (To + optional Cc + optional PDF). Returns the sent message id.
+export async function gmailSend(to: string, subject: string, body: string, opts: { cc?: string; attachment?: MailAttachment } = {}): Promise<string> {
+  const token = await getGoogleToken();
+  if (!token) throw new Error('Gmail not connected');
+  const res = await fetch(`${GMAIL}/messages/send`, {
+    method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ raw: rawMessage(to, subject, body, opts.attachment, opts.cc) }),
+  });
+  if (!res.ok) throw new Error(`Gmail send failed: ${res.status} ${await res.text()}`);
   return (await res.json()).id;
 }
 
