@@ -42,7 +42,7 @@ export async function sendWhatsApp(to: string, body: string, mediaUrl?: string):
   const params = new URLSearchParams({ To: waAddr(to), Body: body.slice(0, 1550) });
   // Prefer the Messaging Service when configured; otherwise send directly from the number.
   if (msgService) params.set('MessagingServiceSid', msgService);
-  else params.set('From', from);
+  else params.set('From', waAddr(from)); // normalise so a missing "whatsapp:" prefix still works
   if (mediaUrl) params.set('MediaUrl', mediaUrl);
   const res = await fetch(`${TWILIO_API_BASE}/2010-04-01/Accounts/${sid}/Messages.json`, {
     method: 'POST',

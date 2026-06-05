@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
@@ -63,12 +64,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     <div className="flex h-screen w-64 flex-col bg-white border-r border-gray-200">
       {/* Logo */}
       <div className="flex h-16 items-center gap-2.5 border-b border-gray-200 px-5">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg shadow-sm" style={{ backgroundColor: '#F3EBD9' }}>
-          <svg viewBox="0 0 100 100" className="h-7 w-7" aria-hidden="true">
-            <circle cx="50" cy="50" r="33" fill="none" stroke="#C4814A" strokeWidth="9" />
-            <path d="M35 49 A15 15 0 0 1 65 49" fill="none" stroke="#C4814A" strokeWidth="9" strokeLinecap="round" />
-          </svg>
-        </div>
+        <Image src="/tpp-smile.png" alt="The Protein Pancake" width={36} height={36} className="rounded-lg shadow-sm" />
         <div className="leading-tight">
           <h1 className="text-[15px] font-bold text-gray-900">TPP Control</h1>
           <p className="text-[11px] text-gray-500">The Protein Pancake</p>
