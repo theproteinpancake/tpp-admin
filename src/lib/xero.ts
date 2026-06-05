@@ -153,8 +153,9 @@ export async function createXeroPurchaseOrder(opts: {
       DeliveryDate: opts.deliveryDate || undefined,
       Reference: opts.reference || undefined,
       Status: opts.status || 'AUTHORISED',
+      // TPP mix + syrup are GST-free; TaxType NONE => 0 GST (matches existing POs).
       LineItems: opts.lines.map((l) => ({
-        ItemCode: l.ItemCode, Quantity: l.Quantity, UnitAmount: l.UnitAmount ?? 0, AccountCode: '310',
+        ItemCode: l.ItemCode, Quantity: l.Quantity, UnitAmount: l.UnitAmount ?? 0, AccountCode: '310', TaxType: 'NONE',
       })),
     }],
   };
