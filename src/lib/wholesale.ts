@@ -5,7 +5,7 @@ const DAY = 86400_000;
 const ABC_LEAD_DAYS = 30; // 320g wholesale bags are made by ABC (~30-day lead)
 
 export interface DueCustomer {
-  name: string; last_order: string | null; avg_interval_days: number | null;
+  id: string; name: string; last_order: string | null; avg_interval_days: number | null;
   order_count: number; days_since: number; overdue_days: number; expected_next: string | null; total_value: number;
 }
 export interface WholesaleStockLine {
@@ -60,15 +60,17 @@ export async function getWholesaleDashboard() {
     .slice(0, 10)
     .map((c: any) => ({ name: c.name, order_count: c.order_count, total_value: c.total_value, last_order: c.last_order_date, avg_interval_days: c.avg_interval_days }));
 
-  // who's due to order (>=2 orders, has a cadence)
+  // who's due to order (>=2 orders, has a cadence), excluding snoozed/dismissed
+  const todayIso = now.toISOString().slice(0, 10);
   const due: DueCustomer[] = whCust
     .filter((c: any) => c.order_count >= 2 && c.avg_interval_days && c.last_order_date)
+    .filter((c: any) => !(c.reorder_dismissed_until && c.reorder_dismissed_until >= todayIso))
     .map((c: any) => {
       const last = new Date(c.last_order_date + 'T00:00:00');
       const daysSince = Math.round((now.getTime() - last.getTime()) / DAY);
       const expected = new Date(last.getTime() + c.avg_interval_days * DAY);
       return {
-        name: c.name, last_order: c.last_order_date, avg_interval_days: Math.round(c.avg_interval_days),
+        id: c.id, name: c.name, last_order: c.last_order_date, avg_interval_days: Math.round(c.avg_interval_days),
         order_count: c.order_count, days_since: daysSince, overdue_days: Math.round(daysSince - c.avg_interval_days),
         expected_next: expected.toISOString().slice(0, 10), total_value: c.total_value,
       };

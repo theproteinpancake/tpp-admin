@@ -7,13 +7,17 @@ export async function GET(req: NextRequest) {
   const state = url.searchParams.get('state');
   const error = url.searchParams.get('error');
   const cookieState = req.cookies.get('google_oauth_state')?.value;
-  const back = (q: string) => NextResponse.redirect(new URL(`/logistics/purchase-orders?${q}`, req.url));
+  const back = (q: string) => NextResponse.redirect(new URL(`/settings?${q}`, req.url));
+
+  // account is encoded as the prefix of state ("account~random")
+  const accountRaw = (state || '').split('~')[0];
+  const account = accountRaw && accountRaw !== 'primary' ? accountRaw : undefined;
 
   if (error) return back(`gmail=error&msg=${encodeURIComponent(error)}`);
   if (!code) return back('gmail=error&msg=no_code');
   if (!state || state !== cookieState) return back('gmail=error&msg=state_mismatch');
   try {
-    const { email } = await googleExchangeCode(code);
+    const { email } = await googleExchangeCode(code, account);
     return back(`gmail=connected&email=${encodeURIComponent(email || '')}`);
   } catch (e) {
     return back(`gmail=error&msg=${encodeURIComponent(String(e).slice(0, 120))}`);

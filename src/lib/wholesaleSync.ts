@@ -14,6 +14,9 @@ export async function syncWholesale(sinceYear = 2025): Promise<{ ok: true; invoi
   try {
     const { data: products } = await supabaseLogistics.from('products').select('id, sku');
     const pidBySku = new Map((products ?? []).map((p: any) => [p.sku, p.id]));
+    // preserve manual "not stocked anymore" flags across re-syncs
+    const { data: existingCusts } = await supabaseLogistics.from('wholesale_customers').select('xero_contact_id, manually_excluded');
+    const excluded = new Set((existingCusts ?? []).filter((c: any) => c.manually_excluded).map((c: any) => c.xero_contact_id));
 
     // pull all ACCREC (authorised + paid) invoices since `sinceYear`, paginated
     const where = encodeURIComponent(`Type=="ACCREC"&&(Status=="AUTHORISED"||Status=="PAID")&&Date>=DateTime(${sinceYear},01,01)`);
@@ -51,7 +54,7 @@ export async function syncWholesale(sinceYear = 2025): Promise<{ ok: true; invoi
       }
       return {
         xero_contact_id: c.id, name: c.name, email: c.email,
-        is_wholesale: !NON_WHOLESALE.test(c.name),
+        is_wholesale: !excluded.has(c.id) && !NON_WHOLESALE.test(c.name),
         first_order_date: first, last_order_date: last,
         order_count: sorted.length, total_value: Math.round(c.total * 100) / 100,
         avg_interval_days: avg, updated_at: new Date().toISOString(),

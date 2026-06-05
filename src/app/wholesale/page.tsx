@@ -1,6 +1,7 @@
 import { Store, TrendingUp, TrendingDown, Clock, AlertTriangle } from 'lucide-react';
 import { getWholesaleDashboard } from '@/lib/wholesale';
 import SyncWholesaleButton from '@/components/wholesale/SyncWholesaleButton';
+import DueActions from '@/components/wholesale/DueActions';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -74,13 +75,14 @@ export default async function WholesaleDashboard() {
           {d.due.length === 0 ? <p className="text-sm text-gray-400">No customers due right now.</p> : (
             <div className="space-y-2">
               {d.due.slice(0, 12).map((c) => (
-                <div key={c.name} className="flex items-center justify-between gap-2 text-sm">
+                <div key={c.id} className="flex items-center justify-between gap-2 text-sm">
                   <span className="truncate text-gray-800">{c.name}</span>
                   <span className="flex shrink-0 items-center gap-2">
                     <span className="text-xs text-gray-400">~{c.avg_interval_days}d · last {fmtDate(c.last_order)}</span>
                     <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${c.overdue_days >= 0 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
                       {c.overdue_days >= 0 ? `${c.overdue_days}d overdue` : `due in ${Math.abs(c.overdue_days)}d`}
                     </span>
+                    <DueActions id={c.id} />
                   </span>
                 </div>
               ))}

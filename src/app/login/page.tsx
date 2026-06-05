@@ -5,6 +5,8 @@ import Image from 'next/image';
 
 export default function LoginPage() {
   const [password, setPassword] = useState('');
+  const [token, setToken] = useState('');
+  const [needCode, setNeedCode] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -18,18 +20,21 @@ export default function LoginPage() {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ password, token }),
       });
 
       if (res.ok) {
-        // Hard navigation so the freshly-set auth cookie is guaranteed to be
-        // sent with the next request (avoids the soft-nav race that required
-        // clicking Sign In multiple times). Keep `loading` true through redirect.
         window.location.assign('/');
         return;
       }
 
-      setError('Incorrect password');
+      const data = await res.json().catch(() => ({}));
+      if (data.twofa) {
+        setNeedCode(true);
+        setError(data.error === '2fa_required' ? '' : 'Invalid code');
+      } else {
+        setError('Incorrect password');
+      }
       setLoading(false);
     } catch {
       setError('Something went wrong. Please try again.');
@@ -53,14 +58,26 @@ export default function LoginPage() {
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Password"
             autoFocus
-            className="w-full rounded-xl border border-gray-200 px-4 py-3 transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-caramel"
+            readOnly={needCode}
+            className="w-full rounded-xl border border-gray-200 px-4 py-3 transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-caramel disabled:bg-gray-50"
           />
+
+          {needCode && (
+            <input
+              type="text" inputMode="numeric" autoComplete="one-time-code"
+              value={token}
+              onChange={(e) => setToken(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder="6-digit authenticator code"
+              autoFocus
+              className="w-full rounded-xl border border-gray-200 px-4 py-3 text-center tracking-[0.3em] transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-caramel"
+            />
+          )}
 
           {error && <p className="text-center text-sm text-red-500">{error}</p>}
 
           <button
             type="submit"
-            disabled={loading || !password}
+            disabled={loading || !password || (needCode && token.length !== 6)}
             className="w-full rounded-xl bg-caramel px-4 py-3 font-semibold text-white transition-colors hover:bg-maple disabled:cursor-not-allowed disabled:bg-caramel/40"
           >
             {loading ? 'Signing in…' : 'Sign In'}

@@ -29,9 +29,12 @@ export function googleAuthorizeUrl(state: string) {
   return `${AUTH}?${q}`;
 }
 
-async function save(t: { access_token: string; refresh_token?: string; expires_in: number; email?: string }) {
+// provider key: 'google' = primary (Luke/ops), 'google_kate' = Kate's inbox, etc.
+export function googleProvider(account?: string) { return account ? `google_${account}` : 'google'; }
+
+async function save(t: { access_token: string; refresh_token?: string; expires_in: number; email?: string }, provider = 'google') {
   const row: Record<string, unknown> = {
-    provider: 'google', access_token: t.access_token,
+    provider, access_token: t.access_token,
     expires_at: new Date(Date.now() + (t.expires_in - 60) * 1000).toISOString(),
     updated_at: new Date().toISOString(),
   };
@@ -40,7 +43,7 @@ async function save(t: { access_token: string; refresh_token?: string; expires_i
   await supabaseLogistics.from('integration_tokens').upsert(row, { onConflict: 'provider' });
 }
 
-export async function googleExchangeCode(code: string) {
+export async function googleExchangeCode(code: string, account?: string) {
   const res = await fetch(TOKEN_URL, {
     method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -55,17 +58,17 @@ export async function googleExchangeCode(code: string) {
     const p = JSON.parse(Buffer.from((tok.id_token || '..').split('.')[1], 'base64').toString());
     email = p.email;
   } catch { /* ignore */ }
-  await save({ ...tok, email });
-  return { email };
+  await save({ ...tok, email }, googleProvider(account));
+  return { email, provider: googleProvider(account) };
 }
 
-export async function getGoogleConnection() {
-  const { data } = await supabaseLogistics.from('integration_tokens').select('*').eq('provider', 'google').maybeSingle();
+export async function getGoogleConnection(account?: string) {
+  const { data } = await supabaseLogistics.from('integration_tokens').select('*').eq('provider', googleProvider(account)).maybeSingle();
   return data as null | { access_token: string; refresh_token: string; expires_at: string; tenant_name: string };
 }
 
-export async function getGoogleToken(): Promise<string | null> {
-  const c = await getGoogleConnection();
+export async function getGoogleToken(account?: string): Promise<string | null> {
+  const c = await getGoogleConnection(account);
   if (!c) return null;
   if (c.access_token && c.expires_at && new Date(c.expires_at).getTime() > Date.now()) return c.access_token;
   if (!c.refresh_token) return null;
@@ -78,7 +81,7 @@ export async function getGoogleToken(): Promise<string | null> {
   });
   if (!res.ok) throw new Error(`Google refresh failed: ${res.status} ${await res.text()}`);
   const tok = await res.json();
-  await save(tok);
+  await save(tok, googleProvider(account));
   return tok.access_token;
 }
 
