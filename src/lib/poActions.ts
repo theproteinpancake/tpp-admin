@@ -127,6 +127,19 @@ export async function approveLatestWhatsAppDraft(): Promise<
       email_subject: draft?.subject ?? 'New PO', email_body: draft?.body ?? '',
     };
   } catch (e) {
-    return { error: `Xero push failed: ${String(e).slice(0, 120)}` };
+    return { error: `Xero push failed: ${xeroErrorMessage(e)}` };
   }
+}
+
+// Pull the human-readable validation message(s) out of a Xero error blob.
+function xeroErrorMessage(e: unknown): string {
+  const s = String(e);
+  try {
+    const json = JSON.parse(s.slice(s.indexOf('{'), s.lastIndexOf('}') + 1));
+    const msgs: string[] = [];
+    for (const el of json.Elements ?? []) for (const v of el.ValidationErrors ?? []) if (v.Message) msgs.push(v.Message);
+    if (msgs.length) return msgs.join('; ');
+    if (json.Message) return json.Message;
+  } catch { /* not JSON */ }
+  return s.slice(0, 200);
 }

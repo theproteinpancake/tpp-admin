@@ -22,7 +22,7 @@ export interface FlavourProposal {
   lines: POLine[]; due: boolean; reason: string;
 }
 
-function buildProposal(flavour: string, sizes: any[], force: boolean): FlavourProposal | null {
+function buildProposal(flavour: string, sizes: any[], force: boolean, forceKg?: number): FlavourProposal | null {
   let totalDeficitKg = 0;
   let due = false;
   const needs = sizes.map((s) => {
@@ -43,7 +43,12 @@ function buildProposal(flavour: string, sizes: any[], force: boolean): FlavourPr
   if (weights.every((w) => w <= 0)) weights = needs.map((n) => n.daily * bagKg(n.unit_size_g));
   const wTotal = weights.reduce((a, b) => a + b, 0) || 1;
 
-  const order_kg = Math.max(BATCH_KG, Math.ceil((totalDeficitKg || BATCH_KG) / BATCH_KG) * BATCH_KG);
+  // honour an explicit size if the user asked for one (e.g. "500kg"); else round the
+  // demand deficit up to the next clean 500kg multiple.
+  const order_kg = forceKg && forceKg > 0
+    ? forceKg
+    : Math.max(BATCH_KG, Math.ceil((totalDeficitKg || BATCH_KG) / BATCH_KG) * BATCH_KG);
+  const forced = !!(forceKg && forceKg > 0);
   const lines: POLine[] = [];
   needs.forEach((n, i) => {
     const share = weights[i] / wTotal;
@@ -63,7 +68,9 @@ function buildProposal(flavour: string, sizes: any[], force: boolean): FlavourPr
   const total_kg = lines.reduce((a, l) => a + l.kg, 0);
   return {
     flavour, order_kg, total_units, total_kg, lines, due,
-    reason: `~${Math.round(totalDeficitKg)}kg demand to ${TARGET_TOTAL_DAYS}-day cover → ${order_kg}kg order`,
+    reason: forced
+      ? `${order_kg}kg order (your specified size), split across sizes by demand`
+      : `~${Math.round(totalDeficitKg)}kg demand to ${TARGET_TOTAL_DAYS}-day cover → ${order_kg}kg order`,
   };
 }
 
@@ -92,9 +99,10 @@ export async function proposeFlavourPOs(site = 'ALTONA'): Promise<FlavourProposa
 }
 
 // A specific flavour on demand (even if not strictly "due") — for "draft a Buttermilk PO".
-export async function proposeOneFlavour(flavour: string, site = 'ALTONA'): Promise<FlavourProposal | null> {
+// Pass orderKg to pin an exact size (e.g. 500) instead of auto-rounding to demand.
+export async function proposeOneFlavour(flavour: string, site = 'ALTONA', orderKg?: number): Promise<FlavourProposal | null> {
   const byFlavour = await flavourSizes(site);
   const key = [...byFlavour.keys()].find((f) => f.toLowerCase() === flavour.toLowerCase().trim());
   if (!key) return null;
-  return buildProposal(key, byFlavour.get(key)!, true);
+  return buildProposal(key, byFlavour.get(key)!, true, orderKg);
 }

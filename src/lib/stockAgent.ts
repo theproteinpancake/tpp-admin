@@ -54,11 +54,12 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: 'draft_po',
-    description: 'Create a DRAFT PO (ABC → Altona, not sent) for ONE flavour — pass `flavour` (e.g. "Buttermilk"). Builds a 500kg-multiple order split across that flavour\'s sizes by live demand (320g as units + cartons). Returns a screenshot; tell the user to reply SEND to approve & push to Xero. (Pass explicit `items` only to override.)',
+    description: 'Create a DRAFT PO (ABC → Altona, not sent) for ONE flavour — pass `flavour` (e.g. "Buttermilk"). By default builds a 500kg-MULTIPLE order sized to demand, split across that flavour\'s sizes (320g as units + cartons). If the user specifies an exact size (e.g. "500kg", "just 500", "one tonne", "1.5T"), pass `order_kg` to pin it EXACTLY instead of auto-rounding to demand. Returns a screenshot; tell the user to reply SEND. (Pass explicit `items` only to fully override the lines.)',
     input_schema: {
       type: 'object',
       properties: {
         flavour: { type: 'string', description: 'the single flavour to order, e.g. "Buttermilk", "Maple", "GF Cinnamon Churro"' },
+        order_kg: { type: 'number', description: 'exact total kg to order when the user specifies a size (e.g. 500, 1000, 1500). Omit to auto-size to demand. For 1kg bags, units == kg.' },
         items: {
           type: 'array',
           description: 'optional explicit line override (product_id + qty_ordered units)',
@@ -206,7 +207,7 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
     let items: { product_id: string; qty_ordered: number; unit_cost: null }[] | undefined;
     let cartonNote = '';
     if (input.flavour) {
-      const p = await proposeOneFlavour(String(input.flavour));
+      const p = await proposeOneFlavour(String(input.flavour), 'ALTONA', input.order_kg ? Number(input.order_kg) : undefined);
       if (!p) return { error: `Couldn't build a PO for "${input.flavour}" — no matching flavour.` };
       items = p.lines.map((l) => ({ product_id: l.product_id, qty_ordered: l.units, unit_cost: null }));
       const cartons = p.lines.filter((l) => l.cartons);
@@ -386,6 +387,8 @@ ABC purchase-order rules (IMPORTANT — get these right):
 - The weight is split across that flavour's sizes (320g / 520g / 1kg) weighted by which sizes are actually low (live velocity + cover). Bag weights: 320g = 0.32kg, 520g = 0.52kg, 1kg = 1kg. A single size is fine if only one is low (e.g. 500kg of just 520g).
 - 320g bags are WHOLESALE, packed by ABC in Shelf-Ready Cartons of 4. The PO is placed in TOTAL UNITS (individual bags), but ShipBob counts them as cartons (units ÷ 4). ALWAYS present 320g lines as "X units (Y cartons)".
 - Account for inbound stock. get_reorder_recommendations gives the per-flavour 500kg proposals; draft_po with a flavour drafts one.
+- EXACT SIZES: by default draft_po auto-rounds to a demand-based 500kg multiple. If the user specifies a size ("500kg", "just 500", "one tonne", "1.5T", "500 units of 1kg"), pass order_kg to draft_po to pin it EXACTLY — do NOT auto-round back up to a bigger multiple. The user's stated size wins. (1kg bags: units == kg.) You may note if you think it'll sell out sooner, but build what they asked.
+- ERROR HONESTY: if a tool returns an error, relay the ACTUAL error text — never invent a cause (don't guess "token expired"/"re-auth needed"/"missing field" unless the error literally says so). Quote the real message and suggest the real next step.
 Purchase orders — TWO-STEP send (don't confuse the steps):
 STEP 1 (approve): draft_po creates a DRAFT PO + attaches a screenshot; tell the user to reply "SEND". When the user approves, call approve_po. approve_po pushes the PO to Xero AND prepares (DRAFTS, does NOT send) the email to ABC (To: Sharon, CC: Stephen, Xero PO PDF attached). After it returns: confirm the Xero PO number, say the ABC email is DRAFTED in Gmail for review (show the To/CC + subject "New PO"), and tell them to reply "SEND TO ABC" when they're happy for it to go (or to tweak the Gmail draft first). If email_drafted is false, warn the draft didn't create (Gmail may need reconnecting).
 STEP 2 (send to ABC): ONLY when the user explicitly says to send the email to ABC ("send to ABC", "send it", "fire it over", "yep send the email"), call send_po_email. Then confirm it's been sent to Sharon (cc Stephen).

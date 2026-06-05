@@ -127,6 +127,16 @@ export async function markXeroPOBilled(xeroPoId: string): Promise<boolean> {
   }
 }
 
+// Resolve a contact's Xero ContactID by name (PO create requires ContactID, not Name).
+export async function getXeroContactId(name: string): Promise<string | null> {
+  try {
+    const r = await xeroGet(`/Contacts?where=${encodeURIComponent(`Name=="${name}"`)}`);
+    return r.Contacts?.[0]?.ContactID ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function createXeroPurchaseOrder(opts: {
   contactName: string;
   lines: { ItemCode: string; Quantity: number; UnitAmount: number | null }[];
@@ -134,9 +144,11 @@ export async function createXeroPurchaseOrder(opts: {
   deliveryDate?: string | null;
   status?: 'DRAFT' | 'AUTHORISED';
 }): Promise<{ id: string; number: string }> {
+  // Xero rejects Contact-by-Name on PO create; resolve the ContactID first.
+  const contactId = await getXeroContactId(opts.contactName);
   const body = {
     PurchaseOrders: [{
-      Contact: { Name: opts.contactName },
+      Contact: contactId ? { ContactID: contactId } : { Name: opts.contactName },
       Date: new Date().toISOString().slice(0, 10),
       DeliveryDate: opts.deliveryDate || undefined,
       Reference: opts.reference || undefined,
