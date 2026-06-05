@@ -131,21 +131,37 @@ export async function gmailGetPdfAttachment(messageId: string): Promise<{ filena
   return { filename: f.filename, base64: std };
 }
 
-function rawMessage(to: string, subject: string, body: string, from?: string) {
+export interface MailAttachment { filename: string; base64: string; mime?: string }
+
+function b64url(s: string) { return Buffer.from(s, 'utf-8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+
+function rawMessage(to: string, subject: string, body: string, attachment?: MailAttachment) {
+  if (!attachment) {
+    const lines = [`To: ${to}`, `Subject: ${subject}`, 'Content-Type: text/plain; charset=UTF-8', '', body].join('\r\n');
+    return b64url(lines);
+  }
+  const boundary = 'tpp_' + Math.random().toString(36).slice(2);
+  const wrapped = attachment.base64.replace(/[\r\n]/g, '').replace(/(.{76})/g, '$1\r\n');
   const lines = [
-    from ? `From: ${from}` : '', `To: ${to}`, `Subject: ${subject}`,
-    'Content-Type: text/plain; charset=UTF-8', '', body,
-  ].filter(Boolean).join('\r\n');
-  return Buffer.from(lines).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    `To: ${to}`, `Subject: ${subject}`, 'MIME-Version: 1.0',
+    `Content-Type: multipart/mixed; boundary="${boundary}"`, '',
+    `--${boundary}`, 'Content-Type: text/plain; charset=UTF-8', '', body, '',
+    `--${boundary}`,
+    `Content-Type: ${attachment.mime || 'application/pdf'}; name="${attachment.filename}"`,
+    'Content-Transfer-Encoding: base64',
+    `Content-Disposition: attachment; filename="${attachment.filename}"`, '',
+    wrapped, '', `--${boundary}--`,
+  ].join('\r\n');
+  return b64url(lines);
 }
 
-// Create a DRAFT (does not send). Returns draft id.
-export async function gmailCreateDraft(to: string, subject: string, body: string): Promise<string> {
+// Create a DRAFT (does not send), optionally with a PDF attachment. Returns draft id.
+export async function gmailCreateDraft(to: string, subject: string, body: string, attachment?: MailAttachment): Promise<string> {
   const token = await getGoogleToken();
   if (!token) throw new Error('Gmail not connected');
   const res = await fetch(`${GMAIL}/drafts`, {
     method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message: { raw: rawMessage(to, subject, body) } }),
+    body: JSON.stringify({ message: { raw: rawMessage(to, subject, body, attachment) } }),
   });
   if (!res.ok) throw new Error(`Gmail draft failed: ${res.status} ${await res.text()}`);
   return (await res.json()).id;

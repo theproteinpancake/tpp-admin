@@ -3,7 +3,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { supabaseLogistics } from './supabase-logistics';
 import { gmailSearch, gmailGetPdfAttachment, gmailCreateDraft } from './google';
-import { createWRO } from './shipbob';
+import { createWRO, getWROLabels } from './shipbob';
 
 const MODEL = 'claude-sonnet-4-6';
 const ABC_QUERY = 'from:abcblending.com.au has:attachment newer_than:30d';
@@ -100,9 +100,19 @@ export async function createWROFromParsed(parsed: ParsedDocket, site = 'ALTONA')
   return { wro_id: wro.id, status: wro.status, lines: parsed.lines.length };
 }
 
-// Draft the reply to Sharon (does not send).
-export async function draftSharonReply(to: string, docketRef: string | null, wroId: number) {
-  const subject = `WRO ${wroId} — ready for freight${docketRef ? ` (docket ${docketRef})` : ''}`;
-  const body = `Hi Sharon,\n\nThanks — I've created the WRO in ShipBob (WRO ${wroId}). Good to organise freight to ShipBob now.\n\nCheers,\nLuke`;
-  return gmailCreateDraft(to, subject, body);
+const SIGNATURE = 'Luke Rolls\nOwner | The Protein Pancake\nP: +61 0412 474 330\nE: luke@theproteinpancake.co';
+
+// Draft the reply to Sharon with the WRO box labels attached (does not send).
+// Returns the EXACT draft so the agent can show it verbatim before sending.
+export async function draftSharonReply(to: string, docketRef: string | null, wroId: number, site = 'ALTONA') {
+  const subject = `WRO ${wroId} — labels attached${docketRef ? ` (docket ${docketRef})` : ''}`;
+  const body = `Hi Sharon,\n\nThanks for that. Labels attached!\n\n${SIGNATURE}`;
+  let attached = false;
+  let attachment;
+  try {
+    const labels = await getWROLabels(site, wroId);
+    if (labels) { attachment = { filename: `WRO-${wroId}-labels.pdf`, base64: labels }; attached = true; }
+  } catch { /* labels optional — draft still useful */ }
+  const draft_id = await gmailCreateDraft(to, subject, body, attachment);
+  return { draft_id, to, subject, body, attached };
 }

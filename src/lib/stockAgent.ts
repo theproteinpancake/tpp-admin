@@ -127,7 +127,7 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: 'draft_sharon_reply',
-    description: 'Draft (NOT send) a reply to Sharon with the WRO labels. Use her email + docket ref from check_docket and the WRO id from create_wro.',
+    description: 'Draft (NOT send) the reply to Sharon with the WRO box-labels PDF attached. Use her email + docket ref from check_docket and the WRO id from create_wro. Returns the exact subject + body — show the user the body VERBATIM (do not paraphrase) so what they approve is what sends. Only send_email_draft after they approve.',
     input_schema: { type: 'object', properties: { to: { type: 'string' }, docket_ref: { type: 'string' }, wro_id: { type: 'number' } }, required: ['to', 'wro_id'] },
   },
   {
@@ -314,8 +314,7 @@ Luke`;
   }
   if (name === 'draft_sharon_reply') {
     try {
-      const draftId = await draftSharonReply(String(input.to), (input.docket_ref as string) || null, Number(input.wro_id));
-      return { draft_id: draftId };
+      return await draftSharonReply(String(input.to), (input.docket_ref as string) || null, Number(input.wro_id));
     } catch (e) { return { error: String(e).slice(0, 160) }; }
   }
   if (name === 'send_email_draft') {
@@ -348,6 +347,8 @@ Purchase orders: draft_po creates a DRAFT only + attaches a screenshot; then tel
 
 Receiving (WRO) flow — when the user says a packing slip / docket arrived from Sharon/ABC:
 1. check_docket → parse_docket. 2. Show the parsed lines with LOT NUMBERS and BEST-BEFORE dates clearly, and ask the user to confirm before proceeding (critical — expirable stock). 3. Only after they confirm, create_wro. 4. Then offer to reply to Sharon: draft_sharon_reply, show it, and only send_email_draft when they say send. Never create a WRO or send an email without explicit confirmation.
+
+Email drafts: when a draft_* tool returns a subject + body, show the user that EXACT subject and body verbatim (quote it as-is — never rewrite, embellish or summarise it) so what they approve is exactly what gets sent. Mention if a file is attached. Only send after explicit approval.
 
 Multi-step memory: you can see the recent conversation. When the user replies "yes"/"confirm"/"SEND"/"do it", act on what you just proposed — re-fetch any IDs you need (e.g. call check_docket again to get the docket, then create_wro). Never lose the thread.
 
