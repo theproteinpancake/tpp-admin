@@ -11,6 +11,7 @@ import { getLots, expiryStatus, EXPIRY_META } from './lots';
 import { getShippingData } from './shipping';
 import { getBillingData, buildHighlights } from './billing';
 import { getTransfer, transferUnits, transferValue } from './transfers';
+import { suggestRestock, createDraftTransfer } from './transferBuilder';
 import { MAERSK } from './transferConstants';
 import { sendWhatsApp } from './whatsapp';
 
@@ -66,6 +67,16 @@ const tools: Anthropic.Tool[] = [
     name: 'get_expiring_stock',
     description: 'Batch/lot best-before data — stock with the soonest expiry per site (lot number, best-before date, days left, units, status). Use for "what expires soonest / shortest-dated / batch best-befores / expiry".',
     input_schema: { type: 'object', properties: { site: { type: 'string', enum: ['ALTONA', 'MANCHESTER'] } } },
+  },
+  {
+    name: 'suggest_transfer',
+    description: 'Preview a restock transfer for a site (default Manchester) WITHOUT creating it — uses live per-SKU velocity, triggers at 90 days cover, tops up to ~180 days, capped by Altona stock. Use for "what should we send to the UK / Manchester", "build a transfer for everything Manchester is low on". Show the user the lines + totals and ask them to confirm before create_transfer.',
+    input_schema: { type: 'object', properties: { destination: { type: 'string', enum: ['MANCHESTER'] } } },
+  },
+  {
+    name: 'create_transfer',
+    description: 'Create the DRAFT transfer (after the user confirms a suggest_transfer preview). Returns the reference (e.g. INTERNAL3). It appears on the Transfers page with auto-generated Commercial Invoice + Packing List. ONLY call after explicit user confirmation.',
+    input_schema: { type: 'object', properties: { destination: { type: 'string', enum: ['MANCHESTER'] } } },
   },
   {
     name: 'send_transfer_docs',
@@ -175,6 +186,20 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
       site: l.site, lot: l.lot_number, best_before: l.expiry_date, days_left: l.days_left,
       on_hand: l.on_hand, status: EXPIRY_META[expiryStatus(l.days_left)].label,
     }));
+  }
+  if (name === 'suggest_transfer') {
+    const s = await suggestRestock((input.destination as string) || 'MANCHESTER');
+    return {
+      destination: s.destination, origin: s.origin, trigger_days: s.trigger_days, target_days: s.target_days,
+      total_units: s.total_units, total_value: s.total_value,
+      lines: s.lines.map((l) => ({ sku: l.sku, flavour: l.flavour, size: l.size, suggested: l.suggested, uk_cover_days: l.days_cover, daily: l.daily, altona_available: l.origin_available })),
+      note: s.lines.length ? 'Preview only — confirm with the user, then call create_transfer.' : 'Nothing due — all within target cover.',
+    };
+  }
+  if (name === 'create_transfer') {
+    const s = await suggestRestock((input.destination as string) || 'MANCHESTER');
+    const res = await createDraftTransfer(s);
+    return res;
   }
   if (name === 'send_transfer_docs') {
     const ref = String(input.reference || '');
@@ -291,7 +316,7 @@ Your full toolkit:
 - get_reorder_recommendations — what to order & how many (velocity × lead+target − stock − inbound).
 - get_shipping_billing — shipping cost trends, monthly spend, MoM change, cost OUTLIERS/overcharges, invoices.
 - get_internal_transfers — AU→UK stock transfers (pallets) in transit; their units already feed the destination site's inbound. Use for "what's on the way to the UK", "the pallet", "INTERNAL2".
-- send_transfer_docs — WhatsApp the Commercial Invoice + Packing List PDFs for a transfer to the user. draft_transfer_email — draft (not send) the Maersk/Jordan email to start the transfer. For sending the email, use send_email_draft only after explicit approval.
+- suggest_transfer → create_transfer — propose a restock transfer to a site (live velocity, 90-day trigger, 180-day target, Altona-capped); show the preview, confirm, then create the draft. send_transfer_docs — WhatsApp the Commercial Invoice + Packing List PDFs for a transfer to the user. draft_transfer_email — draft (not send) the Maersk/Jordan email to start the transfer. For sending the email, use send_email_draft only after explicit approval.
 - draft_po → approve_po — draft a PO (ABC → Altona) with a screenshot, then push to Xero on approval.
 - check_docket → parse_docket → create_wro → draft_sharon_reply → send_email_draft — the receiving/WRO flow.
 

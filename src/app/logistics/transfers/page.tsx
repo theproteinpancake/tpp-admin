@@ -1,6 +1,7 @@
 import { Truck, FileText, ArrowRight } from 'lucide-react';
 import { listTransfers, transferUnits, transferValue } from '@/lib/transfers';
 import { TRANSFER_DOCS } from '@/lib/transferPdf';
+import BuildRestockButton from '@/components/transfers/BuildRestockButton';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -22,9 +23,12 @@ export default async function TransfersPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Stock Transfers</h1>
-        <p className="mt-1 text-gray-500">Internal Altona (AU) → Manchester (UK) pallets &amp; their shipping documents</p>
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Stock Transfers</h1>
+          <p className="mt-1 text-gray-500">Internal Altona (AU) → Manchester (UK) pallets &amp; their shipping documents</p>
+        </div>
+        <BuildRestockButton />
       </div>
 
       {transfers.length === 0 ? (
