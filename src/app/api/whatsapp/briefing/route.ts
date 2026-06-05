@@ -3,8 +3,11 @@ import { supabaseLogistics } from '@/lib/supabase-logistics';
 import { computeStatus } from '@/lib/stock';
 import { OPEN_STATUSES } from '@/lib/po-types';
 import { allowedNumbers, sendWhatsApp } from '@/lib/whatsapp';
+import { getActionCenter } from '@/lib/actionCenter';
 
-export const maxDuration = 30;
+export const maxDuration = 60;
+
+const SEV_ICON: Record<string, string> = { critical: '🔴', warning: '🟠', info: '🔵' };
 
 function sizeLabel(g: number | null) { return g == null ? '' : g >= 1000 ? `${g / 1000}kg` : `${g}g`; }
 
@@ -16,6 +19,16 @@ async function buildBriefing(): Promise<string> {
 
   const today = new Date().toISOString().slice(0, 10);
   const lines: string[] = [`📦 *TPP stock briefing* — ${today}`];
+
+  // Lead with the proactive action list — what needs you today
+  const actions = await getActionCenter().catch(() => []);
+  if (actions.length) {
+    lines.push(`\n*🧠 Needs you today:*`);
+    for (const a of actions) lines.push(`${SEV_ICON[a.severity] || '•'} ${a.title} — ${a.detail}`);
+    lines.push(`_Reply e.g. “${actions[0].command}” and I’ll handle it._`);
+  } else {
+    lines.push(`\n✅ Nothing needs action today — all sites within target cover.`);
+  }
 
   for (const code of ['ALTONA', 'MANCHESTER']) {
     const label = code === 'ALTONA' ? 'Altona (AU)' : 'Manchester (UK)';

@@ -5,6 +5,7 @@ import type { StockRow } from '@/lib/supabase-logistics';
 import { flavourColor } from '@/lib/flavours';
 import { getShortestDated, expiryStatus, EXPIRY_META } from '@/lib/lots';
 import { getBillingHighlights, SITE_LABEL } from '@/lib/billing';
+import { getActionCenter, type Severity } from '@/lib/actionCenter';
 import TrendSparkline, { type Point } from '@/components/stock/TrendSparkline';
 import SyncNowButton from '@/components/stock/SyncNowButton';
 
@@ -183,6 +184,7 @@ export default async function StockOverviewPage() {
   const { sites, rows, history, lastSync } = await getStockData();
   const shortestDated = await getShortestDated(6);
   const billing = await getBillingHighlights();
+  const actions = await getActionCenter();
 
   // history -> product -> site -> points
   const historyByProduct = new Map<string, Record<string, Point[]>>();
@@ -264,6 +266,35 @@ export default async function StockOverviewPage() {
           );
         })}
       </div>
+
+      {/* Action Center — proactive: what needs attention */}
+      {actions.length > 0 && (
+        <section className="mb-8">
+          <div className="mb-3 flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5 text-caramel" />
+            <h2 className="text-lg font-semibold text-gray-900">Action Center</h2>
+            <span className="rounded-full bg-cream px-2 py-0.5 text-[11px] font-medium text-maple">{actions.length} to action</span>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {actions.map((a) => {
+              const sev: Record<Severity, string> = { critical: '#dc2626', warning: '#d97706', info: '#2563eb' };
+              return (
+                <Link key={a.key} href={a.href} className="group rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition-colors hover:border-caramel">
+                  <div className="flex items-center justify-between">
+                    <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-gray-900">
+                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: sev[a.severity] }} />
+                      {a.title}
+                    </span>
+                    <span className="rounded-full bg-gray-100 px-1.5 text-[11px] font-medium text-gray-500">{a.count}</span>
+                  </div>
+                  <p className="mt-1.5 text-xs text-gray-600">{a.detail}</p>
+                  <p className="mt-2 text-[11px] text-gray-400 group-hover:text-maple">💬 “{a.command}”</p>
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* Billing highlights */}
       <section className="mb-8">

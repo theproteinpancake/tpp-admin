@@ -12,6 +12,7 @@ import { getShippingData } from './shipping';
 import { getBillingData, buildHighlights } from './billing';
 import { getTransfer, transferUnits, transferValue } from './transfers';
 import { suggestRestock, createDraftTransfer } from './transferBuilder';
+import { getActionCenter } from './actionCenter';
 import { MAERSK } from './transferConstants';
 import { sendWhatsApp } from './whatsapp';
 
@@ -67,6 +68,11 @@ const tools: Anthropic.Tool[] = [
     name: 'get_expiring_stock',
     description: 'Batch/lot best-before data — stock with the soonest expiry per site (lot number, best-before date, days left, units, status). Use for "what expires soonest / shortest-dated / batch best-befores / expiry".',
     input_schema: { type: 'object', properties: { site: { type: 'string', enum: ['ALTONA', 'MANCHESTER'] } } },
+  },
+  {
+    name: 'get_action_center',
+    description: 'The proactive priority list across BOTH sites — what needs the founder\'s attention now: UK transfers due, ABC POs to place, packaging to reorder, expiring stock, billing flags. Use for "what needs my attention", "what should I action today", "anything I need to do", or to open a conversation proactively.',
+    input_schema: { type: 'object', properties: {} },
   },
   {
     name: 'suggest_transfer',
@@ -186,6 +192,10 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
       site: l.site, lot: l.lot_number, best_before: l.expiry_date, days_left: l.days_left,
       on_hand: l.on_hand, status: EXPIRY_META[expiryStatus(l.days_left)].label,
     }));
+  }
+  if (name === 'get_action_center') {
+    const acts = await getActionCenter();
+    return acts.length ? acts.map((a) => ({ priority: a.severity, title: a.title, detail: a.detail, say_to_action: a.command })) : { note: 'All clear — nothing needs action right now. ✅' };
   }
   if (name === 'suggest_transfer') {
     const s = await suggestRestock((input.destination as string) || 'MANCHESTER');
@@ -310,6 +320,7 @@ Live data + real actions via tools. Sites: Altona (AU, AUD) & Manchester (UK, GB
 CRITICAL RULE — never say you can't do something logistics-related without FIRST calling the relevant tool. If a tool returns no rows, say "no data found right now", NOT "I don't have access". You DO have every capability below. Do not describe your own tool list to the user; just answer.
 
 Your full toolkit:
+- get_action_center — the proactive cross-site priority list (transfers due, POs, packaging, expiry, billing). Lead with this for "what needs my attention" and when opening a proactive check-in; then offer to action the top items.
 - get_stock — live on-hand, available, days of cover, inbound, velocity, status, per SKU per site.
 - get_expiring_stock — batch/lot best-before dates, days left, soonest-expiring stock (BOTH sites). This covers ALL expiry / shortest-dated / batch / best-before questions.
 - get_purchase_orders — POs: supplier, status, expected date, outstanding units.
