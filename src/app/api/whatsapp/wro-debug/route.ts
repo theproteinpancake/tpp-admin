@@ -12,11 +12,14 @@ export async function GET(req: NextRequest) {
   const site = (searchParams.get('site') || 'ALTONA').toUpperCase();
   const token = site === 'MANCHESTER' ? process.env.SHIPBOB_API_TOKEN_UK : process.env.SHIPBOB_API_TOKEN;
   const urls = [
-    `https://api.shipbob.com/2026-01/receiving/${id}/box-labels`,
-    `https://api.shipbob.com/2025-07/receiving/${id}/box-labels`,
-    `https://api.shipbob.com/2024-07/receiving/${id}/box-labels`,
+    `https://api.shipbob.com/2.0/receiving/${id}/box-labels`,
+    `https://api.shipbob.com/1.0/receiving/${id}/box-labels`,
+    `https://api.shipbob.com/experimental/receiving/${id}/box-labels`,
+    `https://api.shipbob.com/experimental/receiving/${id}/labels`,
+    `https://api.shipbob.com/2.0/receiving/${id}/labels?LabelType=Pallet`,
+    `https://api.shipbob.com/2.0/receiving/${id}/labels?type=box`,
+    `https://api.shipbob.com/2.0/receiving/${id}/pallet-labels`,
     `https://api.shipbob.com/2.0/receiving/${id}/labels`,
-    `https://api.shipbob.com/1.0/receiving/${id}/labels`,
   ];
   const out: any[] = [];
   for (const url of urls) {
