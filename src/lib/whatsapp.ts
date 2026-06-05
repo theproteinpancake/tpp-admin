@@ -6,6 +6,18 @@ const FROM = () => process.env.TWILIO_WHATSAPP_FROM || '';
 // not the default US1 host. Override with TWILIO_API_BASE if the region changes.
 export const TWILIO_API_BASE = process.env.TWILIO_API_BASE || 'https://api.au1.twilio.com';
 
+// Prefer API Key auth (SK… + secret) — recommended by Twilio and required by some
+// regional accounts; fall back to Account SID + Auth Token. The URL path always
+// uses the AC account SID regardless of which credential authenticates.
+export function twilioAuthHeader(): string | null {
+  const keySid = process.env.TWILIO_API_KEY_SID || '';
+  const keySecret = process.env.TWILIO_API_KEY_SECRET || '';
+  if (keySid && keySecret) return 'Basic ' + Buffer.from(`${keySid}:${keySecret}`).toString('base64');
+  const sid = SID(), token = TOKEN();
+  if (sid && token) return 'Basic ' + Buffer.from(`${sid}:${token}`).toString('base64');
+  return null;
+}
+
 // normalise to Twilio's "whatsapp:+E164" form
 export function waAddr(n: string): string {
   const t = n.trim();
@@ -24,14 +36,15 @@ export function isAllowed(from: string): boolean {
 }
 
 export async function sendWhatsApp(to: string, body: string, mediaUrl?: string): Promise<boolean> {
-  const sid = SID(), token = TOKEN(), from = FROM();
-  if (!sid || !token || !from) { console.error('Twilio env missing'); return false; }
+  const sid = SID(), from = FROM();
+  const auth = twilioAuthHeader();
+  if (!sid || !auth || !from) { console.error('Twilio env missing'); return false; }
   const params = new URLSearchParams({ To: waAddr(to), From: from, Body: body.slice(0, 1550) });
   if (mediaUrl) params.set('MediaUrl', mediaUrl);
   const res = await fetch(`${TWILIO_API_BASE}/2010-04-01/Accounts/${sid}/Messages.json`, {
     method: 'POST',
     headers: {
-      Authorization: 'Basic ' + Buffer.from(`${sid}:${token}`).toString('base64'),
+      Authorization: auth,
       'Content-Type': 'application/x-www-form-urlencoded',
     },
     body: params,

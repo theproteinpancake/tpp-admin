@@ -10,8 +10,12 @@ export async function GET(req: NextRequest) {
   // optional ?sid= override lets us test the env token against a known-good SID
   const sid = searchParams.get('sid') || process.env.TWILIO_ACCOUNT_SID || '';
   const sid_source = searchParams.get('sid') ? 'override' : 'env';
+  const keySid = process.env.TWILIO_API_KEY_SID || '';
+  const keySecret = process.env.TWILIO_API_KEY_SECRET || '';
+  const usingApiKey = !!(keySid && keySecret);
   const tok = process.env.TWILIO_AUTH_TOKEN || '';
-  const headers = { Authorization: `Basic ${Buffer.from(`${sid}:${tok}`).toString('base64')}` };
+  const cred = usingApiKey ? `${keySid}:${keySecret}` : `${sid}:${tok}`;
+  const headers = { Authorization: `Basic ${Buffer.from(cred).toString('base64')}` };
   const probe = async (host: string) => {
     try {
       const r = await fetch(`https://${host}/2010-04-01/Accounts/${sid}.json`, { headers });
@@ -24,6 +28,8 @@ export async function GET(req: NextRequest) {
     sid_source,
     account_sid_len: sid.length, // a real Account SID is 34 chars (AC + 32 hex)
     account_sid_ok: sid.startsWith('AC') && sid.length === 34,
+    auth_mode: usingApiKey ? 'api_key' : 'auth_token',
+    api_key_sid: keySid ? `${keySid.slice(0, 4)}…${keySid.slice(-2)}` : '(none)',
     token_present: !!tok,
     token_len: tok.length,
     token_preview: tok ? `${tok.slice(0, 4)}…${tok.slice(-2)}` : '(missing)',
