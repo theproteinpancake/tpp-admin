@@ -4,7 +4,7 @@ import { supabaseLogistics } from './supabase-logistics';
 import { computeStatus, STATUS_META, PRIMARY_FLAVOURS } from './stock';
 import { OPEN_STATUSES } from './po-types';
 import { proposeFlavourPOs, proposeOneFlavour } from './poBuilder';
-import { draftWhatsAppPO, approveLatestWhatsAppDraft } from './poActions';
+import { draftWhatsAppPO, approveLatestWhatsAppDraft, sendLatestPOEmail } from './poActions';
 import { markPOReceived } from './poReconcile';
 import { findLatestDocket, parseDocket, createWROFromParsed, draftSharonReply } from './wroFlow';
 import { gmailSendDraft, gmailCreateDraft } from './google';
@@ -70,6 +70,11 @@ const tools: Anthropic.Tool[] = [
   {
     name: 'approve_po',
     description: 'ONLY call when the user has EXPLICITLY approved sending (e.g. "send it", "approve", "yes send to ABC"). Pushes the most recent draft PO to Xero as an approved order.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'send_po_email',
+    description: 'Send the PENDING ABC PO email (the Gmail draft created when a PO was approved) to ABC — To: Sharon, CC: Stephen, with the PO PDF. ONLY call when the user explicitly confirms sending the email to ABC ("send to ABC", "send it to ABC", "fire it over", "yep send the email"). This is the final step AFTER approve_po has drafted it.',
     input_schema: { type: 'object', properties: {} },
   },
   {
@@ -216,6 +221,9 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
   }
   if (name === 'approve_po') {
     return await approveLatestWhatsAppDraft();
+  }
+  if (name === 'send_po_email') {
+    return await sendLatestPOEmail();
   }
   if (name === 'mark_po_received') {
     const po = String(input.po_number || '').trim().toUpperCase();
@@ -378,7 +386,11 @@ ABC purchase-order rules (IMPORTANT — get these right):
 - The weight is split across that flavour's sizes (320g / 520g / 1kg) weighted by which sizes are actually low (live velocity + cover). Bag weights: 320g = 0.32kg, 520g = 0.52kg, 1kg = 1kg. A single size is fine if only one is low (e.g. 500kg of just 520g).
 - 320g bags are WHOLESALE, packed by ABC in Shelf-Ready Cartons of 4. The PO is placed in TOTAL UNITS (individual bags), but ShipBob counts them as cartons (units ÷ 4). ALWAYS present 320g lines as "X units (Y cartons)".
 - Account for inbound stock. get_reorder_recommendations gives the per-flavour 500kg proposals; draft_po with a flavour drafts one.
-Purchase orders: draft_po creates a DRAFT only + attaches a screenshot; then tell the user to reply "SEND". Only call approve_po when the user EXPLICITLY approves ("SEND"/"approve"/"yes send it"). Never approve on your own. Approving pushes the PO to Xero AND emails it to ABC (To: Sharon, CC: Stephen) with the Xero PO PDF attached. After approving, confirm the Xero PO number AND whether the email went to ABC (the result's emailed flag): if emailed is true say it's been sent to Sharon (cc Stephen); if false, warn that the PO is in Xero but the email didn't send (Gmail may need reconnecting) so they should send it manually.
+Purchase orders — TWO-STEP send (don't confuse the steps):
+STEP 1 (approve): draft_po creates a DRAFT PO + attaches a screenshot; tell the user to reply "SEND". When the user approves, call approve_po. approve_po pushes the PO to Xero AND prepares (DRAFTS, does NOT send) the email to ABC (To: Sharon, CC: Stephen, Xero PO PDF attached). After it returns: confirm the Xero PO number, say the ABC email is DRAFTED in Gmail for review (show the To/CC + subject "New PO"), and tell them to reply "SEND TO ABC" when they're happy for it to go (or to tweak the Gmail draft first). If email_drafted is false, warn the draft didn't create (Gmail may need reconnecting).
+STEP 2 (send to ABC): ONLY when the user explicitly says to send the email to ABC ("send to ABC", "send it", "fire it over", "yep send the email"), call send_po_email. Then confirm it's been sent to Sharon (cc Stephen).
+CRITICAL anti-loop rule: if a DRAFT PO is already pending and the user's reply contains SEND / approve / yes / go (EVEN with extra words like "SEND and I'll check the draft first"), that is approval — call approve_po. Do NOT re-run draft_po or re-show the screenshot. Likewise if a PO is approved and awaiting the ABC email, "send to ABC"/"send it" means call send_po_email — do NOT re-approve or re-draft. Only call draft_po when the user is asking for a NEW/different order. Honour any extra instruction in the message (e.g. "I'll check the draft first") in your wording, but still take the approve/send action.
+Only call approve_po / send_po_email when the user EXPLICITLY approves. Never approve or send on your own.
 Inbound accuracy (CRITICAL — don't hallucinate inbound): "inbound" = OPEN POs only (status placed/in_production/partially_received). A PO marked received/delivered does NOT count as inbound — never add it to inbound totals. Old POs that have already landed should be marked received: use mark_po_received with the exact po_number (it drops them from inbound and marks them Billed in Xero). WROs received at ShipBob are auto-reconciled to their PO daily. If the user says a PO has landed / is old / was already delivered, call mark_po_received. When inbound numbers look suspiciously high, suspect stale POs that were never closed — check get_purchase_orders and offer to mark the delivered ones received.
 
 Receiving (WRO) flow — TWO distinct steps, decided by the conversation so far:

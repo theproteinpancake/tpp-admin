@@ -2,7 +2,7 @@
 import { supabaseLogistics } from './supabase-logistics';
 import { getReorderRecommendations } from './reorder';
 import { getConnection, createXeroPurchaseOrder, getXeroPOPdf } from './xero';
-import { gmailSend } from './google';
+import { gmailCreateDraft, gmailSendDraft } from './google';
 
 const APP_URL = process.env.PUBLIC_APP_URL || 'https://admin.theproteinpancake.co';
 
@@ -11,21 +11,47 @@ const ABC_PO_TO = process.env.ABC_PO_TO || 'sharon.driscoll@abcblending.com.au';
 const ABC_PO_CC = process.env.ABC_PO_CC || 'stephen@abcblending.com.au';
 const PO_SIGNATURE = 'Luke Rolls\nOwner | The Protein Pancake\nP: +61 0412 474 330\nE: luke@theproteinpancake.co';
 
-// Email an approved PO to ABC (To: Sharon, CC: Stephen) with the Xero PDF attached.
-// Best-effort: returns false if Gmail isn't connected or sending fails.
-export async function emailPOToABC(xeroPoId: string, poNumber: string, flavour: string): Promise<boolean> {
+// Build the ABC PO email (To: Sharon, CC: Stephen, Xero PDF attached).
+function poEmailContent(poNumber: string, flavour: string) {
+  const of = flavour ? ` of ${flavour}` : '';
+  return {
+    to: ABC_PO_TO, cc: ABC_PO_CC, subject: 'New PO',
+    body: `Hey guys,\n\nJust sending over a new PO${of}.\n\nThanks!\n\n${PO_SIGNATURE}`,
+  };
+}
+
+// Create (but DON'T send) the ABC PO email as a Gmail draft so Luke can review it
+// first. Returns the draft id + the exact contents. Best-effort (null on failure).
+export async function draftPOEmailToABC(xeroPoId: string, poNumber: string, flavour: string):
+  Promise<{ draft_id: string; to: string; cc: string; subject: string; body: string; attached: boolean } | null> {
   try {
     const pdf = await getXeroPOPdf(xeroPoId);
-    const subject = 'New PO';
-    const of = flavour ? ` of ${flavour}` : '';
-    const body = `Hey guys,\n\nJust sending over a new PO${of}.\n\nThanks!\n\n${PO_SIGNATURE}`;
-    await gmailSend(ABC_PO_TO, subject, body, {
-      cc: ABC_PO_CC,
-      attachment: pdf ? { filename: `${poNumber}.pdf`, base64: pdf } : undefined,
-    });
-    return true;
+    const c = poEmailContent(poNumber, flavour);
+    const attachment = pdf ? { filename: `${poNumber}.pdf`, base64: pdf } : undefined;
+    const draft_id = await gmailCreateDraft(c.to, c.subject, c.body, attachment, c.cc);
+    return { draft_id, ...c, attached: !!pdf };
   } catch {
-    return false;
+    return null;
+  }
+}
+
+// Send the pending ABC email for the most-recently-approved PO (the Gmail draft
+// created at approval). Called only when Luke explicitly confirms ("send to ABC").
+export async function sendLatestPOEmail():
+  Promise<{ ok: true; po_number: string; to: string; cc: string } | { error: string }> {
+  const { data: po } = await supabaseLogistics.from('purchase_orders')
+    .select('id, po_number, email_draft_id')
+    .eq('source', 'whatsapp').eq('status', 'placed')
+    .not('email_draft_id', 'is', null)
+    .order('updated_at', { ascending: false }).limit(1).maybeSingle() as any;
+  if (!po?.email_draft_id) return { error: 'No PO email draft is waiting to be sent. Approve a PO first.' };
+  try {
+    await gmailSendDraft(po.email_draft_id);
+    await supabaseLogistics.from('purchase_orders')
+      .update({ email_draft_id: null, updated_at: new Date().toISOString() }).eq('id', po.id);
+    return { ok: true, po_number: po.po_number, to: ABC_PO_TO, cc: ABC_PO_CC };
+  } catch (e) {
+    return { error: `Couldn't send the PO email: ${String(e).slice(0, 120)}` };
   }
 }
 
@@ -67,9 +93,12 @@ export async function draftWhatsAppPO(lines?: DraftLine[]): Promise<{ id: string
   return { id: po.id, image_url: `${APP_URL}/api/whatsapp/po-image/${po.id}`, summary };
 }
 
-// Approve the most recent WhatsApp draft → push to Xero as AUTHORISED, then email
-// the PO to ABC (To: Sharon, CC: Stephen) with the Xero PDF attached.
-export async function approveLatestWhatsAppDraft(): Promise<{ ok: true; xero_number: string; emailed: boolean } | { error: string }> {
+// Approve the most recent WhatsApp draft → push to Xero as AUTHORISED, then DRAFT
+// the ABC email (To: Sharon, CC: Stephen, Xero PDF) for Luke to review. The email
+// is NOT sent until Luke confirms with "send to ABC" (sendLatestPOEmail).
+export async function approveLatestWhatsAppDraft(): Promise<
+  { ok: true; xero_number: string; email_drafted: boolean; email_to: string; email_cc: string; email_subject: string; email_body: string }
+  | { error: string }> {
   if (!(await getConnection())) return { error: 'Xero is not connected yet — connect it on the Purchase Orders page first.' };
   const { data: po } = await supabaseLogistics.from('purchase_orders')
     .select('id, reference, expected_date, items:po_items(qty_ordered, unit_cost, product:product_id(sku, flavour, unit_size_g))')
@@ -88,11 +117,15 @@ export async function approveLatestWhatsAppDraft(): Promise<{ ok: true; xero_num
     const xero = await createXeroPurchaseOrder({
       contactName: 'ABC Blending', lines, reference: 'TPP WhatsApp PO', status: 'AUTHORISED',
     });
+    const draft = await draftPOEmailToABC(xero.id, xero.number, flavour);
     await supabaseLogistics.from('purchase_orders')
-      .update({ status: 'placed', xero_po_id: xero.id, po_number: xero.number, xero_status: 'AUTHORISED', updated_at: new Date().toISOString() })
+      .update({ status: 'placed', xero_po_id: xero.id, po_number: xero.number, xero_status: 'AUTHORISED', email_draft_id: draft?.draft_id ?? null, updated_at: new Date().toISOString() })
       .eq('id', po.id);
-    const emailed = await emailPOToABC(xero.id, xero.number, flavour);
-    return { ok: true, xero_number: xero.number, emailed };
+    return {
+      ok: true, xero_number: xero.number, email_drafted: !!draft,
+      email_to: ABC_PO_TO, email_cc: ABC_PO_CC,
+      email_subject: draft?.subject ?? 'New PO', email_body: draft?.body ?? '',
+    };
   } catch (e) {
     return { error: `Xero push failed: ${String(e).slice(0, 120)}` };
   }
