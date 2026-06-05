@@ -113,13 +113,19 @@ export async function approveLatestWhatsAppDraft(): Promise<
   // POs are one flavour each; derive it for the email (joins if somehow mixed).
   const flavour = [...new Set(valid.map((i: any) => i.product.flavour).filter(Boolean))].join(', ');
 
+  // Reference in Luke's manual style: "<FLAVOUR> <MONTH> <SIZE>" e.g. "BUTTERMILK JUNE 1T".
+  const totalKg = valid.reduce((s: number, i: any) => s + (i.qty_ordered || 0) * ((i.product.unit_size_g || 0) / 1000), 0);
+  const sizeTag = totalKg >= 1000 ? `${Number((totalKg / 1000).toFixed(1))}T` : `${Math.round(totalKg)}KG`;
+  const month = new Date().toLocaleDateString('en-AU', { month: 'long' }).toUpperCase();
+  const reference = [flavour.toUpperCase(), month, totalKg > 0 ? sizeTag : ''].filter(Boolean).join(' ') || 'ABC PO';
+
   try {
     const xero = await createXeroPurchaseOrder({
-      contactName: 'ABC Blending', lines, reference: 'TPP WhatsApp PO', status: 'AUTHORISED',
+      contactName: 'ABC Blending', lines, reference, status: 'AUTHORISED',
     });
     const draft = await draftPOEmailToABC(xero.id, xero.number, flavour);
     await supabaseLogistics.from('purchase_orders')
-      .update({ status: 'placed', xero_po_id: xero.id, po_number: xero.number, xero_status: 'AUTHORISED', email_draft_id: draft?.draft_id ?? null, updated_at: new Date().toISOString() })
+      .update({ status: 'placed', xero_po_id: xero.id, po_number: xero.number, xero_status: 'AUTHORISED', reference, email_draft_id: draft?.draft_id ?? null, updated_at: new Date().toISOString() })
       .eq('id', po.id);
     return {
       ok: true, xero_number: xero.number, email_drafted: !!draft,
