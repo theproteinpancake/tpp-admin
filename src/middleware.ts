@@ -8,6 +8,7 @@ export function middleware(request: NextRequest) {
     pathname === '/login' ||
     pathname.startsWith('/api/auth') ||
     pathname.startsWith('/api/whatsapp') || // Twilio webhook + cron briefing (self-authenticated)
+    pathname.startsWith('/api/transfers') || // transfer doc PDFs (downloads + Twilio media fetch)
     pathname.startsWith('/_next') ||
     pathname.includes('.')
   ) {
