@@ -2,9 +2,8 @@
 const SID = () => process.env.TWILIO_ACCOUNT_SID || '';
 const TOKEN = () => process.env.TWILIO_AUTH_TOKEN || '';
 const FROM = () => process.env.TWILIO_WHATSAPP_FROM || '';
-// Account is pinned to the AU1 region — REST calls must hit the regional edge,
-// not the default US1 host. Override with TWILIO_API_BASE if the region changes.
-export const TWILIO_API_BASE = process.env.TWILIO_API_BASE || 'https://api.au1.twilio.com';
+// Standard US1 account — use the default US1 host. Override with TWILIO_API_BASE if needed.
+export const TWILIO_API_BASE = process.env.TWILIO_API_BASE || 'https://api.twilio.com';
 
 // Prefer API Key auth (SK… + secret) — recommended by Twilio and required by some
 // regional accounts; fall back to Account SID + Auth Token. The URL path always
