@@ -4,7 +4,11 @@
 import { supabaseLogistics } from './supabase-logistics';
 
 export const TRIGGER_DAYS = 90;   // build a transfer when destination cover falls below this
-export const TARGET_DAYS = 180;   // restock up to this many days of cover
+export const TARGET_DAYS = 180;   // days of cover the shipment should provide AFTER it arrives
+// AU→UK transfer lead time (~2.5 months: production buffer + LCL sea + customs + receiving).
+// Stock must cover demand through this WHOLE lead before the new shipment lands — so inbound
+// in flight is discounted by what will sell during the lead, not treated as still-on-hand.
+export const LEAD_DAYS = Number(process.env.UK_TRANSFER_LEAD_DAYS) || 75;
 const UK_FALLBACK_FRACTION = 0.2; // if a SKU has no destination velocity yet, assume 20% of origin's rate
 
 // UK roll-out strategy (2026-06): UK transfers are 520g MEDIUM bags only (simplest to
@@ -31,13 +35,13 @@ const HS_BY_CATEGORY: Record<string, { hs: string; coo: string }> = {
 
 export interface RestockLine {
   product_id: string; sku: string; flavour: string | null; size: string; unit_size_g: number; category: string;
-  available: number; inbound: number; daily: number; days_cover: number | null;
+  available: number; inbound: number; daily: number; days_cover: number | null; cover_at_arrival: number;
   origin_available: number; suggested: number; cartons: number; unit_value: number | null; reason: string;
 }
 export interface RestockSuggestion {
   origin: string; destination: string; lines: RestockLine[];
   total_units: number; total_value: number; cartons: number; pallets: number;
-  cartons_per_pallet: number; total_kg: number; trigger_days: number; target_days: number;
+  cartons_per_pallet: number; total_kg: number; trigger_days: number; target_days: number; lead_days: number;
 }
 
 const sizeLabel = (g: number | null) => (g == null ? '' : g >= 1000 ? `${g / 1000}kg` : `${g}g`);
@@ -88,9 +92,12 @@ export async function suggestRestock(
   const cartonsUsed = () => cands.reduce((s, c) => s + c.allocated / c.cu, 0);
   const kgUsed = () => cands.reduce((s, c) => s + c.allocated * (c.r.unit_size_g / 1000), 0);
 
-  // Pass A — cover demand to TARGET_DAYS (capped by Altona stock)
+  // Pass A — LEAD-TIME-AWARE cover. Plan for demand across the whole transit (LEAD_DAYS)
+  // PLUS the target period after arrival (TARGET_DAYS), minus stock on hand + inbound.
+  // This stops in-flight inbound (e.g. INTERNAL2) from masking real need: best sellers
+  // burn through it during the ~2.5-month transit, so they get topped up properly.
   for (const c of cands) {
-    const need = Math.max(0, TARGET_DAYS * c.daily - c.coverUnits);
+    const need = Math.max(0, (LEAD_DAYS + TARGET_DAYS) * c.daily - c.coverUnits);
     c.allocated = Math.min(Math.round(need / c.cu) * c.cu, Math.floor(c.originAvail / c.cu) * c.cu);
   }
 
@@ -118,26 +125,29 @@ export async function suggestRestock(
   }
 
   const lines: RestockLine[] = cands.filter((c) => c.allocated > 0).map((c) => {
-    const covered = TARGET_DAYS * c.daily - c.coverUnits <= 0;
+    const covered = (LEAD_DAYS + TARGET_DAYS) * c.daily - c.coverUnits <= 0;
+    // projected cover when THIS shipment lands (after ~LEAD_DAYS of selling)
+    const atArrivalDays = Math.max(0, Math.round(c.daysCover - LEAD_DAYS));
+    const stocksOutBeforeArrival = c.daysCover < LEAD_DAYS;
     return {
       product_id: c.r.product_id, sku: c.r.sku, flavour: c.r.flavour, size: sizeLabel(c.r.unit_size_g),
       unit_size_g: c.r.unit_size_g, category: c.r.category, available: c.r.available ?? 0, inbound: c.r.inbound ?? 0,
-      daily: Math.round(c.daily * 10) / 10, days_cover: Math.round(c.daysCover),
+      daily: Math.round(c.daily * 10) / 10, days_cover: Math.round(c.daysCover), cover_at_arrival: atArrivalDays,
       origin_available: c.originAvail, suggested: c.allocated, cartons: c.allocated / c.cu,
       unit_value: cogs.get(c.r.product_id) ?? null,
-      reason: `UK ${c.coverUnits} on hand/inbound · ~${Math.round(c.daily * 10) / 10}/day · ${Math.round(c.daysCover)}d cover${c.destDaily > 0 ? '' : ' (est. from AU)'}${covered ? ' · best-seller top-up' : ''}`,
+      reason: `UK ${c.coverUnits} on hand/inbound · ~${Math.round(c.daily * 10) / 10}/day · ${Math.round(c.daysCover)}d now → ~${atArrivalDays}d when this lands (after ~${LEAD_DAYS}d transit)${stocksOutBeforeArrival ? ' ⚠️ STOCKS OUT before arrival' : ''}${c.destDaily > 0 ? '' : ' · est. from AU'}${covered && !stocksOutBeforeArrival ? ' · best-seller top-up' : ''}`,
     };
   });
 
-  // best sellers first, then most-urgent cover
-  lines.sort((a, b) => b.daily - a.daily || (a.days_cover ?? 0) - (b.days_cover ?? 0));
+  // most-urgent first (lowest cover-at-arrival), then best sellers
+  lines.sort((a, b) => a.cover_at_arrival - b.cover_at_arrival || b.daily - a.daily);
   const total_units = lines.reduce((s, l) => s + l.suggested, 0);
   const total_value = Math.round(lines.reduce((s, l) => s + l.suggested * (l.unit_value ?? 0), 0) * 100) / 100;
   const total_kg = Math.round(lines.reduce((s, l) => s + l.suggested * (l.unit_size_g / 1000), 0));
   const cartons = Math.round(lines.reduce((s, l) => s + l.cartons, 0));
   return {
     origin, destination, lines, total_units, total_value, cartons, pallets,
-    cartons_per_pallet: CARTONS_PER_PALLET, total_kg, trigger_days: TRIGGER_DAYS, target_days: TARGET_DAYS,
+    cartons_per_pallet: CARTONS_PER_PALLET, total_kg, trigger_days: TRIGGER_DAYS, target_days: TARGET_DAYS, lead_days: LEAD_DAYS,
   };
 }
 
