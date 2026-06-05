@@ -54,17 +54,26 @@ export async function createWRO(opts: {
   return { id: wro.id, status: wro.status };
 }
 
-// Fetch the WRO box-labels PDF (v2.0 endpoint) as standard base64, for emailing to the co-packer.
+// Fetch the WRO box-labels PDF (the pallet label WITH the QR/barcode page) as base64.
+// Prefer the dated box-labels endpoint (matches the dashboard "Download box labels");
+// fall back to older paths. Verifies the response is a real, non-trivial PDF.
 export async function getWROLabels(site: string, id: number): Promise<string | null> {
   const token = TOKENS[site];
   if (!token) return null;
-  const res = await fetch(`https://api.shipbob.com/2.0/receiving/${id}/labels`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: 'application/pdf' },
-  });
-  if (!res.ok) return null;
-  const buf = Buffer.from(await res.arrayBuffer());
-  if (!buf.length) return null;
-  return buf.toString('base64');
+  const endpoints = [
+    `https://api.shipbob.com/2026-01/receiving/${id}/box-labels`,
+    `https://api.shipbob.com/2025-07/receiving/${id}/box-labels`,
+    `https://api.shipbob.com/2.0/receiving/${id}/labels`,
+  ];
+  for (const url of endpoints) {
+    try {
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/pdf' } });
+      if (!res.ok) continue;
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length > 1000 && buf.subarray(0, 4).toString('latin1') === '%PDF') return buf.toString('base64');
+    } catch { /* try next endpoint */ }
+  }
+  return null;
 }
 
 export async function getWRO(site: string, id: number): Promise<any> {
