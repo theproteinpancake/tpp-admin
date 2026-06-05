@@ -5,6 +5,7 @@ import { OPEN_STATUSES } from '@/lib/po-types';
 import { allowedNumbers, sendWhatsApp, senderRole } from '@/lib/whatsapp';
 import { getActionCenter } from '@/lib/actionCenter';
 import { getWholesaleDashboard } from '@/lib/wholesale';
+import { listCollabs, likelyToPost } from '@/lib/marketing';
 
 export const maxDuration = 60;
 
@@ -92,7 +93,24 @@ async function buildWholesaleBriefing(): Promise<string> {
       lines.push(`• ${s.flavour}: ${s.available} cartons · ${s.days_cover != null ? `${s.days_cover}d` : '—'} cover${flag}`);
     }
   }
-  lines.push(`\nForward me any PO and I'll check stock + prep it. 💪`);
+
+  // Marketing: next collab + likely-to-post influencers
+  const todayStr = today;
+  const collabs = (await listCollabs().catch(() => [])) as any[];
+  const nextCollab = collabs
+    .filter((c) => c.due_date && c.due_date >= todayStr && c.status !== 'completed' && c.status !== 'cancelled')
+    .sort((a, b) => a.due_date.localeCompare(b.due_date))[0];
+  if (nextCollab) {
+    const samples = nextCollab.expecting_samples ? (nextCollab.samples_received ? ' · samples received ✓' : ' · received stock yet?') : '';
+    lines.push(`\n*🤝 Next collab:* ${nextCollab.partner_name} — ${nextCollab.due_date}${nextCollab.title ? ` (${nextCollab.title})` : ''}${samples}`);
+  }
+  const likely = await likelyToPost(3).catch(() => []);
+  if (likely.length) {
+    lines.push(`\n*📸 Likely to post next:*`);
+    for (const i of likely) lines.push(`• ${i.name}${i.handle ? ` ${i.handle}` : ''} — got ${i.flavour} ${i.days_since}d ago`);
+  }
+
+  lines.push(`\nForward me a PO, an influencer's details, or a collab chat and I'll handle it. 💪`);
   return lines.join('\n');
 }
 

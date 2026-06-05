@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runScour } from '@/lib/gmailScour';
 import { reconcilePOsFromWROs } from '@/lib/poReconcile';
+import { refreshInfluencerTracking } from '@/lib/marketing';
 
 export const maxDuration = 120;
 
@@ -14,7 +15,11 @@ async function handle(req: NextRequest) {
   let reconcile: Awaited<ReturnType<typeof reconcilePOsFromWROs>> | { error: string };
   try { reconcile = await reconcilePOsFromWROs(); }
   catch (e) { reconcile = { error: String(e) }; }
-  return NextResponse.json({ ok: true, ...res, po_reconcile: reconcile });
+  // refresh influencer gift tracking (ShipBob) so the dashboard shows live status/tracking
+  let tracking: Awaited<ReturnType<typeof refreshInfluencerTracking>> | { error: string };
+  try { tracking = await refreshInfluencerTracking(); }
+  catch (e) { tracking = { error: String(e) }; }
+  return NextResponse.json({ ok: true, ...res, po_reconcile: reconcile, influencer_tracking: tracking });
 }
 
 export const POST = handle;

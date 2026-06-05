@@ -71,6 +71,68 @@ export async function getWROLabels(site: string, id: number): Promise<string | n
   return null;
 }
 
+export interface B2CRecipient {
+  name: string;
+  email?: string;
+  phone?: string;
+  address1: string; address2?: string; city: string; state?: string; zip_code: string; country: string;
+}
+export interface B2CProduct { reference_id: string; quantity: number; }
+
+// Create a standard DTC/B2C order in ShipBob (uses the per-site token → that account's FC).
+// `products` are referenced by SKU (reference_id); include the box SKU as a line so the
+// packer uses the right outer (e.g. PANSMALL) instead of auto-selecting.
+export async function createB2COrder(opts: {
+  site: string;
+  reference: string;
+  recipient: B2CRecipient;
+  products: B2CProduct[];
+  shipping_method?: string;
+}): Promise<{ id: number; status: string; order_number?: string }> {
+  const token = TOKENS[opts.site];
+  if (!token) throw new Error(`No ShipBob token for ${opts.site}`);
+  const r = opts.recipient;
+  const body = {
+    shipping_method: opts.shipping_method || 'Standard',
+    reference_id: opts.reference,
+    recipient: {
+      name: r.name, email: r.email || undefined, phone_number: r.phone || undefined,
+      address: {
+        address1: r.address1, address2: r.address2 || undefined, city: r.city,
+        state: r.state || undefined, zip_code: r.zip_code, country: r.country,
+      },
+    },
+    products: opts.products.map((p) => ({ reference_id: p.reference_id, quantity: p.quantity })),
+  };
+  const res = await fetch('https://api.shipbob.com/1.0/order', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`ShipBob order create failed: ${res.status} ${await res.text()}`);
+  const o = await res.json();
+  return { id: o.id, status: o.status, order_number: o.order_number };
+}
+
+// Read an order's current status + tracking (for the influencer dashboard).
+export async function getOrderTracking(site: string, id: number): Promise<{ status: string; tracking_number: string | null; tracking_url: string | null; carrier: string | null } | null> {
+  const token = TOKENS[site];
+  if (!token) return null;
+  try {
+    const res = await fetch(`https://api.shipbob.com/1.0/order/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return null;
+    const o = await res.json();
+    const sh = (o.shipments || [])[0] || {};
+    const t = sh.tracking || {};
+    return {
+      status: sh.status || o.status || 'Processing',
+      tracking_number: t.tracking_number || null,
+      tracking_url: t.tracking_url || null,
+      carrier: t.carrier || null,
+    };
+  } catch { return null; }
+}
+
 export async function getWRO(site: string, id: number): Promise<any> {
   const token = TOKENS[site];
   const res = await fetch(`https://api.shipbob.com/1.0/receiving/${id}`, {

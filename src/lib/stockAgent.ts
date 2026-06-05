@@ -19,6 +19,7 @@ import { MAERSK } from './transferConstants';
 import { sendWhatsApp, senderRole } from './whatsapp';
 import { processWholesalePO, oosReplyBody } from './wholesalePO';
 import { getWholesaleDashboard } from './wholesale';
+import { sendInfluencerGift, updateInfluencerStatus, listInfluencers, likelyToPost, saveCollab, updateCollab, listCollabs } from './marketing';
 
 const APP_URL = process.env.PUBLIC_APP_URL || 'https://admin.theproteinpancake.co';
 const TRANSFER_DOC_LIST: [string, string][] = [['commercial-invoice', 'Commercial Invoice'], ['packing-list', 'Packing List']];
@@ -149,6 +150,71 @@ const tools: Anthropic.Tool[] = [
       properties: { text: { type: 'string', description: 'the raw PO text / forwarded email body' } },
       required: ['text'],
     },
+  },
+  {
+    name: 'send_influencer_gift',
+    description: 'Send an influencer a gifting order via ShipBob (standard B2C) AND log them to the Influencers dashboard. Use when Kate sends an influencer\'s details (often a screenshot of their IG chat with name/address/email) and says e.g. "send this influencer 1x Buttermilk 520g from AU". Read the screenshot for name, address, email, and Instagram handle. It auto-adds the right box (PANSMALL for 1–2× 520g). ALWAYS report back EXACTLY what was added to the order. site = ALTONA for AU, MANCHESTER for UK.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' }, handle: { type: 'string', description: 'Instagram handle e.g. @someone' },
+        followers: { type: 'number' }, email: { type: 'string' },
+        address1: { type: 'string' }, address2: { type: 'string' }, city: { type: 'string' },
+        state: { type: 'string' }, zip_code: { type: 'string' }, country: { type: 'string' },
+        flavour: { type: 'string', description: 'e.g. "Buttermilk", "GF Cinnamon Churro"' },
+        size_g: { type: 'number', enum: [320, 520, 1000], description: 'pack size in grams (520 = the common gifting size)' },
+        qty: { type: 'number', description: 'number of bags (default 1)' },
+        site: { type: 'string', enum: ['ALTONA', 'MANCHESTER'] },
+      },
+      required: ['name', 'address1', 'city', 'zip_code', 'country', 'flavour', 'size_g'],
+    },
+  },
+  {
+    name: 'update_influencer_status',
+    description: 'Update an influencer\'s lifecycle status: order_processing → shipped → delivered → posted → completed. Use when Kate says they\'ve posted or is done with them, or sends a screenshot showing the influencer\'s post. Match by name or @handle.',
+    input_schema: {
+      type: 'object',
+      properties: { name_or_handle: { type: 'string' }, status: { type: 'string', enum: ['order_processing', 'shipped', 'delivered', 'posted', 'completed'] } },
+      required: ['name_or_handle', 'status'],
+    },
+  },
+  {
+    name: 'get_influencers',
+    description: 'List influencers + their gift, date received, status and tracking; includes who is "most likely to post next". Use for "who have we gifted", "influencer status", "who should post soon".',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'save_collab',
+    description: 'Save/bookmark a business collab or partnership (often from a screenshot of a chat). Use when Kate describes a collab e.g. "Mingle Seasoning — no collab right now, just sending sample stock" or "Sunday Funday sending 20 bags for a joint giveaway on 30 June". Capture partner name, IG handle, email, address if shown, the type, due/event date, and whether we\'re expecting samples (+ qty). Re-saving the same partner updates them.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        partner_name: { type: 'string' }, handle: { type: 'string' }, email: { type: 'string' }, address: { type: 'string' },
+        collab_type: { type: 'string', description: 'giveaway / content / samples / partnership / none' },
+        due_date: { type: 'string', description: 'event/collab date YYYY-MM-DD if mentioned' },
+        expecting_samples: { type: 'boolean' }, sample_qty: { type: 'number' },
+        description: { type: 'string', description: 'short summary of the arrangement' },
+        status: { type: 'string', enum: ['planned', 'samples_incoming', 'active', 'completed', 'cancelled'] },
+      },
+      required: ['partner_name', 'description'],
+    },
+  },
+  {
+    name: 'update_collab',
+    description: 'Update a collab (mark samples received, set status to active/completed/cancelled, change date). Match by partner name.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        partner_name: { type: 'string' }, status: { type: 'string', enum: ['planned', 'samples_incoming', 'active', 'completed', 'cancelled'] },
+        samples_received: { type: 'boolean' }, due_date: { type: 'string' }, description: { type: 'string' },
+      },
+      required: ['partner_name'],
+    },
+  },
+  {
+    name: 'get_collabs',
+    description: 'List business collabs/partnerships: partner, type, due date, whether samples are expected/received, status. Use for "what collabs do we have", "upcoming collabs", "are we expecting samples".',
+    input_schema: { type: 'object', properties: {} },
   },
   {
     name: 'get_shipping_billing',
@@ -386,6 +452,42 @@ Luke`;
       note: a.over_b2c_limit ? '>24 cartons → B2B/courier, out of standard B2C scope.' : (a.fulfillable ? 'Show this summary to Kate and ask her to confirm before processing. (Creating the Xero invoice + ShipBob order is the next build step.)' : 'Short/OOS — show the suggested_oos_reply for Kate to send.'),
     };
   }
+  if (name === 'send_influencer_gift') {
+    const res = await sendInfluencerGift({
+      name: String(input.name), handle: input.handle as string, followers: input.followers as number, email: input.email as string,
+      address1: String(input.address1), address2: input.address2 as string, city: String(input.city),
+      state: input.state as string, zip_code: String(input.zip_code), country: String(input.country),
+      flavour: String(input.flavour), size_g: Number(input.size_g), qty: input.qty as number, site: input.site as string,
+    });
+    if ('error' in res) return res;
+    return { ok: true, order_id: res.order_id, added: res.summary, note: `ShipBob B2C order created with the ${res.box} box. Report to Kate EXACTLY what was added: ${res.summary}` };
+  }
+  if (name === 'update_influencer_status') {
+    return await updateInfluencerStatus(String(input.name_or_handle), String(input.status));
+  }
+  if (name === 'get_influencers') {
+    const [all, likely] = await Promise.all([listInfluencers(), likelyToPost(5)]);
+    return {
+      likely_to_post_next: likely,
+      influencers: (all as any[]).slice(0, 30).map((i) => ({ name: i.name, handle: i.handle, flavour: i.flavour_sent, sent_from: i.sent_from, date: i.date_initiated, status: i.status, tracking: i.tracking_number, tracking_url: i.tracking_url })),
+    };
+  }
+  if (name === 'save_collab') {
+    return await saveCollab({
+      partner_name: String(input.partner_name), handle: input.handle as string, email: input.email as string, address: input.address as string,
+      collab_type: input.collab_type as string, due_date: input.due_date as string,
+      expecting_samples: input.expecting_samples as boolean, sample_qty: input.sample_qty as number,
+      description: String(input.description), status: input.status as string,
+    });
+  }
+  if (name === 'update_collab') {
+    const { partner_name, ...fields } = input as any;
+    return await updateCollab(String(partner_name), fields);
+  }
+  if (name === 'get_collabs') {
+    const all = await listCollabs();
+    return (all as any[]).map((c) => ({ partner: c.partner_name, type: c.collab_type, due: c.due_date, expecting_samples: c.expecting_samples, samples_received: c.samples_received, sample_qty: c.sample_qty, status: c.status, summary: c.title, handle: c.handle }));
+  }
   if (name === 'get_shipping_billing') {
     const [{ outliers }, billing] = await Promise.all([getShippingData(), getBillingData()]);
     const highlights = buildHighlights(billing.monthly, billing.invoices, billing.outliers);
@@ -492,7 +594,10 @@ WHOLESALE FOCUS:
 - When Kate forwards or pastes a customer PO, call parse_wholesale_po with the RAW text. It maps flavours→320g SKUs, checks Altona stock, picks the ShipBob box, and applies free shipping (>4 cartons free; ≤4 add $15 freight). Show the returned summary and ask Kate to confirm before processing.
 - 320g cartons = 4× 320g bags. Box rules: 2 cartons → PANXLARGE; ≤4 → PANOUTERSMALL; ≤8 → PANOUTER; larger splits into multiples. Orders >24 cartons are B2B/courier — flag as out of the standard B2C flow.
 - If any flavour is short/OOS, show the suggested_oos_reply for Kate to send to the customer (offer a flavour swap), and don't proceed on that line.
-- Creating the Xero invoice + ShipBob B2C order is the NEXT build step — for now produce the verified, confirmed summary so Kate can action it. Be upfront that the auto-create isn't wired yet.
+- Wholesale Xero invoice + ShipBob order auto-create is the NEXT build step — for now produce the verified, confirmed summary so Kate can action it. Be upfront that wholesale auto-create isn't wired yet.
+INFLUENCER GIFTING (this IS wired): Kate sends an influencer's details — usually a SCREENSHOT of their IG chat showing name, address, email — and says e.g. "send this influencer 1x Buttermilk 520g from AU". READ the screenshot for name/address/email/handle (and follower count if visible), then call send_influencer_gift (it creates the ShipBob B2C order with the influencer's details + the right box, and logs them to the dashboard). ALWAYS report back EXACTLY what was added to the order. If an address field is unclear, ask Kate rather than guessing. size_g 520 is the usual gift; site ALTONA=AU, MANCHESTER=UK.
+- Update an influencer with update_influencer_status (order_processing→shipped→delivered→posted→completed). Kate sets posted/completed — often by sending a screenshot of the influencer's post; read it, identify who, and mark posted. get_influencers lists them + "most likely to post next".
+COLLABS: when Kate describes a business collab/partnership (often a screenshot of a chat) — e.g. "Mingle Seasoning, no collab now just sending samples" or "Sunday Funday sending 20 bags for a joint giveaway 30 June" — call save_collab (capture partner, handle, email, address, type, due_date, expecting_samples + qty, a short description). Use update_collab to mark samples received / completed. get_collabs lists them. Surface upcoming collabs and nudge "received stock yet?" when samples are expected.
 Voice: same warm, witty energy — just speaking to Kate.
 
 `;
@@ -523,7 +628,9 @@ async function saveTurn(phone: string, userText: string, assistantText: string) 
   ]);
 }
 
-export async function askStockAgent(question: string, phone?: string): Promise<{ text: string; media?: string }> {
+export interface AgentImage { base64: string; mediaType: string }
+
+export async function askStockAgent(question: string, phone?: string, images?: AgentImage[]): Promise<{ text: string; media?: string }> {
   _media = null;
   _phone = phone || null;
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -531,7 +638,11 @@ export async function askStockAgent(question: string, phone?: string): Promise<{
   const client = new Anthropic({ apiKey });
 
   const history = phone ? await loadHistory(phone) : [];
-  const messages: Anthropic.MessageParam[] = [...history, { role: 'user', content: question }];
+  const userContent: Anthropic.ContentBlockParam[] = [
+    ...(images ?? []).map((im) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: im.mediaType as any, data: im.base64 } })),
+    { type: 'text' as const, text: question || '(screenshot attached)' },
+  ];
+  const messages: Anthropic.MessageParam[] = [...history, { role: 'user', content: images?.length ? userContent : question }];
   const system = systemFor(phone ? senderRole(phone) : 'owner');
 
   let answer = '';

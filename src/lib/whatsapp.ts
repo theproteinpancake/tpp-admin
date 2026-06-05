@@ -41,6 +41,23 @@ export function senderRole(from: string): SenderRole {
   return waAddr(from) === waAddr(KATE_NUMBER) ? 'wholesale' : 'owner';
 }
 
+// Fetch an inbound Twilio media item (e.g. a WhatsApp screenshot) as base64 + type.
+// Twilio media URLs need account auth; the request 307-redirects to the actual file.
+export async function fetchTwilioMedia(url: string): Promise<{ base64: string; mediaType: string } | null> {
+  const auth = twilioAuthHeader();
+  if (!auth) return null;
+  try {
+    const res = await fetch(url, { headers: { Authorization: auth } });
+    if (!res.ok) return null;
+    let mediaType = res.headers.get('content-type') || 'image/jpeg';
+    mediaType = mediaType.split(';')[0].trim();
+    if (!/^image\/(jpeg|png|gif|webp)$/.test(mediaType)) mediaType = 'image/jpeg';
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length < 100) return null;
+    return { base64: buf.toString('base64'), mediaType };
+  } catch { return null; }
+}
+
 export async function sendWhatsApp(to: string, body: string, mediaUrl?: string): Promise<boolean> {
   const sid = SID(), from = FROM();
   const auth = twilioAuthHeader();
