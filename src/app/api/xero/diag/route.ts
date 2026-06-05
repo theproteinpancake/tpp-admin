@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { xeroGet, xeroPost, getConnection } from '@/lib/xero';
+import { xeroGet, getConnection } from '@/lib/xero';
 
 export const maxDuration = 60;
 
-// TEMP diagnostic: inspect how existing Xero POs are structured + capture the exact
-// error when pushing a test PO. CRON_SECRET guarded. Read-mostly: any test PO it
-// creates is immediately deleted.
+// TEMP diagnostic (READ-ONLY): inspect how existing Xero POs + items are structured
+// so we can see why a push is rejected (e.g. invalid AccountCode/ItemCode).
+// CRON_SECRET guarded. Makes no writes.
 async function handle(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
   const given = req.headers.get('x-cron-secret') || new URL(req.url).searchParams.get('secret');
@@ -25,32 +25,25 @@ async function handle(req: NextRequest) {
     } : 'none';
   } catch (e) { out.sample_po_error = String(e).slice(0, 300); }
 
-  // 2. item codes Xero knows about (so we can see if "BML" etc are valid)
+  // 2. all line formats across recent POs (AccountCode + ItemCode actually used)
+  try {
+    const r = await xeroGet('/PurchaseOrders?Status=AUTHORISED');
+    const pos = r.PurchaseOrders ?? [];
+    const lines = pos.flatMap((p: any) => (p.LineItems ?? []).map((l: any) => ({ code: l.ItemCode, account: l.AccountCode })));
+    out.line_codes = [...new Map(lines.map((l: any) => [`${l.code}|${l.account}`, l])).values()];
+  } catch (e) { out.line_codes_error = String(e).slice(0, 300); }
+
+  // 3. item codes Xero knows about (so we can see if "BML" etc are valid)
   try {
     const r = await xeroGet('/Items');
     out.items = (r.Items ?? []).map((i: any) => ({ code: i.Code, name: i.Name, purchaseAccount: i.PurchaseDetails?.AccountCode }));
   } catch (e) { out.items_error = String(e).slice(0, 300); }
 
-  // 3. attempt the exact push our code does, capture the raw error
-  const testBody = {
-    PurchaseOrders: [{
-      Contact: { Name: 'ABC Blending' },
-      Date: new Date().toISOString().slice(0, 10),
-      Reference: 'TPP DIAG TEST',
-      Status: 'DRAFT',
-      LineItems: [{ ItemCode: 'BML', Quantity: 1, UnitAmount: 9.52, AccountCode: '310' }],
-    }],
-  };
+  // 4. purchase-type accounts in the chart (valid AccountCodes for PO lines)
   try {
-    const r = await xeroPost('/PurchaseOrders', testBody);
-    const id = r.PurchaseOrders?.[0]?.PurchaseOrderID;
-    out.test_push = { ok: true, id };
-    // clean up: delete the test PO
-    if (id) {
-      try { await xeroPost('/PurchaseOrders', { PurchaseOrders: [{ PurchaseOrderID: id, Status: 'DELETED' }] }); out.test_push.deleted = true; }
-      catch { out.test_push.deleted = false; }
-    }
-  } catch (e) { out.test_push = { ok: false, error: String(e) }; }
+    const r = await xeroGet('/Accounts?where=Class=="EXPENSE"||Class=="DIRECTCOSTS"');
+    out.accounts = (r.Accounts ?? []).map((a: any) => ({ code: a.Code, name: a.Name, class: a.Class }));
+  } catch (e) { out.accounts_error = String(e).slice(0, 300); }
 
   return NextResponse.json(out);
 }
