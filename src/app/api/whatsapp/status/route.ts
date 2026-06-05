@@ -15,5 +15,9 @@ export async function GET(req: NextRequest) {
     dir: m.direction, status: m.status, error_code: m.error_code,
     date: m.date_sent || m.date_created, body: (m.body || '').slice(0, 35),
   }));
-  return NextResponse.json({ using_messaging_service: !!process.env.TWILIO_MESSAGING_SERVICE_SID, count: messages.length, messages });
+  return NextResponse.json({
+    from_number: process.env.TWILIO_WHATSAPP_FROM || '(missing)',
+    using_messaging_service: !!process.env.TWILIO_MESSAGING_SERVICE_SID,
+    count: messages.length, messages,
+  });
 }
