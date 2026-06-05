@@ -15,6 +15,7 @@ import {
   Layers,
   Truck,
   ArrowLeftRight,
+  Package2,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -38,6 +39,7 @@ const groups: NavGroup[] = [
       { name: 'Stock Overview', href: '/logistics/stock', icon: Package },
       { name: 'Purchase Orders', href: '/logistics/purchase-orders', icon: ClipboardList },
       { name: 'Batches', href: '/logistics/batches', icon: Layers },
+      { name: 'Packaging', href: '/logistics/packaging', icon: Package2 },
       { name: 'Transfers', href: '/logistics/transfers', icon: ArrowLeftRight },
       { name: 'Shipping & Billing', href: '/logistics/shipping', icon: Truck },
     ],
