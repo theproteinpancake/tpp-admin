@@ -6,7 +6,17 @@ import { supabaseLogistics } from './supabase-logistics';
 export const TRIGGER_DAYS = 90;   // build a transfer when destination cover falls below this
 export const TARGET_DAYS = 180;   // restock up to this many days of cover
 const UK_FALLBACK_FRACTION = 0.2; // if a SKU has no destination velocity yet, assume 20% of origin's rate
-const CARTON_ROUND = 12;          // round suggestions to whole cartons
+
+// Export shipping cartons: units per carton (ABC carton specs). 320g bags are
+// AU wholesale-only and NEVER shipped to the UK — only 520g + 1kg are eligible.
+const SHIP_CARTON: Record<number, number> = { 520: 12, 1000: 8 };
+const cartonUnits = (g: number) => SHIP_CARTON[g] ?? 12;
+
+// Pallet logistics — used to MAXIMISE each pallet. NOTE: these are ESTIMATES pending
+// Luke's confirmation. INTERNAL2 shipped 85 cartons (~1 pallet), which matches ~80
+// cartons/pallet. Override via env once the real figures are known.
+export const CARTONS_PER_PALLET = Number(process.env.CARTONS_PER_PALLET) || 80;
+export const MAX_KG_PER_PALLET = Number(process.env.MAX_KG_PER_PALLET) || 700;
 
 const HS_BY_CATEGORY: Record<string, { hs: string; coo: string }> = {
   mix: { hs: '1901200000', coo: 'AU' },
@@ -15,19 +25,24 @@ const HS_BY_CATEGORY: Record<string, { hs: string; coo: string }> = {
 };
 
 export interface RestockLine {
-  product_id: string; sku: string; flavour: string | null; size: string; category: string;
+  product_id: string; sku: string; flavour: string | null; size: string; unit_size_g: number; category: string;
   available: number; inbound: number; daily: number; days_cover: number | null;
-  origin_available: number; suggested: number; unit_value: number | null; reason: string;
+  origin_available: number; suggested: number; cartons: number; unit_value: number | null; reason: string;
 }
 export interface RestockSuggestion {
   origin: string; destination: string; lines: RestockLine[];
-  total_units: number; total_value: number; trigger_days: number; target_days: number;
+  total_units: number; total_value: number; cartons: number; pallets: number;
+  cartons_per_pallet: number; total_kg: number; trigger_days: number; target_days: number;
 }
 
 const sizeLabel = (g: number | null) => (g == null ? '' : g >= 1000 ? `${g / 1000}kg` : `${g}g`);
-const roundCarton = (n: number) => Math.round(n / CARTON_ROUND) * CARTON_ROUND;
 
-export async function suggestRestock(destination = 'MANCHESTER', origin = 'ALTONA'): Promise<RestockSuggestion> {
+// Build a UK restock that (1) covers demand to target cover, then (2) MAXIMISES the
+// pallet(s) by topping up best sellers (by velocity), even ones already inbound.
+// 320g bags are excluded (AU wholesale only). opts.pallets forces a pallet count.
+export async function suggestRestock(
+  destination = 'MANCHESTER', origin = 'ALTONA', opts: { pallets?: number } = {},
+): Promise<RestockSuggestion> {
   const [{ data: destRows }, { data: origRows }, { data: products }] = await Promise.all([
     supabaseLogistics.from('v_stock_current')
       .select('product_id,sku,flavour,unit_size_g,category,available,inbound,avg_daily_units_30d,avg_daily_units_90d,days_of_cover')
@@ -40,40 +55,85 @@ export async function suggestRestock(destination = 'MANCHESTER', origin = 'ALTON
 
   const orig = new Map((origRows ?? []).map((r: any) => [r.product_id, r]));
   const cogs = new Map((products ?? []).map((p: any) => [p.id, p.cogs]));
-  const lines: RestockLine[] = [];
 
+  interface Cand {
+    r: any; cu: number; daily: number; destDaily: number; coverUnits: number;
+    daysCover: number; originAvail: number; allocated: number;
+  }
+  const cands: Cand[] = [];
   for (const r of (destRows ?? []) as any[]) {
-    if (r.category !== 'mix') continue; // transfers are finished mix product
+    if (r.category !== 'mix') continue;       // transfers are finished mix product
+    if (r.unit_size_g === 320) continue;      // 320g wholesale never ships to the UK
     const o = orig.get(r.product_id);
     const originAvail = o?.available ?? 0;
-    if (originAvail <= 0) continue; // can't send what Altona doesn't have
+    if (originAvail <= 0) continue;           // can't send what Altona doesn't have
 
     const destDaily = Number(r.avg_daily_units_30d) || Number(r.avg_daily_units_90d) || 0;
     const origDaily = o ? Number(o.avg_daily_units_30d) || Number(o.avg_daily_units_90d) || 0 : 0;
     const daily = destDaily > 0 ? destDaily : origDaily * UK_FALLBACK_FRACTION;
-    if (daily <= 0) continue; // no demand signal at all → skip
+    if (daily <= 0) continue;                 // no demand signal at all → skip
 
+    const cu = cartonUnits(r.unit_size_g);
     const coverUnits = (r.available ?? 0) + (r.inbound ?? 0);
-    const daysCover = coverUnits / daily;
-    if (daysCover >= TRIGGER_DAYS) continue; // not due yet
-
-    let suggested = roundCarton(Math.max(0, TARGET_DAYS * daily - coverUnits));
-    suggested = Math.min(suggested, roundCarton(originAvail));
-    if (suggested < CARTON_ROUND) continue;
-
-    lines.push({
-      product_id: r.product_id, sku: r.sku, flavour: r.flavour, size: sizeLabel(r.unit_size_g),
-      category: r.category, available: r.available ?? 0, inbound: r.inbound ?? 0,
-      daily: Math.round(daily * 10) / 10, days_cover: Math.round(daysCover),
-      origin_available: originAvail, suggested, unit_value: cogs.get(r.product_id) ?? null,
-      reason: `${destination} ${coverUnits} on hand/inbound · ~${(Math.round(daily * 10) / 10)}/day · ${Math.round(daysCover)}d cover${destDaily > 0 ? '' : ' (est. from AU)'}`,
-    });
+    cands.push({ r, cu, daily, destDaily, coverUnits, daysCover: coverUnits / daily, originAvail, allocated: 0 });
   }
 
-  lines.sort((a, b) => (a.days_cover ?? 0) - (b.days_cover ?? 0));
+  // helpers (carton-rounded, origin-capped)
+  const roomUnits = (c: Cand) => Math.floor(c.originAvail / c.cu) * c.cu - c.allocated;
+  const cartonsUsed = () => cands.reduce((s, c) => s + c.allocated / c.cu, 0);
+  const kgUsed = () => cands.reduce((s, c) => s + c.allocated * (c.r.unit_size_g / 1000), 0);
+
+  // Pass A — cover demand to TARGET_DAYS (capped by Altona stock)
+  for (const c of cands) {
+    const need = Math.max(0, TARGET_DAYS * c.daily - c.coverUnits);
+    c.allocated = Math.min(Math.round(need / c.cu) * c.cu, Math.floor(c.originAvail / c.cu) * c.cu);
+  }
+
+  // capacity: at least 1 pallet, or enough pallets to hold the cover, or what's requested
+  const needCartons = Math.ceil(cartonsUsed());
+  const pallets = Math.max(opts.pallets ?? 1, Math.ceil(needCartons / CARTONS_PER_PALLET) || 1);
+  const capCartons = pallets * CARTONS_PER_PALLET;
+  const capKg = pallets * MAX_KG_PER_PALLET;
+
+  // Pass B — fill remaining pallet space with best sellers (velocity-weighted),
+  // including ones already covered by inbound. Stops on carton OR weight cap, or
+  // when no origin stock remains.
+  let guard = 0;
+  while (cartonsUsed() < capCartons - 1e-6 && guard < 100000) {
+    guard++;
+    let pick: Cand | null = null; let best = -1;
+    for (const c of cands) {
+      if (roomUnits(c) < c.cu) continue;
+      if (kgUsed() + c.cu * (c.r.unit_size_g / 1000) > capKg) continue;
+      const score = c.daily / (1 + c.allocated / c.cu); // favour best sellers, decay as added
+      if (score > best) { best = score; pick = c; }
+    }
+    if (!pick) break;
+    pick.allocated += pick.cu;
+  }
+
+  const lines: RestockLine[] = cands.filter((c) => c.allocated > 0).map((c) => {
+    const covered = TARGET_DAYS * c.daily - c.coverUnits <= 0;
+    return {
+      product_id: c.r.product_id, sku: c.r.sku, flavour: c.r.flavour, size: sizeLabel(c.r.unit_size_g),
+      unit_size_g: c.r.unit_size_g, category: c.r.category, available: c.r.available ?? 0, inbound: c.r.inbound ?? 0,
+      daily: Math.round(c.daily * 10) / 10, days_cover: Math.round(c.daysCover),
+      origin_available: c.originAvail, suggested: c.allocated, cartons: c.allocated / c.cu,
+      unit_value: cogs.get(c.r.product_id) ?? null,
+      reason: `UK ${c.coverUnits} on hand/inbound · ~${Math.round(c.daily * 10) / 10}/day · ${Math.round(c.daysCover)}d cover${c.destDaily > 0 ? '' : ' (est. from AU)'}${covered ? ' · best-seller top-up' : ''}`,
+    };
+  });
+
+  // best sellers first, then most-urgent cover
+  lines.sort((a, b) => b.daily - a.daily || (a.days_cover ?? 0) - (b.days_cover ?? 0));
   const total_units = lines.reduce((s, l) => s + l.suggested, 0);
   const total_value = Math.round(lines.reduce((s, l) => s + l.suggested * (l.unit_value ?? 0), 0) * 100) / 100;
-  return { origin, destination, lines, total_units, total_value, trigger_days: TRIGGER_DAYS, target_days: TARGET_DAYS };
+  const total_kg = Math.round(lines.reduce((s, l) => s + l.suggested * (l.unit_size_g / 1000), 0));
+  const cartons = Math.round(lines.reduce((s, l) => s + l.cartons, 0));
+  return {
+    origin, destination, lines, total_units, total_value, cartons, pallets,
+    cartons_per_pallet: CARTONS_PER_PALLET, total_kg, trigger_days: TRIGGER_DAYS, target_days: TARGET_DAYS,
+  };
 }
 
 async function nextReference(): Promise<string> {
@@ -98,8 +158,8 @@ export async function createDraftTransfer(s: RestockSuggestion): Promise<{ refer
 
   const { data: t, error } = await supabaseLogistics.from('internal_transfers').insert({
     reference, origin_location_id: originId, destination_location_id: destId, status: 'draft',
-    currency: 'AUD', total_value: s.total_value, cartons: Math.round(s.total_units / CARTON_ROUND),
-    notes: `Auto-built ${s.origin}→${s.destination} restock to ~${s.target_days}d cover. Pick the LONGEST-dated stock so the UK holds maximum shelf life.`,
+    currency: 'AUD', total_value: s.total_value, cartons: s.cartons,
+    notes: `Auto-built ${s.origin}→${s.destination} restock: cover to ~${s.target_days}d + best-seller top-up, maximising ${s.pallets} pallet(s) (${s.cartons} cartons / ~${s.total_kg}kg). 520g + 1kg only (no 320g). Pick the LONGEST-dated stock so the UK holds maximum shelf life.`,
   }).select('id').single();
   if (error || !t) return { error: error?.message || 'Failed to create transfer' };
 

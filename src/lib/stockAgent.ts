@@ -99,13 +99,13 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: 'suggest_transfer',
-    description: 'Preview a restock transfer for a site (default Manchester) WITHOUT creating it — uses live per-SKU velocity, triggers at 90 days cover, tops up to ~180 days, capped by Altona stock. Use for "what should we send to the UK / Manchester", "build a transfer for everything Manchester is low on". Show the user the lines + totals and ask them to confirm before create_transfer.',
-    input_schema: { type: 'object', properties: { destination: { type: 'string', enum: ['MANCHESTER'] } } },
+    description: 'Preview a UK (Manchester) restock transfer WITHOUT creating it. Logic: (1) cover demand to ~180 days using live per-SKU velocity, accounting for stock already inbound (e.g. INTERNAL2); (2) MAXIMISE the pallet(s) by topping up the best sellers (by velocity) — including ones already inbound — up to pallet capacity, capped by Altona stock. Only 520g + 1kg ship to the UK (320g wholesale bags are EXCLUDED). Returns lines with units + cartons (520g=12/ctn, 1kg=8/ctn), plus pallets, total cartons & kg. Pass `pallets` to force a pallet count (e.g. 2). Use for "build a transfer / INTERNAL3", "what should we send to the UK". Show the lines + totals and confirm before create_transfer.',
+    input_schema: { type: 'object', properties: { destination: { type: 'string', enum: ['MANCHESTER'] }, pallets: { type: 'number', description: 'force number of pallets to fill (default: 1, or enough to hold the cover)' } } },
   },
   {
     name: 'create_transfer',
-    description: 'Create the DRAFT transfer (after the user confirms a suggest_transfer preview). Returns the reference (e.g. INTERNAL3). It appears on the Transfers page with auto-generated Commercial Invoice + Packing List. ONLY call after explicit user confirmation.',
-    input_schema: { type: 'object', properties: { destination: { type: 'string', enum: ['MANCHESTER'] } } },
+    description: 'Create the DRAFT transfer (after the user confirms a suggest_transfer preview). Returns the reference (e.g. INTERNAL3). It appears on the Transfers page with auto-generated Commercial Invoice + Packing List. ONLY call after explicit user confirmation. Pass the SAME `pallets` value used in the preview so the created transfer matches.',
+    input_schema: { type: 'object', properties: { destination: { type: 'string', enum: ['MANCHESTER'] }, pallets: { type: 'number' } } },
   },
   {
     name: 'send_transfer_docs',
@@ -248,16 +248,19 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
     return acts.length ? acts.map((a) => ({ priority: a.severity, title: a.title, detail: a.detail, say_to_action: a.command })) : { note: 'All clear — nothing needs action right now. ✅' };
   }
   if (name === 'suggest_transfer') {
-    const s = await suggestRestock((input.destination as string) || 'MANCHESTER');
+    const pallets = input.pallets ? Number(input.pallets) : undefined;
+    const s = await suggestRestock((input.destination as string) || 'MANCHESTER', 'ALTONA', { pallets });
     return {
-      destination: s.destination, origin: s.origin, trigger_days: s.trigger_days, target_days: s.target_days,
-      total_units: s.total_units, total_value: s.total_value,
-      lines: s.lines.map((l) => ({ sku: l.sku, flavour: l.flavour, size: l.size, suggested: l.suggested, uk_cover_days: l.days_cover, daily: l.daily, altona_available: l.origin_available })),
-      note: s.lines.length ? 'Preview only — confirm with the user, then call create_transfer.' : 'Nothing due — all within target cover.',
+      destination: s.destination, origin: s.origin, target_days: s.target_days,
+      pallets: s.pallets, cartons: s.cartons, cartons_per_pallet: s.cartons_per_pallet,
+      total_units: s.total_units, total_kg: s.total_kg, total_value: s.total_value,
+      lines: s.lines.map((l) => ({ sku: l.sku, flavour: l.flavour, size: l.size, units: l.suggested, cartons: l.cartons, uk_cover_days: l.days_cover, daily: l.daily, inbound: l.inbound, altona_available: l.origin_available, note: l.reason })),
+      note: s.lines.length ? `Preview only — ${s.pallets} pallet(s), ${s.cartons} cartons (~${s.total_kg}kg). 520g + 1kg only. Confirm with the user, then call create_transfer with the same pallets value.` : 'Nothing to send — no Altona stock or demand signal.',
     };
   }
   if (name === 'create_transfer') {
-    const s = await suggestRestock((input.destination as string) || 'MANCHESTER');
+    const pallets = input.pallets ? Number(input.pallets) : undefined;
+    const s = await suggestRestock((input.destination as string) || 'MANCHESTER', 'ALTONA', { pallets });
     const res = await createDraftTransfer(s);
     return res;
   }
