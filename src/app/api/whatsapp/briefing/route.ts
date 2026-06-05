@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseLogistics } from '@/lib/supabase-logistics';
 import { computeStatus } from '@/lib/stock';
 import { OPEN_STATUSES } from '@/lib/po-types';
-import { allowedNumbers, sendWhatsApp } from '@/lib/whatsapp';
+import { allowedNumbers, sendWhatsApp, senderRole } from '@/lib/whatsapp';
 import { getActionCenter } from '@/lib/actionCenter';
+import { getWholesaleDashboard } from '@/lib/wholesale';
 
 export const maxDuration = 60;
 
@@ -58,15 +59,55 @@ async function buildBriefing(): Promise<string> {
   return lines.join('\n');
 }
 
+const money = (n: number) => new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD', maximumFractionDigits: 0 }).format(n || 0);
+
+// Kate's wholesale-focused 8am brief: yesterday's sales, who to expect POs from
+// (due to reorder), and a 320g stock summary per flavour.
+async function buildWholesaleBriefing(): Promise<string> {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Australia/Melbourne' }).format(new Date());
+  const y = new Date(today + 'T00:00:00'); y.setDate(y.getDate() - 1);
+  const yStr = y.toISOString().slice(0, 10);
+
+  const { data: yOrders } = await supabaseLogistics.from('wholesale_orders')
+    .select('total, contact_name').eq('order_date', yStr);
+  const ySum = (yOrders ?? []).reduce((s: number, o: any) => s + (Number(o.total) || 0), 0);
+
+  const w = await getWholesaleDashboard().catch(() => null);
+  const lines: string[] = [`🛒 *Wholesale brief* — ${today}`, `Morning Kate! ☀️`];
+
+  lines.push(`\n*Yesterday:* ${money(ySum)} across ${(yOrders ?? []).length} order${(yOrders ?? []).length === 1 ? '' : 's'}`);
+  if (w) lines.push(`*This week:* ${money(w.totals.week)} · *This month:* ${money(w.totals.month)}`);
+
+  if (w?.due?.length) {
+    lines.push(`\n*📞 Expect / chase a PO from:*`);
+    for (const c of w.due.slice(0, 6)) lines.push(`• ${c.name} — ${c.overdue_days >= 0 ? `${c.overdue_days}d overdue` : `due in ${Math.abs(c.overdue_days)}d`} (~${c.avg_interval_days}d cycle)`);
+  } else {
+    lines.push(`\n✅ No customers due to reorder right now.`);
+  }
+
+  if (w?.stock?.length) {
+    lines.push(`\n*🥞 320g stock (Altona):*`);
+    for (const s of w.stock) {
+      const flag = s.days_cover != null && s.days_cover <= 45 ? ' 🔴' : '';
+      lines.push(`• ${s.flavour}: ${s.available} cartons · ${s.days_cover != null ? `${s.days_cover}d` : '—'} cover${flag}`);
+    }
+  }
+  lines.push(`\nForward me any PO and I'll check stock + prep it. 💪`);
+  return lines.join('\n');
+}
+
 async function handle(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
   const given = req.headers.get('x-cron-secret') || new URL(req.url).searchParams.get('secret');
   if (secret && given !== secret) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
-  const text = await buildBriefing();
   const recipients = allowedNumbers();
-  const results = await Promise.all(recipients.map((to) => sendWhatsApp(to, text)));
-  return NextResponse.json({ ok: true, sent: results.filter(Boolean).length, recipients: recipients.length, preview: text });
+  const logistics = await buildBriefing();
+  const hasWholesale = recipients.some((to) => senderRole(to) === 'wholesale');
+  const wholesale = hasWholesale ? await buildWholesaleBriefing() : '';
+  const results = await Promise.all(recipients.map((to) =>
+    sendWhatsApp(to, senderRole(to) === 'wholesale' ? wholesale : logistics)));
+  return NextResponse.json({ ok: true, sent: results.filter(Boolean).length, recipients: recipients.length, wholesale_preview: wholesale || undefined, preview: logistics });
 }
 
 export const POST = handle;

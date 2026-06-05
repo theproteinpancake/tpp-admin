@@ -16,7 +16,9 @@ import { suggestRestock, createDraftTransfer } from './transferBuilder';
 import { getActionCenter } from './actionCenter';
 import { getPoForecast } from './poForecast';
 import { MAERSK } from './transferConstants';
-import { sendWhatsApp } from './whatsapp';
+import { sendWhatsApp, senderRole } from './whatsapp';
+import { processWholesalePO, oosReplyBody } from './wholesalePO';
+import { getWholesaleDashboard } from './wholesale';
 
 const APP_URL = process.env.PUBLIC_APP_URL || 'https://admin.theproteinpancake.co';
 const TRANSFER_DOC_LIST: [string, string][] = [['commercial-invoice', 'Commercial Invoice'], ['packing-list', 'Packing List']];
@@ -133,6 +135,20 @@ const tools: Anthropic.Tool[] = [
     name: 'get_internal_transfers',
     description: 'Internal stock transfers between sites (e.g. Altona AU → Manchester UK pallets). Returns reference, status, ETA, carrier/BL, and the SKUs + units inbound. These units already count toward the destination site\'s inbound stock. Use for "what\'s on the way to the UK / Manchester", "the pallet", "internal transfer", "INTERNAL2".',
     input_schema: { type: 'object', properties: { reference: { type: 'string', description: 'optional transfer reference e.g. INTERNAL2' } } },
+  },
+  {
+    name: 'get_wholesale_overview',
+    description: 'Wholesale business snapshot: sales totals (this week/month/year vs prior), customers DUE to reorder (past their avg order interval), LAPSED customers (gone quiet), top customers, and the 320g wholesale stock + when to reorder from ABC. Use for "wholesale sales", "who\'s due to order", "who should I chase", "how\'s wholesale going", "320g stock".',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'parse_wholesale_po',
+    description: 'Parse a customer wholesale PO (free text or a forwarded email — e.g. "4 cartons of buttermilk, 2 cinnamon churro" or "BMS x4, CIS x2"), map it to 320g SKUs, CHECK Altona stock can fulfil it, pick the ShipBob box (PANOUTERSMALL ≤4 cartons / PANOUTER ≤8 / PANXLARGE for 2), and apply free shipping (>4 cartons). Returns a verified summary to show Kate before processing. If a flavour is short/OOS, returns a suggested OOS reply. Use whenever Kate forwards/pastes a PO.',
+    input_schema: {
+      type: 'object',
+      properties: { text: { type: 'string', description: 'the raw PO text / forwarded email body' } },
+      required: ['text'],
+    },
   },
   {
     name: 'get_shipping_billing',
@@ -346,6 +362,30 @@ Luke`;
       })),
     }));
   }
+  if (name === 'get_wholesale_overview') {
+    const w = await getWholesaleDashboard();
+    return {
+      sales: w.totals,
+      due_to_reorder: w.due.slice(0, 12).map((c) => ({ name: c.name, overdue_days: c.overdue_days, avg_interval_days: c.avg_interval_days, last_order: c.last_order, expected_next: c.expected_next })),
+      lapsed: w.lapsed.map((c) => ({ name: c.name, days_since: c.days_since, total_value: c.total_value })),
+      top_customers: w.topCustomers.slice(0, 8),
+      stock_320g: w.stock.map((s) => ({ flavour: s.flavour, sku: s.sku, available: s.available, days_cover: s.days_cover, reorder_by: s.reorder_by })),
+      note: 'Sales in AUD. due_to_reorder = active customers past their avg interval; lapsed = gone quiet. stock_320g.available is cartons at Altona.',
+    };
+  }
+  if (name === 'parse_wholesale_po') {
+    const text = String(input.text || '').trim();
+    if (!text) return { error: 'Paste the PO text and I\'ll parse it.' };
+    const a = await processWholesalePO(text);
+    return {
+      customer: a.customer_name, total_cartons: a.total_cartons, fulfillable: a.fulfillable,
+      lines: a.lines.map((l) => ({ flavour: l.flavour, sku: l.sku, cartons: l.cartons, altona_available: l.available, in_stock: l.ok })),
+      boxes: a.boxes, free_shipping: a.free_shipping, over_b2c_limit: a.over_b2c_limit,
+      oos: a.oos, suggested_oos_reply: a.oos.length ? oosReplyBody(a) : null,
+      summary: a.summary,
+      note: a.over_b2c_limit ? '>24 cartons → B2B/courier, out of standard B2C scope.' : (a.fulfillable ? 'Show this summary to Kate and ask her to confirm before processing. (Creating the Xero invoice + ShipBob order is the next build step.)' : 'Short/OOS — show the suggested_oos_reply for Kate to send.'),
+    };
+  }
   if (name === 'get_shipping_billing') {
     const [{ outliers }, billing] = await Promise.all([getShippingData(), getBillingData()]);
     const highlights = buildHighlights(billing.monthly, billing.invoices, billing.outliers);
@@ -443,6 +483,24 @@ Multi-step memory: you can see the recent conversation. When the user replies "y
 Voice: you're a fun, witty member of the TPP team with Gen-Z energy — playful and a bit cheeky, light natural slang ("lowkey", "no cap", "sorted", "we move", "that's cooked", "say less") used sparingly so it never feels forced or cringe. Warm and human, like a sharp mate who's got ops handled. BUT accuracy always wins: never trade a correct number or a clear instruction for a joke, and keep it tight and serious-enough on anything touching money, POs, WROs or stock decisions.
 Style: concise, WhatsApp-friendly, short lines, a few emojis. Lead with the answer. Use tools for every number — never guess. If a request is ambiguous, make the most reasonable assumption and say what you assumed, rather than refusing.`;
 
+// Prepended when the sender is Kate (wholesale manager). Same brain + every tool —
+// just wholesale-first focus and addressed to Kate.
+const WHOLESALE_ADDENDUM = `YOU ARE MESSAGING KATE — TPP's wholesale & marketing manager (NOT the founder Luke). Address her as Kate.
+You are her wholesale + marketing assistant AND a hive mind across the whole business: you can see all stock, logistics, transfers and POs, so you understand exactly where wholesale is drawing stock down. Lead with wholesale, but use any tool she asks for.
+WHOLESALE FOCUS:
+- get_wholesale_overview for sales, who's due to reorder, lapsed customers, top customers, and 320g stock + ABC reorder timing.
+- When Kate forwards or pastes a customer PO, call parse_wholesale_po with the RAW text. It maps flavours→320g SKUs, checks Altona stock, picks the ShipBob box, and applies free shipping (>4 cartons free; ≤4 add $15 freight). Show the returned summary and ask Kate to confirm before processing.
+- 320g cartons = 4× 320g bags. Box rules: 2 cartons → PANXLARGE; ≤4 → PANOUTERSMALL; ≤8 → PANOUTER; larger splits into multiples. Orders >24 cartons are B2B/courier — flag as out of the standard B2C flow.
+- If any flavour is short/OOS, show the suggested_oos_reply for Kate to send to the customer (offer a flavour swap), and don't proceed on that line.
+- Creating the Xero invoice + ShipBob B2C order is the NEXT build step — for now produce the verified, confirmed summary so Kate can action it. Be upfront that the auto-create isn't wired yet.
+Voice: same warm, witty energy — just speaking to Kate.
+
+`;
+
+function systemFor(role: 'wholesale' | 'owner'): string {
+  return role === 'wholesale' ? WHOLESALE_ADDENDUM + SYSTEM : SYSTEM;
+}
+
 // Recent conversation history (last 6h) so multi-step flows (confirm / SEND / yes) work.
 const HISTORY_LIMIT = 12;
 async function loadHistory(phone: string): Promise<Anthropic.MessageParam[]> {
@@ -474,10 +532,11 @@ export async function askStockAgent(question: string, phone?: string): Promise<{
 
   const history = phone ? await loadHistory(phone) : [];
   const messages: Anthropic.MessageParam[] = [...history, { role: 'user', content: question }];
+  const system = systemFor(phone ? senderRole(phone) : 'owner');
 
   let answer = '';
   for (let i = 0; i < 8; i++) {
-    const resp = await client.messages.create({ model: MODEL, max_tokens: 1500, system: SYSTEM, tools, messages });
+    const resp = await client.messages.create({ model: MODEL, max_tokens: 1500, system, tools, messages });
     if (resp.stop_reason === 'tool_use') {
       const results: Anthropic.ToolResultBlockParam[] = [];
       for (const block of resp.content) {

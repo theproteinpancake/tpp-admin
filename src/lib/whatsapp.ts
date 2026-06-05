@@ -34,6 +34,13 @@ export function isAllowed(from: string): boolean {
   return a.length === 0 ? false : a.includes(waAddr(from));
 }
 
+// Kate (wholesale manager) — her number gets the wholesale persona + wholesale brief.
+export const KATE_NUMBER = process.env.KATE_WHATSAPP || '+61424430599';
+export type SenderRole = 'wholesale' | 'owner';
+export function senderRole(from: string): SenderRole {
+  return waAddr(from) === waAddr(KATE_NUMBER) ? 'wholesale' : 'owner';
+}
+
 export async function sendWhatsApp(to: string, body: string, mediaUrl?: string): Promise<boolean> {
   const sid = SID(), from = FROM();
   const auth = twilioAuthHeader();
