@@ -3,7 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { supabaseLogistics } from './supabase-logistics';
 import { computeStatus, STATUS_META, PRIMARY_FLAVOURS } from './stock';
 import { OPEN_STATUSES } from './po-types';
-import { getReorderRecommendations } from './reorder';
+import { proposeFlavourPOs, proposeOneFlavour } from './poBuilder';
 import { draftWhatsAppPO, approveLatestWhatsAppDraft } from './poActions';
 import { findLatestDocket, parseDocket, createWROFromParsed, draftSharonReply } from './wroFlow';
 import { gmailSendDraft, gmailCreateDraft } from './google';
@@ -48,18 +48,19 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: 'get_reorder_recommendations',
-    description: 'What to order next and how many units, per site — based on velocity, lead time, target cover, current stock and inbound POs. Use this to answer "what should we order".',
-    input_schema: { type: 'object', properties: { site: { type: 'string', enum: ['ALTONA', 'MANCHESTER'] } } },
+    description: 'Per-flavour ABC purchase-order proposals for Altona. Each is ONE flavour, totalling a 500kg MULTIPLE (500kg / 1T / 1.5T), split across that flavour\'s sizes by live velocity + cover, accounting for inbound. 320g lines are shown as units AND cartons (units÷4). Use for "what should I order from ABC".',
+    input_schema: { type: 'object', properties: {} },
   },
   {
     name: 'draft_po',
-    description: 'Create a DRAFT purchase order for ABC Blending → Altona (not yet sent). Returns a screenshot image of the PO for the user to approve. If no items given, uses the current reorder recommendations. A screenshot is automatically attached to your reply.',
+    description: 'Create a DRAFT PO (ABC → Altona, not sent) for ONE flavour — pass `flavour` (e.g. "Buttermilk"). Builds a 500kg-multiple order split across that flavour\'s sizes by live demand (320g as units + cartons). Returns a screenshot; tell the user to reply SEND to approve & push to Xero. (Pass explicit `items` only to override.)',
     input_schema: {
       type: 'object',
       properties: {
+        flavour: { type: 'string', description: 'the single flavour to order, e.g. "Buttermilk", "Maple", "GF Cinnamon Churro"' },
         items: {
           type: 'array',
-          description: 'optional explicit lines; omit to use recommendations',
+          description: 'optional explicit line override (product_id + qty_ordered units)',
           items: { type: 'object', properties: { product_id: { type: 'string' }, qty_ordered: { type: 'number' } } },
         },
       },
@@ -178,19 +179,30 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
       : { note: 'Nothing to order in the next 3 months — stock + inbound cover projected demand.' };
   }
   if (name === 'get_reorder_recommendations') {
-    const recs = await getReorderRecommendations((input.site as string) || 'ALTONA');
-    return recs.map((r) => ({
-      product_id: r.product_id, flavour: r.flavour, size: r.size, recommend_units: r.recommend_units,
-      cartons: r.cartons, available: r.available, inbound: r.inbound, days_of_cover: r.days_of_cover,
-      daily_sales: r.daily, reason: r.reason,
+    const props = await proposeFlavourPOs('ALTONA');
+    if (!props.length) return { note: 'Nothing due to order from ABC right now — stock + inbound cover demand.' };
+    return props.map((p) => ({
+      flavour: p.flavour, order_kg: p.order_kg, total_units: p.total_units, total_kg: p.total_kg,
+      lines: p.lines.map((l) => ({ sku: l.sku, size: l.size, units: l.units, cartons: l.cartons, kg: l.kg })),
+      note: p.reason,
     }));
   }
   if (name === 'draft_po') {
-    const items = (input.items as any[] | undefined)?.map((i) => ({ product_id: i.product_id, qty_ordered: i.qty_ordered, unit_cost: null }));
+    let items: { product_id: string; qty_ordered: number; unit_cost: null }[] | undefined;
+    let cartonNote = '';
+    if (input.flavour) {
+      const p = await proposeOneFlavour(String(input.flavour));
+      if (!p) return { error: `Couldn't build a PO for "${input.flavour}" — no matching flavour.` };
+      items = p.lines.map((l) => ({ product_id: l.product_id, qty_ordered: l.units, unit_cost: null }));
+      const cartons = p.lines.filter((l) => l.cartons);
+      cartonNote = cartons.length ? ` 320g lines = ${cartons.map((l) => `${l.units}u/${l.cartons}ctn`).join(', ')}.` : '';
+    } else if (input.items) {
+      items = (input.items as any[]).map((i) => ({ product_id: i.product_id, qty_ordered: i.qty_ordered, unit_cost: null }));
+    }
     const res = await draftWhatsAppPO(items);
     if ('error' in res) return res;
     _media = res.image_url;
-    return { drafted: true, summary: res.summary, note: 'Screenshot attached. Tell the user to reply SEND to approve & push to Xero.' };
+    return { drafted: true, summary: res.summary, note: `One-flavour 500kg-multiple PO drafted.${cartonNote} Screenshot attached. Tell the user to reply SEND to approve & push to Xero.` };
   }
   if (name === 'approve_po') {
     return await approveLatestWhatsAppDraft();
@@ -343,6 +355,12 @@ Your full toolkit:
 - draft_po → approve_po — draft a PO (ABC → Altona) with a screenshot, then push to Xero on approval.
 - check_docket → parse_docket → create_wro → draft_sharon_reply → send_email_draft — the receiving/WRO flow.
 
+ABC purchase-order rules (IMPORTANT — get these right):
+- Orders are placed ONE FLAVOUR per PO (easy tracking).
+- Each PO totals a MULTIPLE of 500kg of product — 500kg by default, 1T/1.5T for fast movers with a bigger deficit. Optimise for clean 500kg increments.
+- The weight is split across that flavour's sizes (320g / 520g / 1kg) weighted by which sizes are actually low (live velocity + cover). Bag weights: 320g = 0.32kg, 520g = 0.52kg, 1kg = 1kg. A single size is fine if only one is low (e.g. 500kg of just 520g).
+- 320g bags are WHOLESALE, packed by ABC in Shelf-Ready Cartons of 4. The PO is placed in TOTAL UNITS (individual bags), but ShipBob counts them as cartons (units ÷ 4). ALWAYS present 320g lines as "X units (Y cartons)".
+- Account for inbound stock. get_reorder_recommendations gives the per-flavour 500kg proposals; draft_po with a `flavour` drafts one.
 Purchase orders: draft_po creates a DRAFT only + attaches a screenshot; then tell the user to reply "SEND". Only call approve_po when the user EXPLICITLY approves ("SEND"/"approve"/"yes send it"). Never approve on your own. After approving, confirm the Xero PO number.
 
 Receiving (WRO) flow — TWO distinct steps, decided by the conversation so far:
