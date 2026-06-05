@@ -13,11 +13,12 @@ const PO_SIGNATURE = 'Luke Rolls\nOwner | The Protein Pancake\nP: +61 0412 474 3
 
 // Email an approved PO to ABC (To: Sharon, CC: Stephen) with the Xero PDF attached.
 // Best-effort: returns false if Gmail isn't connected or sending fails.
-export async function emailPOToABC(xeroPoId: string, poNumber: string, lineSummary: string): Promise<boolean> {
+export async function emailPOToABC(xeroPoId: string, poNumber: string, flavour: string): Promise<boolean> {
   try {
     const pdf = await getXeroPOPdf(xeroPoId);
-    const subject = `Purchase Order ${poNumber} — The Protein Pancake`;
-    const body = `Hi Sharon,\n\nPlease find our purchase order ${poNumber} attached.\n\n${lineSummary}\n\nThanks very much,\n\n${PO_SIGNATURE}`;
+    const subject = 'New PO';
+    const of = flavour ? ` of ${flavour}` : '';
+    const body = `Hey guys,\n\nJust sending over a new PO${of}.\n\nThanks!\n\n${PO_SIGNATURE}`;
     await gmailSend(ABC_PO_TO, subject, body, {
       cc: ABC_PO_CC,
       attachment: pdf ? { filename: `${poNumber}.pdf`, base64: pdf } : undefined,
@@ -80,11 +81,8 @@ export async function approveLatestWhatsAppDraft(): Promise<{ ok: true; xero_num
   const lines = valid.map((i: any) => ({ ItemCode: i.product.sku, Quantity: i.qty_ordered, UnitAmount: i.unit_cost }));
   if (!lines.length) return { error: 'Draft has no valid line items.' };
 
-  const lineSummary = valid.map((i: any) => {
-    const g = i.product.unit_size_g;
-    const sz = g >= 1000 ? `${g / 1000}kg` : `${g}g`;
-    return `• ${i.product.flavour ?? i.product.sku} ${sz} ×${i.qty_ordered}`;
-  }).join('\n');
+  // POs are one flavour each; derive it for the email (joins if somehow mixed).
+  const flavour = [...new Set(valid.map((i: any) => i.product.flavour).filter(Boolean))].join(', ');
 
   try {
     const xero = await createXeroPurchaseOrder({
@@ -93,7 +91,7 @@ export async function approveLatestWhatsAppDraft(): Promise<{ ok: true; xero_num
     await supabaseLogistics.from('purchase_orders')
       .update({ status: 'placed', xero_po_id: xero.id, po_number: xero.number, xero_status: 'AUTHORISED', updated_at: new Date().toISOString() })
       .eq('id', po.id);
-    const emailed = await emailPOToABC(xero.id, xero.number, lineSummary);
+    const emailed = await emailPOToABC(xero.id, xero.number, flavour);
     return { ok: true, xero_number: xero.number, emailed };
   } catch (e) {
     return { error: `Xero push failed: ${String(e).slice(0, 120)}` };
