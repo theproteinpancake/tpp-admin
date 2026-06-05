@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Image from 'next/image';
 
 export default function LoginPage() {
   const [password, setPassword] = useState('');
@@ -40,9 +41,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-cream via-churro/40 to-cream">
       <div className="w-full max-w-md rounded-2xl border border-churro/60 bg-white p-8 shadow-xl">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-caramel text-3xl shadow-sm">
-            🥞
-          </div>
+          <Image src="/tpp-smile.png" alt="The Protein Pancake" width={64} height={64} className="mx-auto mb-4 rounded-2xl shadow-sm" priority />
           <h1 className="text-2xl font-bold text-gray-900">TPP Control</h1>
           <p className="mt-1 text-gray-500">Sign in to the dashboard</p>
         </div>
