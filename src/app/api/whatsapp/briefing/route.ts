@@ -6,6 +6,7 @@ import { allowedNumbers, sendWhatsApp, senderRole } from '@/lib/whatsapp';
 import { getActionCenter } from '@/lib/actionCenter';
 import { getWholesaleDashboard } from '@/lib/wholesale';
 import { listCollabs, likelyToPost } from '@/lib/marketing';
+import { setConfig } from '@/lib/settings';
 
 export const maxDuration = 60;
 
@@ -22,12 +23,15 @@ async function buildBriefing(): Promise<string> {
   const today = new Date().toISOString().slice(0, 10);
   const lines: string[] = [`📦 *TPP stock briefing* — ${today}`];
 
-  // Lead with the proactive action list — what needs you today
+  // Lead with the proactive action list — what needs you today (NUMBERED so you can
+  // reply "1, 3 done" or "8 — provisioned Manildra" to clear / annotate items)
   const actions = await getActionCenter().catch(() => []);
   if (actions.length) {
     lines.push(`\n*🧠 Needs you today:*`);
-    for (const a of actions) lines.push(`${SEV_ICON[a.severity] || '•'} ${a.title} — ${a.detail}`);
-    lines.push(`_Reply e.g. “${actions[0].command}” and I’ll handle it._`);
+    actions.forEach((a, i) => lines.push(`*${i + 1}.* ${SEV_ICON[a.severity] || '•'} ${a.title} — ${a.detail}`));
+    lines.push(`_Reply with the numbers you've handled (e.g. “1, 3 done” or “8 — provisioned Manildra, underway”) to clear them, or ask me to action one._`);
+    // save the numbered mapping so replies can resolve a number → item key
+    await setConfig('last_brief_items', JSON.stringify(actions.map((a, i) => ({ n: i + 1, key: a.key, title: a.title })))).catch(() => {});
   } else {
     lines.push(`\n✅ Nothing needs action today — all sites within target cover.`);
   }

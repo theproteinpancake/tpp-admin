@@ -13,7 +13,7 @@ import { getShippingData } from './shipping';
 import { getBillingData, buildHighlights } from './billing';
 import { getTransfer, transferUnits, transferValue, setTransferStatus } from './transfers';
 import { suggestRestock, createDraftTransfer } from './transferBuilder';
-import { getActionCenter } from './actionCenter';
+import { getActionCenter, dismissBriefItems } from './actionCenter';
 import { getPoForecast } from './poForecast';
 import { MAERSK } from './transferConstants';
 import { sendWhatsApp, senderRole } from './whatsapp';
@@ -27,6 +27,18 @@ const TRANSFER_DOC_LIST: [string, string][] = [['commercial-invoice', 'Commercia
 const MODEL = 'claude-sonnet-4-6';
 
 const tools: Anthropic.Tool[] = [
+  {
+    name: 'mark_brief_done',
+    description: 'Clear items from the morning brief that the user has handled, by their NUMBER. Use when the user replies to the brief with numbers (e.g. "1, 3 done", "disregard 2 and 5", "8 — I provisioned Manildra so it\'s underway"). Pass the numbers and, if they gave a reason/decision, the note (so it\'s remembered). Cleared items won\'t resurface in tomorrow\'s brief. The brief items are numbered in the order they were shown.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        numbers: { type: 'array', items: { type: 'number' }, description: 'the brief item numbers to clear' },
+        note: { type: 'string', description: 'optional decision/reason to remember, e.g. "provisioned Manildra, Buttermilk + Cinnamon underway"' },
+      },
+      required: ['numbers'],
+    },
+  },
   {
     name: 'get_stock',
     description: 'Live stock per SKU per site: on hand, available, days of cover, inbound (pending PO units), velocity and a status. Use filters to narrow.',
@@ -252,6 +264,12 @@ let _media: string | null = null; // screenshot URL set by draft_po within a sin
 let _phone: string | null = null; // WhatsApp recipient for tools that send media directly
 
 async function runTool(name: string, input: Record<string, unknown>): Promise<unknown> {
+  if (name === 'mark_brief_done') {
+    const nums = (Array.isArray(input.numbers) ? input.numbers : []).map((n) => Number(n)).filter((n) => Number.isFinite(n));
+    if (!nums.length) return { error: 'Tell me which brief number(s) to clear.' };
+    const r = await dismissBriefItems(nums, input.note ? String(input.note) : undefined);
+    return { ...r, note: `Cleared ${r.cleared.length} item(s) from the brief${r.cleared.length ? `: ${r.cleared.join(', ')}` : ''}. They won't resurface.${r.not_found.length ? ` Couldn't find #${r.not_found.join(', #')}.` : ''}` };
+  }
   if (name === 'get_stock') {
     let q = supabaseLogistics.from('v_stock_current')
       .select('sku,flavour,unit_size_g,tier,location_code,on_hand,available,inbound,days_of_cover,avg_daily_units_30d,trend')
@@ -543,7 +561,7 @@ Live data + real actions via tools. Sites: Altona (AU, AUD) & Manchester (UK, GB
 CRITICAL RULE — never say you can't do something logistics-related without FIRST calling the relevant tool. If a tool returns no rows, say "no data found right now", NOT "I don't have access". You DO have every capability below. Do not describe your own tool list to the user; just answer.
 
 Your full toolkit:
-- get_action_center — the proactive cross-site priority list (transfers due, POs, packaging, expiry, billing). Lead with this for "what needs my attention" and when opening a proactive check-in; then offer to action the top items.
+- get_action_center — the proactive cross-site priority list (transfers due, POs, packaging, expiry, billing). Lead with this for "what needs my attention" and when opening a proactive check-in; then offer to action the top items. The morning brief NUMBERS these items; when the user replies with numbers ("1, 3 done", "disregard 2 and 5", "8 — I provisioned Manildra so it's underway"), call mark_brief_done with those numbers + any note/decision so they clear and won't resurface tomorrow. Confirm what you cleared.
 - get_stock — live on-hand, available, days of cover, inbound, velocity, status, per SKU per site.
 - get_expiring_stock — batch/lot best-before dates, days left, soonest-expiring stock (BOTH sites). This covers ALL expiry / shortest-dated / batch / best-before questions.
 - get_purchase_orders — POs: supplier, status, expected date, outstanding units.

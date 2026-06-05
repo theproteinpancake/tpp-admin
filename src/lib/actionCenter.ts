@@ -6,6 +6,15 @@ import { getPouchTracking, getCustomPackaging } from './packaging';
 import { getShortestDated, expiryStatus } from './lots';
 import { getBillingData, buildHighlights, SITE_CCY } from './billing';
 import { getGmailInsights } from './gmailScour';
+import { supabaseLogistics } from './supabase-logistics';
+
+// keys the founder has marked done from the brief (and not yet expired)
+async function activeDismissals(): Promise<Set<string>> {
+  const nowIso = new Date().toISOString();
+  const { data } = await supabaseLogistics.from('agent_dismissals')
+    .select('key, expires_at').or(`expires_at.is.null,expires_at.gt.${nowIso}`);
+  return new Set((data ?? []).map((d: any) => d.key));
+}
 
 export type Severity = 'critical' | 'warning' | 'info';
 export interface Action {
@@ -19,6 +28,29 @@ export interface Action {
 }
 
 const money = (n: number, ccy: string) => new Intl.NumberFormat('en-AU', { style: 'currency', currency: ccy || 'AUD', maximumFractionDigits: 0 }).format(n);
+
+// Mark brief items done by their numbers (from the last morning brief), with an
+// optional note/decision to remember. Suppresses them from the brief for ~14 days.
+export async function dismissBriefItems(numbers: number[], note?: string):
+  Promise<{ cleared: string[]; not_found: number[] }> {
+  const { data: cfg } = await supabaseLogistics.from('app_config').select('value').eq('key', 'last_brief_items').maybeSingle();
+  let map: { n: number; key: string; title: string }[] = [];
+  try { map = JSON.parse((cfg?.value as string) || '[]'); } catch { /* ignore */ }
+  const expires = new Date(Date.now() + 14 * 86400_000).toISOString();
+  const cleared: string[] = []; const notFound: number[] = [];
+  for (const n of numbers) {
+    const item = map.find((m) => m.n === n);
+    if (!item) { notFound.push(n); continue; }
+    await supabaseLogistics.from('agent_dismissals').upsert(
+      { key: item.key, note: note || null, created_at: new Date().toISOString(), expires_at: expires },
+      { onConflict: 'key' });
+    if (item.key.startsWith('mail:')) {
+      await supabaseLogistics.from('gmail_insights').update({ dismissed: true }).eq('source_key', item.key.slice(5));
+    }
+    cleared.push(item.title);
+  }
+  return { cleared, not_found: notFound };
+}
 
 export async function getActionCenter(): Promise<Action[]> {
   const [restock, recsAU, pouches, custom, lots, billing, gmail] = await Promise.all([
@@ -123,6 +155,10 @@ export async function getActionCenter(): Promise<Action[]> {
     });
   }
 
+  // drop anything the founder has already marked done from the brief
+  const dismissed = await activeDismissals().catch(() => new Set<string>());
+  const live = actions.filter((a) => !dismissed.has(a.key));
+
   const order: Severity[] = ['critical', 'warning', 'info'];
-  return actions.sort((a, b) => order.indexOf(a.severity) - order.indexOf(b.severity));
+  return live.sort((a, b) => order.indexOf(a.severity) - order.indexOf(b.severity));
 }

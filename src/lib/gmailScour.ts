@@ -11,6 +11,8 @@ const QUERIES: { category: string; q: string }[] = [
   { category: 'maersk', q: 'from:(lns.maersk.com OR maersk.com OR damco.com) newer_than:14d' },
   { category: 'abc', q: 'from:abcblending.com.au newer_than:21d' },
   { category: 'shipbob', q: 'from:shipbob.com (WRO OR receiving OR inbound OR billing OR invoice OR storage OR claim) newer_than:14d' },
+  // Luke's OWN replies — so a thread he's already actioned/resolved isn't re-flagged.
+  { category: 'sent', q: 'in:sent (to:abcblending.com.au OR to:shipbob.com OR to:maersk.com OR to:damco.com) newer_than:21d' },
 ];
 
 export interface GmailInsight {
@@ -43,6 +45,7 @@ export async function runScour(): Promise<{ scanned: number; insights: number; e
 Group the emails into ongoing JOBS (one per shipment/topic) and for each return the CURRENT status and whether the founder must act.
 Rules: ignore auto-replies, out-of-office, marketing, and anything not logistics-operational. Only flag needs_action=true when the founder personally must do something (sign a doc, pay, book a slot, create a WRO, reply). Be concise.
 IMPORTANT — ShipBob receiving: if a ShipBob email says goods / a WRO / an inbound shipment have been RECEIVED or receiving is COMPLETE at a fulfilment centre, set needs_action=true and make the action "Mark the matching transfer/PO as received" (name the shipment/WRO if shown) — this is how we confirm stock has actually landed.
+IMPORTANT — sent mail = already handled: some emails are marked [sent] (from Luke). If Luke has already REPLIED to or RESOLVED a thread (e.g. sent the paperwork/labels, paid the invoice, made a decision, answered the request), set that job's needs_action=false — do NOT keep flagging it as waiting on Luke. Never create a job whose only message is a [sent] email; use sent mail only as evidence a thread is resolved. Only flag needs_action=true for things STILL genuinely waiting on Luke with no reply from him.
 Return ONLY a JSON array, no prose: [{"source_key": "<short topic>", "category": "maersk|abc|shipbob", "summary": "<=140 char status", "needs_action": true|false, "action": "<=90 char next step or empty"}]`,
     messages: [{ role: 'user', content: `Recent logistics emails:\n\n${list}` }],
   });
