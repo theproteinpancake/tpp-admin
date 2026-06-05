@@ -305,8 +305,18 @@ Luke`;
       .order('created_at', { ascending: false });
     if (input.reference) q = q.eq('reference', String(input.reference));
     const rows = ((await q).data ?? []) as any[];
+    const STATUS_MEANING: Record<string, string> = {
+      draft: 'not shipped yet',
+      in_transit: 'on the water / en route — not landed',
+      customs: 'arrived in destination country, CLEARING CUSTOMS — NOT landed/received yet, not sellable',
+      arrived: 'arrived at the ShipBob FC, being received/put away — not sellable yet',
+      received: 'received into ShipBob, now in available stock',
+      cancelled: 'cancelled',
+    };
     return rows.map((t) => ({
-      reference: t.reference, status: t.status, route: `${t.origin?.code || '?'} → ${t.destination?.code || '?'}`,
+      reference: t.reference, status: t.status, status_meaning: STATUS_MEANING[t.status] || t.status,
+      counts_as_inbound: ['in_transit', 'customs', 'arrived'].includes(t.status),
+      route: `${t.origin?.code || '?'} → ${t.destination?.code || '?'}`,
       eta: t.eta, ship_date: t.ship_date, carrier: t.carrier, bl_ref: t.bl_ref, shipment_ref: t.shipment_ref,
       total_value: t.total_value, currency: t.currency, cartons: t.cartons, gross_kg: t.gross_kg,
       units: (t.items ?? []).reduce((s: number, i: any) => s + (i.qty || 0), 0),
@@ -380,7 +390,8 @@ Your full toolkit:
 - get_reorder_recommendations — what to order & how many (velocity × lead+target − stock − inbound).
 - get_shipping_billing — shipping cost trends, monthly spend, MoM change, cost OUTLIERS/overcharges, invoices.
 - get_internal_transfers — AU→UK stock transfers (pallets) in transit; their units already feed the destination site's inbound. Use for "what's on the way to the UK", "the pallet", "INTERNAL2".
-- suggest_transfer → create_transfer — propose a restock transfer to a site (live velocity, 90-day trigger, 180-day target, Altona-capped); show the preview, confirm, then create the draft. send_transfer_docs — WhatsApp the Commercial Invoice + Packing List PDFs for a transfer to the user. draft_transfer_email — draft (not send) the Maersk/Jordan email to start the transfer. For sending the email, use send_email_draft only after explicit approval.
+- suggest_transfer → create_transfer — propose a UK restock transfer (520g medium bags ONLY; live velocity, 180-day cover + best-seller pallet-fill, Altona-capped); show the preview, confirm, then create the draft. send_transfer_docs — WhatsApp the Commercial Invoice + Packing List PDFs for a transfer to the user. draft_transfer_email — draft (not send) the Maersk/Jordan email to start the transfer. For sending the email, use send_email_draft only after explicit approval.
+Transfer STATUS — never overstate it. in_transit = en route (not landed); customs = arrived in-country, CLEARING CUSTOMS (NOT landed/received, not sellable); arrived = at the ShipBob FC being put away (not sellable); received = in available stock. in_transit/customs/arrived all count as INBOUND (baked into cover) but are NOT "landed". Use get_internal_transfers' status_meaning field; describe the real stage (e.g. "INTERNAL2 is clearing UK customs"), don't say a transfer has "landed/arrived" unless status is received.
 - draft_po → approve_po — draft a PO (ABC → Altona) with a screenshot, then push to Xero on approval.
 - check_docket → parse_docket → create_wro → draft_sharon_reply → send_email_draft — the receiving/WRO flow.
 

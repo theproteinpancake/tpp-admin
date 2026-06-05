@@ -12,7 +12,8 @@ const fmtDate = (d: string | null) => (d ? new Date(d + 'T00:00:00').toLocaleDat
 const STATUS: Record<string, { label: string; bg: string }> = {
   draft: { label: 'Draft', bg: '#9ca3af' },
   in_transit: { label: 'In transit', bg: '#2563eb' },
-  arrived: { label: 'Arrived', bg: '#7c3aed' },
+  customs: { label: 'Clearing customs', bg: '#d97706' },
+  arrived: { label: 'Arrived at FC', bg: '#7c3aed' },
   received: { label: 'Received', bg: '#059669' },
   cancelled: { label: 'Cancelled', bg: '#b91c1c' },
 };
