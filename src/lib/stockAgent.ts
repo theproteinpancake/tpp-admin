@@ -13,6 +13,7 @@ import { getBillingData, buildHighlights } from './billing';
 import { getTransfer, transferUnits, transferValue } from './transfers';
 import { suggestRestock, createDraftTransfer } from './transferBuilder';
 import { getActionCenter } from './actionCenter';
+import { getPoForecast } from './poForecast';
 import { MAERSK } from './transferConstants';
 import { sendWhatsApp } from './whatsapp';
 
@@ -39,6 +40,11 @@ const tools: Anthropic.Tool[] = [
     name: 'get_purchase_orders',
     description: 'Purchase orders with supplier, status, expected date and outstanding (inbound) units.',
     input_schema: { type: 'object', properties: { open_only: { type: 'boolean' } } },
+  },
+  {
+    name: 'get_po_forecast',
+    description: 'The 3-month rolling ABC purchase-order schedule for Altona — which SKUs to order in which month (live velocity, 30-day lead), grouped by month. Use for "what\'s my PO schedule", "what do I need to order over the next few months", "June/July PO plan".',
+    input_schema: { type: 'object', properties: {} },
   },
   {
     name: 'get_reorder_recommendations',
@@ -164,6 +170,12 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
       supplier: p.supplier?.name, status: p.status, expected: p.expected_date, value: p.total_cost,
       items: (p.items ?? []).map((i: any) => ({ sku: i.product?.sku, ordered: i.qty_ordered, received: i.qty_received })),
     }));
+  }
+  if (name === 'get_po_forecast') {
+    const f = await getPoForecast('ALTONA');
+    return f.months.length
+      ? f.months.map((m) => ({ month: m.label, total_units: m.units, order_now: m.key === new Date().toISOString().slice(0, 7), items: m.items.map((i) => ({ flavour: i.flavour, size: i.size, units: i.units, cartons: i.cartons, order_by: i.order_by })) }))
+      : { note: 'Nothing to order in the next 3 months — stock + inbound cover projected demand.' };
   }
   if (name === 'get_reorder_recommendations') {
     const recs = await getReorderRecommendations((input.site as string) || 'ALTONA');
@@ -324,6 +336,7 @@ Your full toolkit:
 - get_stock — live on-hand, available, days of cover, inbound, velocity, status, per SKU per site.
 - get_expiring_stock — batch/lot best-before dates, days left, soonest-expiring stock (BOTH sites). This covers ALL expiry / shortest-dated / batch / best-before questions.
 - get_purchase_orders — POs: supplier, status, expected date, outstanding units.
+- get_po_forecast — the 3-month rolling ABC order schedule (what to order each month). Use for "PO schedule / plan / what to order over the next months".
 - get_reorder_recommendations — what to order & how many (velocity × lead+target − stock − inbound).
 - get_shipping_billing — shipping cost trends, monthly spend, MoM change, cost OUTLIERS/overcharges, invoices.
 - get_internal_transfers — AU→UK stock transfers (pallets) in transit; their units already feed the destination site's inbound. Use for "what's on the way to the UK", "the pallet", "INTERNAL2".

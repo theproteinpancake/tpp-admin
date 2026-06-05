@@ -2,6 +2,8 @@ import Link from 'next/link';
 import { Plus, ClipboardList, PackagePlus, Truck } from 'lucide-react';
 import { getPurchaseOrders, poUnits, PO_STATUS_META, OPEN_STATUSES, type POStatus } from '@/lib/po';
 import { getConnection } from '@/lib/xero';
+import { getPoForecast } from '@/lib/poForecast';
+import { flavourColor } from '@/lib/flavours';
 import POActions from '@/components/po/POActions';
 import XeroButtons from '@/components/po/XeroButtons';
 
@@ -15,10 +17,11 @@ function money(n: number | null, ccy: string | null) {
 function sizeLabel(g: number | null) { return g == null ? '' : g >= 1000 ? `${g / 1000}kg` : `${g}g`; }
 
 export default async function PurchaseOrdersPage() {
-  const [pos, conn] = await Promise.all([getPurchaseOrders(), getConnection()]);
+  const [pos, conn, forecast] = await Promise.all([getPurchaseOrders(), getConnection(), getPoForecast('ALTONA')]);
   const open = pos.filter((p) => OPEN_STATUSES.includes(p.status));
   const inboundUnits = open.reduce((s, p) => s + poUnits(p).outstanding, 0);
   const openValue = open.reduce((s, p) => s + (p.total_cost || 0), 0);
+  const nowMonthKey = new Date().toISOString().slice(0, 7);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
@@ -42,6 +45,46 @@ export default async function PurchaseOrdersPage() {
         <Card icon={<PackagePlus className="h-5 w-5 text-caramel" />} label="Pending (inbound) units" value={inboundUnits.toLocaleString('en-AU')} />
         <Card icon={<Truck className="h-5 w-5 text-caramel" />} label="Open PO value" value={money(openValue, 'AUD')} />
       </div>
+
+      {/* Suggested POs — 3-month rolling schedule */}
+      <section id="suggested" className="mb-8 scroll-mt-6">
+        <div className="mb-3 flex items-center gap-2">
+          <PackagePlus className="h-5 w-5 text-caramel" />
+          <h2 className="text-lg font-semibold text-gray-900">Suggested orders — next 3 months</h2>
+          <span className="rounded-full bg-cream px-2 py-0.5 text-[11px] font-medium text-maple">live velocity · ABC 30-day lead</span>
+        </div>
+        {forecast.months.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-gray-300 bg-white px-4 py-6 text-center text-sm text-gray-500">
+            Nothing to order in the next 3 months — current stock + inbound POs cover projected demand. ✅
+          </p>
+        ) : (
+          <div className="grid gap-4 lg:grid-cols-3">
+            {forecast.months.map((m) => {
+              const isNow = m.key === nowMonthKey;
+              return (
+                <div key={m.key} className={`rounded-xl border bg-white p-4 shadow-sm ${isNow ? 'border-caramel' : 'border-gray-200'}`}>
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-sm font-semibold text-gray-900">{m.label}{isNow && <span className="ml-1.5 rounded-full bg-red-50 px-1.5 text-[10px] font-medium text-red-600">order now</span>}</span>
+                    <span className="text-xs text-gray-400">{m.units.toLocaleString()} units</span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {m.items.map((it) => (
+                      <div key={it.product_id} className="flex items-center justify-between text-sm">
+                        <span className="flex items-center gap-1.5 text-gray-700">
+                          <span className="h-3 w-1.5 rounded-full" style={{ backgroundColor: flavourColor(it.flavour) }} />
+                          {it.flavour} {it.size}
+                        </span>
+                        <span className="font-medium text-gray-900">×{it.units.toLocaleString()}{it.cartons ? <span className="text-[11px] font-normal text-gray-400"> ({it.cartons}ctn)</span> : null}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <p className="mt-2 text-xs text-gray-400">Projected from each SKU&apos;s live sales rate vs. on-hand + inbound. Ask the assistant to “draft the ABC PO” to turn the current month into a Xero draft.</p>
+      </section>
 
       {pos.length === 0 ? (
         <div className="rounded-xl border border-dashed border-gray-300 bg-white p-10 text-center text-gray-500">

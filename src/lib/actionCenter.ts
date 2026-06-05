@@ -53,7 +53,7 @@ export async function getActionCenter(): Promise<Action[]> {
       title: 'ABC purchase order due',
       detail: `${recsAU.length} SKU${recsAU.length === 1 ? '' : 's'} need reordering at Altona — ~${units.toLocaleString()} units`,
       command: 'what should I order from ABC, and draft the PO',
-      href: '/logistics/purchase-orders',
+      href: '/logistics/purchase-orders#suggested',
       count: recsAU.length,
     });
   }
