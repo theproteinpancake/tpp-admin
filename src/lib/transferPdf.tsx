@@ -94,7 +94,7 @@ function Meta({ t, invoiceDate }: { t: Transfer; invoiceDate: string }) {
     ['Shipment #', t.shipment_ref || '—'],
     ['Container', t.container_ref || '—'],
     ['ETA', fmtDate(t.eta)],
-    ['Route', `${t.origin_code || 'AU'} → ${t.destination_code || 'UK'}`],
+    ['Route', `${t.origin_code || 'AU'} to ${t.destination_code || 'UK'}`],
   ];
   return (
     <View style={s.metaGrid}>

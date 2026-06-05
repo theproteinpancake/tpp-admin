@@ -6,10 +6,16 @@ import { OPEN_STATUSES } from './po-types';
 import { getReorderRecommendations } from './reorder';
 import { draftWhatsAppPO, approveLatestWhatsAppDraft } from './poActions';
 import { findLatestDocket, parseDocket, createWROFromParsed, draftSharonReply } from './wroFlow';
-import { gmailSendDraft } from './google';
+import { gmailSendDraft, gmailCreateDraft } from './google';
 import { getLots, expiryStatus, EXPIRY_META } from './lots';
 import { getShippingData } from './shipping';
 import { getBillingData, buildHighlights } from './billing';
+import { getTransfer, transferUnits, transferValue } from './transfers';
+import { MAERSK } from './transferConstants';
+import { sendWhatsApp } from './whatsapp';
+
+const APP_URL = process.env.PUBLIC_APP_URL || 'https://admin.theproteinpancake.co';
+const TRANSFER_DOC_LIST: [string, string][] = [['commercial-invoice', 'Commercial Invoice'], ['packing-list', 'Packing List']];
 
 const MODEL = 'claude-sonnet-4-6';
 
@@ -62,6 +68,16 @@ const tools: Anthropic.Tool[] = [
     input_schema: { type: 'object', properties: { site: { type: 'string', enum: ['ALTONA', 'MANCHESTER'] } } },
   },
   {
+    name: 'send_transfer_docs',
+    description: 'Send a transfer\'s shipping documents (Commercial Invoice + Packing List PDFs) to the user on WhatsApp for review. Use when the user asks to see/send the docs for a transfer (e.g. "send me the INTERNAL2 docs").',
+    input_schema: { type: 'object', properties: { reference: { type: 'string', description: 'transfer reference e.g. INTERNAL2' } }, required: ['reference'] },
+  },
+  {
+    name: 'draft_transfer_email',
+    description: 'Draft (NOT send) an email to Jordan at Maersk to start/progress a transfer, with links to the Commercial Invoice + Packing List. Show the user the draft; only send_email_draft when they explicitly approve.',
+    input_schema: { type: 'object', properties: { reference: { type: 'string' } }, required: ['reference'] },
+  },
+  {
     name: 'get_internal_transfers',
     description: 'Internal stock transfers between sites (e.g. Altona AU → Manchester UK pallets). Returns reference, status, ETA, carrier/BL, and the SKUs + units inbound. These units already count toward the destination site\'s inbound stock. Use for "what\'s on the way to the UK / Manchester", "the pallet", "internal transfer", "INTERNAL2".',
     input_schema: { type: 'object', properties: { reference: { type: 'string', description: 'optional transfer reference e.g. INTERNAL2' } } },
@@ -99,6 +115,7 @@ const tools: Anthropic.Tool[] = [
 ];
 
 let _media: string | null = null; // screenshot URL set by draft_po within a single run
+let _phone: string | null = null; // WhatsApp recipient for tools that send media directly
 
 async function runTool(name: string, input: Record<string, unknown>): Promise<unknown> {
   if (name === 'get_stock') {
@@ -158,6 +175,41 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
       site: l.site, lot: l.lot_number, best_before: l.expiry_date, days_left: l.days_left,
       on_hand: l.on_hand, status: EXPIRY_META[expiryStatus(l.days_left)].label,
     }));
+  }
+  if (name === 'send_transfer_docs') {
+    const ref = String(input.reference || '');
+    const t = await getTransfer(ref);
+    if (!t) return { error: `No transfer found with reference ${ref}.` };
+    if (!_phone) return { error: 'No WhatsApp recipient in context.' };
+    const sent: string[] = [];
+    for (const [key, label] of TRANSFER_DOC_LIST) {
+      const ok = await sendWhatsApp(_phone, `📄 ${label} — ${ref}`, `${APP_URL}/api/transfers/${ref}/${key}`);
+      if (ok) sent.push(label);
+    }
+    return { reference: ref, sent, note: sent.length ? 'PDFs sent to the user on WhatsApp.' : 'Failed to send PDFs.' };
+  }
+  if (name === 'draft_transfer_email') {
+    const ref = String(input.reference || '');
+    const t = await getTransfer(ref);
+    if (!t) return { error: `No transfer found with reference ${ref}.` };
+    const route = `${t.origin_code || 'AU'} → ${t.destination_code || 'UK'}`;
+    const subject = `The Protein Pancake — ${ref} ${route} pallet transfer`;
+    const body =
+`Hi ${MAERSK.name.split(' ')[0]},
+
+Please find the documents to start our next stock transfer (${ref}), ${route}.
+
+• Commercial Invoice: ${APP_URL}/api/transfers/${ref}/commercial-invoice
+• Packing List: ${APP_URL}/api/transfers/${ref}/packing-list
+
+Summary: ${transferUnits(t).toLocaleString()} units${t.cartons ? `, ${t.cartons} cartons` : ''}${t.gross_kg ? `, ~${t.gross_kg}kg gross` : ''}. Incoterms DDP Heywood. Let me know what else you need from my end to get this booked.
+
+Thanks,
+Luke`;
+    try {
+      const draftId = await gmailCreateDraft(MAERSK.email, subject, body);
+      return { draft_id: draftId, to: MAERSK.email, subject, note: 'Draft created — show the user and ask before sending.' };
+    } catch (e) { return { error: String(e).slice(0, 160) }; }
   }
   if (name === 'get_internal_transfers') {
     let q = supabaseLogistics.from('internal_transfers')
@@ -239,6 +291,7 @@ Your full toolkit:
 - get_reorder_recommendations — what to order & how many (velocity × lead+target − stock − inbound).
 - get_shipping_billing — shipping cost trends, monthly spend, MoM change, cost OUTLIERS/overcharges, invoices.
 - get_internal_transfers — AU→UK stock transfers (pallets) in transit; their units already feed the destination site's inbound. Use for "what's on the way to the UK", "the pallet", "INTERNAL2".
+- send_transfer_docs — WhatsApp the Commercial Invoice + Packing List PDFs for a transfer to the user. draft_transfer_email — draft (not send) the Maersk/Jordan email to start the transfer. For sending the email, use send_email_draft only after explicit approval.
 - draft_po → approve_po — draft a PO (ABC → Altona) with a screenshot, then push to Xero on approval.
 - check_docket → parse_docket → create_wro → draft_sharon_reply → send_email_draft — the receiving/WRO flow.
 
@@ -275,6 +328,7 @@ async function saveTurn(phone: string, userText: string, assistantText: string) 
 
 export async function askStockAgent(question: string, phone?: string): Promise<{ text: string; media?: string }> {
   _media = null;
+  _phone = phone || null;
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return { text: 'Assistant is not configured (missing API key).' };
   const client = new Anthropic({ apiKey });
