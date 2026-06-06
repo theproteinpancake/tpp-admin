@@ -7,7 +7,7 @@ import { proposeFlavourPOs, proposeOneFlavour } from './poBuilder';
 import { draftWhatsAppPO, approveLatestWhatsAppDraft, sendLatestPOEmail } from './poActions';
 import { markPOReceived } from './poReconcile';
 import { findLatestDocket, parseDocket, createWROFromParsed, draftSharonReply } from './wroFlow';
-import { gmailSendDraft, gmailCreateDraft, gmailSearch, gmailGetBody } from './google';
+import { gmailSendDraft, gmailCreateDraft, gmailSearch, gmailGetBody, gmailGetAllAttachments } from './google';
 import { getLots, expiryStatus, EXPIRY_META } from './lots';
 import { getShippingData } from './shipping';
 import { getBillingData, buildHighlights } from './billing';
@@ -17,7 +17,7 @@ import { getActionCenter, dismissBriefItems } from './actionCenter';
 import { getPoForecast } from './poForecast';
 import { MAERSK } from './transferConstants';
 import { sendWhatsApp, senderRole } from './whatsapp';
-import { processWholesalePO, oosReplyBody } from './wholesalePO';
+import { processWholesalePO, processWholesalePOMulti, oosReplyBody } from './wholesalePO';
 import { getWholesaleDashboard } from './wholesale';
 import { sendInfluencerGift, updateInfluencerStatus, listInfluencers, likelyToPost, saveCollab, updateCollab, listCollabs } from './marketing';
 
@@ -163,8 +163,20 @@ const tools: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'process_po_email',
+    description: 'Read a PO email from Kate\'s inbox by id (from find_po_email) and parse it into an order — handles ANY format automatically: plain email text, HTML tables, CSV attachments, and PDF attachments (it reads them all, dedupes the same order across formats, and maps to 320g SKUs + checks stock + picks box + shipping). Use this (not read_email) to process a customer PO sitting in the inbox. Pass `exclude` with flavour name(s) to leave off (e.g. ["Buttermilk"]).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'email id from find_po_email' },
+        exclude: { type: 'array', items: { type: 'string' }, description: 'flavours to leave off, e.g. ["Buttermilk"]' },
+      },
+      required: ['id'],
+    },
+  },
+  {
     name: 'read_email',
-    description: 'Read the full body of an email from Kate\'s inbox by its id (from find_po_email). Use to get the PO text, then pass it to parse_wholesale_po. Flags if the email has a PDF attachment.',
+    description: 'Read the raw body text of an email from Kate\'s inbox by id (for non-PO emails or quick inspection). For customer POs use process_po_email instead.',
     input_schema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
   },
   {
@@ -172,7 +184,10 @@ const tools: Anthropic.Tool[] = [
     description: 'Parse a customer wholesale PO (free text or a forwarded email — e.g. "4 cartons of buttermilk, 2 cinnamon churro" or "BMS x4, CIS x2"), map it to 320g SKUs, CHECK Altona stock can fulfil it, pick the ShipBob box (PANOUTERSMALL ≤4 cartons / PANOUTER ≤8 / PANXLARGE for 2), and apply free shipping (>4 cartons). Returns a verified summary to show Kate before processing. If a flavour is short/OOS, returns a suggested OOS reply. Use whenever Kate forwards/pastes a PO.',
     input_schema: {
       type: 'object',
-      properties: { text: { type: 'string', description: 'the raw PO text / forwarded email body' } },
+      properties: {
+        text: { type: 'string', description: 'the raw PO text / forwarded email body' },
+        exclude: { type: 'array', items: { type: 'string' }, description: 'flavours to leave off, e.g. ["Buttermilk"]' },
+      },
       required: ['text'],
     },
   },
@@ -484,15 +499,42 @@ Luke`;
   if (name === 'read_email') {
     try {
       const body = await gmailGetBody(String(input.id), 'kate');
-      return { body, note: 'Pass this body to parse_wholesale_po (apply any "leave off X" instruction from Kate).' };
+      return { body: body || '(no readable text — may be a PDF/CSV attachment; use process_po_email)' };
     } catch (e) {
       return { error: `Couldn't read that email: ${String(e).slice(0, 140)}` };
+    }
+  }
+  if (name === 'process_po_email') {
+    const exclude = Array.isArray(input.exclude) ? (input.exclude as any[]).map(String) : undefined;
+    try {
+      const [body, atts] = await Promise.all([
+        gmailGetBody(String(input.id), 'kate').catch(() => ''),
+        gmailGetAllAttachments(String(input.id), 'kate').catch(() => []),
+      ]);
+      const pdfs = atts.filter((a) => /pdf/i.test(a.mimeType) || /\.pdf$/i.test(a.filename)).map((a) => ({ filename: a.filename, base64: a.base64 }));
+      const csvTexts = atts
+        .filter((a) => /csv|excel|spreadsheet/i.test(a.mimeType) || /\.(csv|tsv|txt)$/i.test(a.filename))
+        .map((a) => `--- ${a.filename} ---\n${Buffer.from(a.base64, 'base64').toString('utf-8').slice(0, 5000)}`);
+      const text = [body, ...csvTexts].filter(Boolean).join('\n\n');
+      if (!text && !pdfs.length) return { error: 'That email has no readable PO content (no text, CSV, or PDF).' };
+      const a = await processWholesalePOMulti({ text, pdfs }, exclude);
+      return {
+        customer: a.customer_name, total_cartons: a.total_cartons, fulfillable: a.fulfillable,
+        lines: a.lines.map((l) => ({ flavour: l.flavour, sku: l.sku, cartons: l.cartons, altona_available: l.available, in_stock: l.ok })),
+        boxes: a.boxes, free_shipping: a.free_shipping, over_b2c_limit: a.over_b2c_limit,
+        oos: a.oos, suggested_oos_reply: a.oos.length ? oosReplyBody(a) : null, summary: a.summary,
+        sources: `${body ? 'email text' : ''}${csvTexts.length ? ' + CSV' : ''}${pdfs.length ? ` + ${pdfs.length} PDF` : ''}`.replace(/^ \+ /, ''),
+        note: exclude?.length ? `Excluded: ${exclude.join(', ')}. Show Kate the summary and confirm before processing.` : 'Show Kate the summary and confirm before processing.',
+      };
+    } catch (e) {
+      return { error: `Couldn't process that PO email: ${String(e).slice(0, 160)}` };
     }
   }
   if (name === 'parse_wholesale_po') {
     const text = String(input.text || '').trim();
     if (!text) return { error: 'Paste the PO text and I\'ll parse it.' };
-    const a = await processWholesalePO(text);
+    const exclude = Array.isArray(input.exclude) ? (input.exclude as any[]).map(String) : undefined;
+    const a = await processWholesalePO(text, exclude);
     return {
       customer: a.customer_name, total_cartons: a.total_cartons, fulfillable: a.fulfillable,
       lines: a.lines.map((l) => ({ flavour: l.flavour, sku: l.sku, cartons: l.cartons, altona_available: l.available, in_stock: l.ok })),
@@ -646,7 +688,7 @@ INTENT — FIRST classify EACH message into exactly ONE of these, and follow ONL
 3. COLLAB — a brand/business partnership or sample swap. → save_collab.
 4. General question / stock / logistics → answer with the relevant tool.
 Decide from the CURRENT message's own words. If it names a store/PO, it is WHOLESALE — do not mention influencers or gifting, and never carry over a flavour from a previous task.
-INBOX ACCESS: you CAN read Kate's wholesale inbox (kate@). When she refers to a PO "that came through" / a customer order (e.g. "reprocess the Wholefood Merchants PO"), call find_po_email with the store name → pick the right result → read_email to get the body → then parse_wholesale_po. Only ask Kate to paste it if the inbox search finds nothing. Honour any "leave off / without X flavour" instruction by removing that line before/after parsing.
+INBOX ACCESS: you CAN read Kate's wholesale inbox (kate@). When she refers to a PO "that came through" / a customer order (e.g. "reprocess the Wholefood Merchants PO"), call find_po_email with the store name → pick the right result → **process_po_email(id)**. process_po_email reads ANY format automatically (plain text, HTML table, CSV, and/or PDF attachment — POs arrive in all of these, sometimes several at once for the same order) and returns the parsed order. Pass exclude:["Buttermilk"] for any "leave off / without X" instruction. Only ask Kate to paste it if find_po_email returns nothing. For a PO she PASTES as text, use parse_wholesale_po(text, exclude). Always show the summary and confirm before processing.
 
 WHOLESALE FOCUS:
 - get_wholesale_overview for sales, who's due to reorder, lapsed customers, top customers, and 320g stock + ABC reorder timing.

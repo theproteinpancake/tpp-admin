@@ -113,12 +113,39 @@ export async function gmailSearch(query: string, max = 10, account?: string) {
 
 export async function gmailGetBody(id: string, account?: string): Promise<string> {
   const m = await gget(`/messages/${id}?format=full`, account);
-  const walk = (p: any): string => {
-    if (p.mimeType === 'text/plain' && p.body?.data) return Buffer.from(p.body.data, 'base64').toString();
-    for (const part of p.parts || []) { const r = walk(part); if (r) return r; }
+  const findMime = (p: any, mime: string): string => {
+    if (p.mimeType === mime && p.body?.data) return Buffer.from(p.body.data, 'base64').toString();
+    for (const part of p.parts || []) { const r = findMime(part, mime); if (r) return r; }
     return '';
   };
-  return walk(m.payload || {}).slice(0, 8000);
+  const payload = m.payload || {};
+  let text = findMime(payload, 'text/plain');
+  // fall back to HTML (e.g. emails that are an HTML table only) — strip tags to text
+  if (!text.trim()) {
+    const html = findMime(payload, 'text/html');
+    if (html) text = html.replace(/<\/(td|th|tr|p|div|li|h[1-6])>/gi, ' $& ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+  }
+  return text.slice(0, 12000);
+}
+
+// All attachments on a message (PDF/CSV/etc) as standard base64 + mime.
+function collectAttachments(p: any, out: { filename: string; attachmentId: string; mimeType: string }[] = []) {
+  if (p?.filename && p.body?.attachmentId) out.push({ filename: p.filename, attachmentId: p.body.attachmentId, mimeType: p.mimeType || '' });
+  for (const part of p?.parts || []) collectAttachments(part, out);
+  return out;
+}
+export async function gmailGetAllAttachments(messageId: string, account?: string): Promise<{ filename: string; mimeType: string; base64: string }[]> {
+  const m = await gget(`/messages/${messageId}?format=full`, account);
+  const parts = collectAttachments(m.payload || {});
+  const out: { filename: string; mimeType: string; base64: string }[] = [];
+  for (const f of parts) {
+    try {
+      const att = await gget(`/messages/${messageId}/attachments/${f.attachmentId}`, account);
+      const std = (att.data as string).replace(/-/g, '+').replace(/_/g, '/');
+      out.push({ filename: f.filename, mimeType: f.mimeType, base64: std });
+    } catch { /* skip a failing attachment */ }
+  }
+  return out;
 }
 
 // Find the first PDF attachment on a message and return it as standard base64.

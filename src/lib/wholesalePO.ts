@@ -34,21 +34,38 @@ async function wholesaleSkus(): Promise<{ sku: string; flavour: string }[]> {
   return (data ?? []).map((p: any) => ({ sku: p.sku, flavour: p.flavour }));
 }
 
+const PARSE_SYSTEM = (skuList: string) => `You parse a wholesale purchase order for The Protein Pancake into structured lines.
+Our wholesale 320g SKUs: ${skuList}.
+Customers order in CARTONS (each carton = 4× 320g bags; "box" = carton). POs arrive in MANY formats — plain email text, an HTML table, a CSV, and/or a PDF attachment — sometimes SEVERAL at once for the SAME order. If multiple sources are given, they describe ONE order: extract it ONCE, de-duplicate, and prefer the most complete/structured source — NEVER sum the same line across formats.
+Map each flavour → the matching 320g SKU: "buttermilk"=BMS, "gluten free buttermilk"/"GF buttermilk"=GFBS, "cinnamon churro"/"churro"=CIS, "maple"=MAS, "cookies & cream"=CCS, "chocolate"=CHS, "salted caramel"=SCS, "GF cinnamon churro"=GFCIS, "sugar free maple syrup"/"maple syrup"=MSS, and any other listed flavour by name + size. Supplier SKUs/codes (e.g. TPPBP01, TPPMP01, TPPCC01) map by the product name shown. Quantities are cartons unless clearly bags. Ignore freight/shipping/discount/total lines. Capture the customer/store name.
+Reply ONLY with JSON: {"customer_name":"store or null","lines":[{"sku":"BMS","flavour":"Buttermilk","cartons":4}],"unmatched":["lines you couldn't map"]}`;
+
+function parseJson(out: string): ParsedPO {
+  const json = JSON.parse(out.slice(out.indexOf('{'), out.lastIndexOf('}') + 1));
+  return { customer_name: json.customer_name ?? null, lines: json.lines ?? [], unmatched: json.unmatched ?? [] };
+}
+
 export async function parseWholesalePO(text: string): Promise<ParsedPO> {
+  return parseWholesalePOMulti({ text });
+}
+
+// Robust parse from any mix of email body text + CSV text + PDF attachments.
+export async function parseWholesalePOMulti(src: { text?: string; pdfs?: { filename: string; base64: string }[] }): Promise<ParsedPO> {
   const skus = await wholesaleSkus();
   const skuList = skus.map((s) => `${s.sku} = ${s.flavour} 320g`).join('; ');
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const content: any[] = [];
+  for (const p of (src.pdfs ?? []).slice(0, 4)) {
+    content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: p.base64 } });
+  }
+  content.push({ type: 'text', text: `Extract the wholesale PO from the following (body text / CSV / and any attached PDFs). Remember it's ONE order across all sources.\n\n${(src.text || '(see attached PDF)').slice(0, 8000)}` });
   const resp = await client.messages.create({
-    model: MODEL, max_tokens: 800,
-    system: `You parse a wholesale purchase order (free text or forwarded email) for The Protein Pancake into structured lines.
-Our wholesale 320g SKUs: ${skuList}.
-Customers order in CARTONS (each carton = 4× 320g bags). They may write a SKU ("BMS x4", "4x CIS"), or describe it ("4 cartons of buttermilk", "two boxes of cinnamon churro", "3 maple"). Map flavour → the matching 320g SKU. "buttermilk" = BMS, "gluten free buttermilk"/"GF buttermilk" = GFBS, "cinnamon churro"/"churro" = CIS, "maple" = MAS, and any other listed flavours by name. A bare number with a flavour = cartons. Capture the customer/store name if present.
-Reply ONLY with JSON: {"customer_name": "store name or null", "lines": [{"sku":"BMS","flavour":"Buttermilk","cartons":4}], "unmatched": ["any line you could not map"]}`,
-    messages: [{ role: 'user', content: `Parse this wholesale PO:\n\n${text.slice(0, 4000)}` }],
+    model: MODEL, max_tokens: 1000,
+    system: PARSE_SYSTEM(skuList),
+    messages: [{ role: 'user', content }],
   });
   const out = resp.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('');
-  const json = JSON.parse(out.slice(out.indexOf('{'), out.lastIndexOf('}') + 1));
-  return { customer_name: json.customer_name ?? null, lines: json.lines ?? [], unmatched: json.unmatched ?? [] };
+  return parseJson(out);
 }
 
 // Box plan for N cartons of 320g (Altona). Packs into 8s, then a right-sized last box.
@@ -95,8 +112,21 @@ export async function assessPO(parsed: ParsedPO): Promise<POAssessment> {
   return { customer_name: parsed.customer_name, lines, total_cartons: total, fulfillable, oos, boxes: fulfillable ? planBoxes(total) : [], free_shipping, over_b2c_limit: over, summary };
 }
 
-export async function processWholesalePO(text: string): Promise<POAssessment> {
-  return assessPO(await parseWholesalePO(text));
+function applyExclusions(parsed: ParsedPO, exclude?: string[]): ParsedPO {
+  if (!exclude?.length) return parsed;
+  const ex = exclude.map((e) => e.toLowerCase().trim()).filter(Boolean);
+  parsed.lines = parsed.lines.filter((l) => !ex.some((x) => (l.flavour || '').toLowerCase().includes(x) || (l.sku || '').toLowerCase() === x));
+  return parsed;
+}
+
+export async function processWholesalePO(text: string, exclude?: string[]): Promise<POAssessment> {
+  return assessPO(applyExclusions(await parseWholesalePO(text), exclude));
+}
+
+// Parse + assess from a full email (body text + CSV text + PDF attachments), honouring
+// any "leave off X flavour" exclusions.
+export async function processWholesalePOMulti(src: { text?: string; pdfs?: { filename: string; base64: string }[] }, exclude?: string[]): Promise<POAssessment> {
+  return assessPO(applyExclusions(await parseWholesalePOMulti(src), exclude));
 }
 
 // OOS reply (Kate's voice) when we can't fully fulfil an order.
