@@ -5,6 +5,15 @@ import { createB2COrder, getOrderTracking, type B2CRecipient } from './shipbob';
 export const INFLUENCER_STATUSES = ['order_processing', 'shipped', 'delivered', 'posted', 'completed'] as const;
 export const COLLAB_STATUSES = ['planned', 'samples_incoming', 'active', 'completed', 'cancelled'] as const;
 
+function regionFromCountry(c?: string): string {
+  const t = (c || '').toUpperCase().trim();
+  if (['AU', 'AUS', 'AUSTRALIA'].includes(t)) return 'AU';
+  if (['NZ', 'NEW ZEALAND'].includes(t)) return 'NZ';
+  if (['UK', 'GB', 'UNITED KINGDOM', 'ENGLAND', 'SCOTLAND', 'WALES'].includes(t)) return 'UK';
+  if (['US', 'USA', 'UNITED STATES', 'AMERICA'].includes(t)) return 'USA';
+  return 'OTHER';
+}
+
 // 520g bags: 1–2 fit PANSMALL (the common case); more → a larger outer.
 function boxForGift(size_g: number, qty: number): string {
   if (size_g === 520 && qty <= 2) return 'PANSMALL';
@@ -57,7 +66,8 @@ export async function sendInfluencerGift(input: GiftInput):
   await supabaseLogistics.from('influencers').insert({
     name: input.name, handle: input.handle || null, followers: input.followers || null, email: input.email || null,
     address: [input.address1, input.address2, input.city, input.state, input.zip_code, input.country].filter(Boolean).join(', '),
-    flavour_sent: `${qty}× ${prod.label}`, sent_from: site, date_initiated: new Date().toISOString().slice(0, 10),
+    flavour_sent: `${qty}× ${prod.label}`, sent_from: site, region: regionFromCountry(input.country),
+    date_initiated: new Date().toISOString().slice(0, 10), post_type: 'None',
     shipbob_order_id: String(order.id), order_summary: summary, status: 'order_processing',
   });
   return { ok: true, order_id: order.id, summary, box, sku: prod.sku };
