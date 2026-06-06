@@ -7,7 +7,7 @@ import { proposeFlavourPOs, proposeOneFlavour } from './poBuilder';
 import { draftWhatsAppPO, approveLatestWhatsAppDraft, sendLatestPOEmail } from './poActions';
 import { markPOReceived } from './poReconcile';
 import { findLatestDocket, parseDocket, createWROFromParsed, draftSharonReply } from './wroFlow';
-import { gmailSendDraft, gmailCreateDraft } from './google';
+import { gmailSendDraft, gmailCreateDraft, gmailSearch, gmailGetBody } from './google';
 import { getLots, expiryStatus, EXPIRY_META } from './lots';
 import { getShippingData } from './shipping';
 import { getBillingData, buildHighlights } from './billing';
@@ -153,6 +153,19 @@ const tools: Anthropic.Tool[] = [
     name: 'get_wholesale_overview',
     description: 'Wholesale business snapshot: sales totals (this week/month/year vs prior), customers DUE to reorder (past their avg order interval), LAPSED customers (gone quiet), top customers, and the 320g wholesale stock + when to reorder from ABC. Use for "wholesale sales", "who\'s due to order", "who should I chase", "how\'s wholesale going", "320g stock".',
     input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'find_po_email',
+    description: 'Search Kate\'s wholesale inbox (kate@theproteinpancake.co) for recent customer PO emails. Use when Kate refers to a PO "that came through" / a customer order in her inbox (e.g. "reprocess the Wholefood Merchants PO"). Pass `search` with the store/customer name or keywords. Returns matching emails (id, from, subject, date, snippet) newest-first — pick the right one, then read_email to get its contents.',
+    input_schema: {
+      type: 'object',
+      properties: { search: { type: 'string', description: 'store/customer name or keywords, e.g. "Wholefood Merchants"' } },
+    },
+  },
+  {
+    name: 'read_email',
+    description: 'Read the full body of an email from Kate\'s inbox by its id (from find_po_email). Use to get the PO text, then pass it to parse_wholesale_po. Flags if the email has a PDF attachment.',
+    input_schema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
   },
   {
     name: 'parse_wholesale_po',
@@ -457,6 +470,25 @@ Luke`;
       note: 'Sales in AUD. due_to_reorder = active customers past their avg interval; lapsed = gone quiet. stock_320g.available is cartons at Altona.',
     };
   }
+  if (name === 'find_po_email') {
+    const term = String(input.search || '').trim();
+    const q = `${term ? `"${term}" ` : ''}newer_than:60d -in:sent`;
+    try {
+      const hits = await gmailSearch(q, 8, 'kate');
+      if (!hits.length) return { results: [], note: `No emails matching "${term || 'recent'}" in Kate's inbox.` };
+      return { results: hits.map((h) => ({ id: h.id, from: h.from, subject: h.subject, date: h.date, snippet: h.snippet })) };
+    } catch (e) {
+      return { error: `Couldn't search Kate's inbox: ${String(e).slice(0, 140)}. Kate may need to connect her Gmail in Settings.` };
+    }
+  }
+  if (name === 'read_email') {
+    try {
+      const body = await gmailGetBody(String(input.id), 'kate');
+      return { body, note: 'Pass this body to parse_wholesale_po (apply any "leave off X" instruction from Kate).' };
+    } catch (e) {
+      return { error: `Couldn't read that email: ${String(e).slice(0, 140)}` };
+    }
+  }
   if (name === 'parse_wholesale_po') {
     const text = String(input.text || '').trim();
     if (!text) return { error: 'Paste the PO text and I\'ll parse it.' };
@@ -613,7 +645,8 @@ INTENT — FIRST classify EACH message into exactly ONE of these, and follow ONL
 2. INFLUENCER GIFT — a FREE gift to an individual CREATOR for a post (a person's name + Instagram handle + a personal/home address, "send this influencer Nx <flavour> <size>"). → send_influencer_gift. Only this flow involves IG handles, followers and gifting.
 3. COLLAB — a brand/business partnership or sample swap. → save_collab.
 4. General question / stock / logistics → answer with the relevant tool.
-Decide from the CURRENT message's own words. If it names a store/PO, it is WHOLESALE — do not mention influencers or gifting. If you can't see a referenced PO/screenshot (no inbox access in this chat), just ask Kate to paste the PO text — do NOT spin up an influencer gift or carry over a flavour from a previous task.
+Decide from the CURRENT message's own words. If it names a store/PO, it is WHOLESALE — do not mention influencers or gifting, and never carry over a flavour from a previous task.
+INBOX ACCESS: you CAN read Kate's wholesale inbox (kate@). When she refers to a PO "that came through" / a customer order (e.g. "reprocess the Wholefood Merchants PO"), call find_po_email with the store name → pick the right result → read_email to get the body → then parse_wholesale_po. Only ask Kate to paste it if the inbox search finds nothing. Honour any "leave off / without X flavour" instruction by removing that line before/after parsing.
 
 WHOLESALE FOCUS:
 - get_wholesale_overview for sales, who's due to reorder, lapsed customers, top customers, and 320g stock + ABC reorder timing.

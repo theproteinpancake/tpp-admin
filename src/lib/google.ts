@@ -90,29 +90,29 @@ export async function getGoogleToken(account?: string): Promise<string | null> {
   return tok.access_token;
 }
 
-async function gget(path: string): Promise<any> {
-  const token = await getGoogleToken();
-  if (!token) throw new Error('Gmail not connected');
+async function gget(path: string, account?: string): Promise<any> {
+  const token = await getGoogleToken(account);
+  if (!token) throw new Error(account ? `Gmail (${account}) not connected` : 'Gmail not connected');
   const res = await fetch(`${GMAIL}${path}`, { headers: { Authorization: `Bearer ${token}` } });
   if (!res.ok) throw new Error(`Gmail GET ${path}: ${res.status} ${await res.text()}`);
   return res.json();
 }
 
 // Search messages (Gmail query syntax), returns lightweight {id, from, subject, snippet, date}
-export async function gmailSearch(query: string, max = 10) {
-  const list = await gget(`/messages?q=${encodeURIComponent(query)}&maxResults=${max}`);
+export async function gmailSearch(query: string, max = 10, account?: string) {
+  const list = await gget(`/messages?q=${encodeURIComponent(query)}&maxResults=${max}`, account);
   const ids = (list.messages || []).map((m: any) => m.id);
   const out = [];
   for (const id of ids) {
-    const m = await gget(`/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`);
+    const m = await gget(`/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`, account);
     const h = (m.payload?.headers || []).reduce((a: any, x: any) => (a[x.name] = x.value, a), {});
     out.push({ id, from: h.From, subject: h.Subject, date: h.Date, snippet: m.snippet });
   }
   return out;
 }
 
-export async function gmailGetBody(id: string): Promise<string> {
-  const m = await gget(`/messages/${id}?format=full`);
+export async function gmailGetBody(id: string, account?: string): Promise<string> {
+  const m = await gget(`/messages/${id}?format=full`, account);
   const walk = (p: any): string => {
     if (p.mimeType === 'text/plain' && p.body?.data) return Buffer.from(p.body.data, 'base64').toString();
     for (const part of p.parts || []) { const r = walk(part); if (r) return r; }
