@@ -112,6 +112,32 @@ function planBoxes(total: number): string[] {
   return boxes;
 }
 
+// Normalise a business name for matching (drop Pty/Ltd/punctuation/branch noise).
+function normName(s: string): string {
+  return (s || '').toLowerCase()
+    .replace(/\b(pty|ltd|inc|co|the|p\/l|llc|group)\b/g, ' ')
+    .replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+// Match a PO's customer/branch name to an existing Xero/wholesale customer, even when
+// names differ (PO says "Wholefood Merchants - Ferntree Gully", Xero has "Wholefood
+// Merchants Rebecca Wheatley"). Substring either way, else ≥2 shared significant words.
+async function findWholesaleCustomer(name: string | null): Promise<{ id: string; name: string } | null> {
+  if (!name) return null;
+  const target = normName(name);
+  if (!target) return null;
+  const { data } = await supabaseLogistics.from('wholesale_customers').select('id, name').eq('is_wholesale', true);
+  const tTok = target.split(' ').filter((w) => w.length > 2);
+  let best: any = null, score = 0;
+  for (const c of (data ?? []) as any[]) {
+    const cn = normName(c.name);
+    if (!cn) continue;
+    if (cn === target || cn.includes(target) || target.includes(cn)) return { id: c.id, name: c.name };
+    const ov = cn.split(' ').filter((w) => w.length > 2 && tTok.includes(w)).length;
+    if (ov > score) { score = ov; best = c; }
+  }
+  return score >= 2 ? { id: best.id, name: best.name } : null;
+}
+
 export async function assessPO(parsed: ParsedPO): Promise<POAssessment> {
   // available cartons at Altona for each ordered SKU
   const { data: stock } = await supabaseLogistics.from('v_stock_current')
@@ -128,16 +154,13 @@ export async function assessPO(parsed: ParsedPO): Promise<POAssessment> {
   const free_shipping = total > 4;
   const over = total > B2C_MAX_CARTONS;
 
-  // Is this customer already on file in Xero/wholesale? (match the specific store name)
-  let customer_on_file = false;
-  if (parsed.customer_name) {
-    const { data: cust } = await supabaseLogistics.from('wholesale_customers')
-      .select('id').ilike('name', `%${parsed.customer_name.replace(/\s+pty\s+ltd$/i, '').trim()}%`).limit(1).maybeSingle();
-    customer_on_file = !!cust;
-  }
+  // Is this customer already on file in Xero/wholesale? (fuzzy match the store name)
+  const matched = await findWholesaleCustomer(parsed.customer_name).catch(() => null);
+  const customer_on_file = !!matched;
 
   const flags = [...(parsed.flags || [])];
   if (!customer_on_file) flags.push(`🆕 "${parsed.customer_name || 'this customer'}" isn't on file in Xero — needs adding (capture name, ship-to address, email, ABN). Check carefully.`);
+  else if (matched && normName(matched.name) !== normName(parsed.customer_name || '')) flags.push(`ℹ️ Matched to existing Xero contact "${matched.name}".`);
   if (over) flags.push('⚠️ >24 cartons — B2B/courier order, not the standard B2C flow.');
   if (oos.length) flags.push(`⚠️ Short on: ${oos.map((o) => `${o.flavour} (need ${o.cartons}, have ${o.available})`).join('; ')}`);
   const needs_review = !customer_on_file || (parsed.flags || []).length > 0 || lines.some((l) => l.flag);
