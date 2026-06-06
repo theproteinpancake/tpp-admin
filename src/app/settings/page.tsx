@@ -1,8 +1,10 @@
-import { Settings as SettingsIcon, Mail, Users, ShieldCheck, Plug, Check, X } from 'lucide-react';
-import { getConfig, listStaff, integrationStatus, twoFAEnabled } from '@/lib/settings';
+import { Settings as SettingsIcon, Mail, Users, ShieldCheck, Plug, KeyRound, Check, X } from 'lucide-react';
+import { getConfig, listStaff, integrationStatus } from '@/lib/settings';
+import { getCurrentUser } from '@/lib/auth';
 import StaffManager from '@/components/settings/StaffManager';
 import TwoFA from '@/components/settings/TwoFA';
 import AdminEmail from '@/components/settings/AdminEmail';
+import ChangePassword from '@/components/settings/ChangePassword';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -30,8 +32,8 @@ const Card = ({ icon: Icon, title, desc, children }: any) => (
 
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ gmail?: string; email?: string }> }) {
   const sp = await searchParams;
-  const [adminEmail, staff, integ, twofa] = await Promise.all([
-    getConfig('admin_email'), listStaff(), integrationStatus(), twoFAEnabled(),
+  const [adminEmail, staff, integ, me] = await Promise.all([
+    getConfig('admin_email'), listStaff(), integrationStatus(), getCurrentUser(),
   ]);
 
   return (
@@ -49,16 +51,25 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       )}
 
       <div className="space-y-5">
+        <Card icon={KeyRound} title="Your account" desc={me ? `Signed in as ${me.email} (${me.role})` : 'Signed in'}>
+          <div className="space-y-4">
+            <div>
+              <p className="mb-1.5 text-xs font-medium text-gray-500">Change your password</p>
+              <ChangePassword hasPassword={!!me?.password_hash} />
+            </div>
+            <div>
+              <p className="mb-1.5 text-xs font-medium text-gray-500">Two-factor authentication</p>
+              <TwoFA enabled={!!me?.totp_enabled} />
+            </div>
+          </div>
+        </Card>
+
         <Card icon={Mail} title="Admin email" desc="Primary owner / admin contact">
           <AdminEmail initial={adminEmail || 'luke@theproteinpancake.co'} />
         </Card>
 
-        <Card icon={Users} title="Staff" desc="Manage who has access and their role">
+        <Card icon={Users} title="Staff" desc="Add staff, set roles, and send setup links">
           <StaffManager initial={staff as any} />
-        </Card>
-
-        <Card icon={ShieldCheck} title="Two-factor authentication" desc="Require an authenticator code at login">
-          <TwoFA enabled={twofa} />
         </Card>
 
         <Card icon={Plug} title="Integrations">

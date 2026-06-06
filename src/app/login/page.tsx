@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Image from 'next/image';
 
 export default function LoginPage() {
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [token, setToken] = useState('');
   const [needCode, setNeedCode] = useState(false);
@@ -20,7 +21,7 @@ export default function LoginPage() {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password, token }),
+        body: JSON.stringify({ email, password, token }),
       });
 
       if (res.ok) {
@@ -29,11 +30,13 @@ export default function LoginPage() {
       }
 
       const data = await res.json().catch(() => ({}));
-      if (data.twofa) {
+      if (data.setup_required) {
+        setError('First time here — set up your account from the link your admin sent you.');
+      } else if (data.twofa) {
         setNeedCode(true);
         setError(data.error === '2fa_required' ? '' : 'Invalid code');
       } else {
-        setError('Incorrect password');
+        setError('Incorrect email or password');
       }
       setLoading(false);
     } catch {
@@ -52,12 +55,24 @@ export default function LoginPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {!needCode && (
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Email"
+              autoFocus
+              autoComplete="username"
+              className="w-full rounded-xl border border-gray-200 px-4 py-3 transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-caramel"
+            />
+          )}
+
           <input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Password"
-            autoFocus
+            autoComplete="current-password"
             readOnly={needCode}
             className="w-full rounded-xl border border-gray-200 px-4 py-3 transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-caramel disabled:bg-gray-50"
           />

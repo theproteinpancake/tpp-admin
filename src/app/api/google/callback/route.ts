@@ -16,8 +16,9 @@ export async function GET(req: NextRequest) {
   if (error) return back(`gmail=error&msg=${encodeURIComponent(error)}`);
   if (!code) return back('gmail=error&msg=no_code');
   if (!state || state !== cookieState) return back('gmail=error&msg=state_mismatch');
+  const redirectUri = req.cookies.get('google_oauth_redirect')?.value || undefined;
   try {
-    const { email } = await googleExchangeCode(code, account);
+    const { email } = await googleExchangeCode(code, account, redirectUri);
     return back(`gmail=connected&email=${encodeURIComponent(email || '')}`);
   } catch (e) {
     return back(`gmail=error&msg=${encodeURIComponent(String(e).slice(0, 120))}`);

@@ -6,6 +6,7 @@ export function middleware(request: NextRequest) {
   // Allow access to login page and auth API routes
   if (
     pathname === '/login' ||
+    pathname === '/setup' ||
     pathname.startsWith('/api/auth') ||
     pathname.startsWith('/api/whatsapp') || // Twilio webhook + cron briefing (self-authenticated)
     pathname.startsWith('/api/transfers') || // transfer doc PDFs (downloads + Twilio media fetch)

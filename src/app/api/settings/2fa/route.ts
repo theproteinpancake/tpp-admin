@@ -1,33 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getConfig, setConfig } from '@/lib/settings';
+import { supabaseLogistics } from '@/lib/supabase-logistics';
+import { getCurrentUser } from '@/lib/auth';
 import { generateSecret, otpauthUrl, verifyTotp } from '@/lib/totp';
 
-// 2FA enrollment (additive, safe): begin → show secret/QR; enable → verify a code to
-// turn it on; disable → turn off. Once enabled, login requires the TOTP code.
+// Per-user 2FA management for the signed-in user.
 export async function POST(req: NextRequest) {
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
   const b = await req.json().catch(() => null);
   if (!b?.action) return NextResponse.json({ error: 'bad request' }, { status: 400 });
 
   if (b.action === 'begin') {
     const secret = generateSecret();
-    await setConfig('twofa_pending_secret', secret);
-    const email = (await getConfig('admin_email')) || 'admin@theproteinpancake.co';
-    return NextResponse.json({ ok: true, secret, otpauth: otpauthUrl(secret, email) });
+    await supabaseLogistics.from('app_users').update({ totp_secret: secret, totp_enabled: false }).eq('id', user.id);
+    return NextResponse.json({ ok: true, secret, otpauth: otpauthUrl(secret, user.email) });
   }
   if (b.action === 'enable') {
-    const pending = await getConfig('twofa_pending_secret');
-    if (!pending) return NextResponse.json({ error: 'Start enrollment first.' }, { status: 400 });
-    if (!verifyTotp(pending, String(b.token || ''))) return NextResponse.json({ error: 'Code didn\'t match — try again.' }, { status: 400 });
-    await setConfig('twofa_secret', pending);
-    await setConfig('twofa_enabled', 'true');
-    await setConfig('twofa_pending_secret', '');
+    if (!user.totp_secret || !verifyTotp(user.totp_secret, String(b.token || ''))) return NextResponse.json({ error: 'Code didn\'t match — try again.' }, { status: 400 });
+    await supabaseLogistics.from('app_users').update({ totp_enabled: true }).eq('id', user.id);
     return NextResponse.json({ ok: true });
   }
   if (b.action === 'disable') {
-    // require a valid current code to disable (avoids casual switch-off)
-    const secret = await getConfig('twofa_secret');
-    if (secret && !verifyTotp(secret, String(b.token || ''))) return NextResponse.json({ error: 'Enter a valid current code to disable.' }, { status: 400 });
-    await setConfig('twofa_enabled', 'false');
+    if (user.totp_secret && !verifyTotp(user.totp_secret, String(b.token || ''))) return NextResponse.json({ error: 'Enter a valid current code to disable.' }, { status: 400 });
+    await supabaseLogistics.from('app_users').update({ totp_enabled: false }).eq('id', user.id);
     return NextResponse.json({ ok: true });
   }
   return NextResponse.json({ error: 'unknown action' }, { status: 400 });

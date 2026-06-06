@@ -16,10 +16,15 @@ export function googleConfigured() {
   return !!process.env.GOOGLE_CLIENT_ID && !!process.env.GOOGLE_CLIENT_SECRET;
 }
 
-export function googleAuthorizeUrl(state: string) {
+// redirectUri lets the caller use the CURRENT origin (avoids env drift after a domain
+// move). Must exactly match an Authorized redirect URI in the Google Cloud OAuth client.
+export function googleRedirectUri(override?: string) {
+  return override || process.env.GOOGLE_REDIRECT_URI || '';
+}
+export function googleAuthorizeUrl(state: string, redirectUri?: string) {
   const q = [
     `client_id=${encodeURIComponent(process.env.GOOGLE_CLIENT_ID || '')}`,
-    `redirect_uri=${encodeURIComponent(process.env.GOOGLE_REDIRECT_URI || '')}`,
+    `redirect_uri=${encodeURIComponent(googleRedirectUri(redirectUri))}`,
     `response_type=code`,
     `scope=${encodeURIComponent(GOOGLE_SCOPES)}`,
     `access_type=offline`,      // get a refresh token
@@ -43,12 +48,12 @@ async function save(t: { access_token: string; refresh_token?: string; expires_i
   await supabaseLogistics.from('integration_tokens').upsert(row, { onConflict: 'provider' });
 }
 
-export async function googleExchangeCode(code: string, account?: string) {
+export async function googleExchangeCode(code: string, account?: string, redirectUri?: string) {
   const res = await fetch(TOKEN_URL, {
     method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       code, client_id: process.env.GOOGLE_CLIENT_ID || '', client_secret: process.env.GOOGLE_CLIENT_SECRET || '',
-      redirect_uri: process.env.GOOGLE_REDIRECT_URI || '', grant_type: 'authorization_code',
+      redirect_uri: googleRedirectUri(redirectUri), grant_type: 'authorization_code',
     }),
   });
   if (!res.ok) throw new Error(`Google token failed: ${res.status} ${await res.text()}`);
