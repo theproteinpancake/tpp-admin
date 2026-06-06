@@ -7,7 +7,9 @@ type Inf = {
   id: string; name: string; handle: string | null; followers: number | null; email: string | null;
   flavour_sent: string | null; region: string | null; sent_from: string | null; date_initiated: string | null;
   status: string | null; post_type: string | null; notes: string | null; tracking_number: string | null; tracking_url: string | null;
+  cost_cogs: number | null; cost_fulfilment: number | null; parcel_cost: number | null; cost_currency: string | null;
 };
+const ccy = (n: number | null, cur?: string | null) => (n == null ? '—' : new Intl.NumberFormat('en-AU', { style: 'currency', currency: cur || 'AUD' }).format(n));
 
 const REGIONS = ['AU', 'UK', 'NZ', 'USA', 'OTHER'];
 const REGION_LABEL: Record<string, string> = { AU: '🇦🇺 Australia', UK: '🇬🇧 UK', NZ: '🇳🇿 New Zealand', USA: '🇺🇸 USA', OTHER: '🌍 Other' };
@@ -75,7 +77,7 @@ export default function InfluencerTable({ influencers }: { influencers: Inf[] })
               <tr className="border-b border-gray-100 text-left text-[11px] uppercase tracking-wide text-gray-400">
                 <th className="px-3 py-2">Name</th><th className="px-3 py-2">Handle</th><th className="px-3 py-2">Flavour</th>
                 <th className="px-3 py-2">Sent</th><th className="px-3 py-2">Delivery Status</th><th className="px-3 py-2">Posted Status</th>
-                <th className="px-3 py-2">Tracking</th><th className="px-3 py-2 w-48">Notes</th>
+                <th className="px-3 py-2">Cost</th><th className="px-3 py-2">Tracking</th><th className="px-3 py-2 w-48">Notes</th>
               </tr>
             </thead>
             <tbody>
@@ -87,6 +89,7 @@ export default function InfluencerTable({ influencers }: { influencers: Inf[] })
                   <td className="px-3 py-2 text-gray-400">{fmtDate(i.date_initiated)}</td>
                   <td className="px-3 py-2"><Cell id={i.id} field="status" value={i.status || 'order_processing'} options={STATUS} /></td>
                   <td className="px-3 py-2"><Cell id={i.id} field="post_type" value={POST.includes(i.post_type || '') ? (i.post_type as string) : 'None'} options={POST.map((p) => ({ v: p, label: p }))} /></td>
+                  <td className="px-3 py-2 text-xs text-gray-600" title={i.parcel_cost != null ? `COGS ${ccy(i.cost_cogs, i.cost_currency)} + fulfilment ${ccy(i.cost_fulfilment, i.cost_currency)}` : ''}>{ccy(i.parcel_cost, i.cost_currency)}</td>
                   <td className="px-3 py-2 text-xs">{i.tracking_url ? <a href={i.tracking_url} target="_blank" className="inline-flex items-center gap-1 text-blue-600 hover:underline">{i.tracking_number || 'track'}<ExternalLink className="h-3 w-3" /></a> : (i.tracking_number || '—')}</td>
                   <td className="px-3 py-2"><Notes id={i.id} value={i.notes || ''} /></td>
                 </tr>

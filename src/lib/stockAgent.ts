@@ -639,15 +639,20 @@ async function loadHistory(phone: string): Promise<Anthropic.MessageParam[]> {
     .gt('created_at', new Date(Date.now() - 6 * 3600_000).toISOString())
     .order('created_at', { ascending: false })
     .limit(HISTORY_LIMIT);
-  const rows = (data ?? []).reverse() as { role: string; content: string }[];
+  // drop any empty-content rows — Anthropic rejects empty messages (400) and one
+  // poisoned row would break every future turn for 6h
+  const rows = (data ?? []).reverse().filter((r: any) => r.content && String(r.content).trim()) as { role: string; content: string }[];
   // ensure it starts with a user turn (Anthropic requires user-first)
   while (rows.length && rows[0].role !== 'user') rows.shift();
   return rows.map((r) => ({ role: r.role === 'assistant' ? 'assistant' : 'user', content: r.content }));
 }
 async function saveTurn(phone: string, userText: string, assistantText: string) {
+  // never persist empty content (e.g. an image-only message with no caption)
+  const u = (userText || '').trim() || '(screenshot)';
+  const a = (assistantText || '').trim() || '(no reply)';
   await supabaseLogistics.from('wa_conversation').insert([
-    { phone, role: 'user', content: userText },
-    { phone, role: 'assistant', content: assistantText },
+    { phone, role: 'user', content: u },
+    { phone, role: 'assistant', content: a },
   ]);
 }
 
@@ -665,7 +670,7 @@ export async function askStockAgent(question: string, phone?: string, images?: A
     ...(images ?? []).map((im) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: im.mediaType as any, data: im.base64 } })),
     { type: 'text' as const, text: question || '(screenshot attached)' },
   ];
-  const messages: Anthropic.MessageParam[] = [...history, { role: 'user', content: images?.length ? userContent : question }];
+  const messages: Anthropic.MessageParam[] = [...history, { role: 'user', content: images?.length ? userContent : (question || '(no message)') }];
   const system = systemFor(phone ? senderRole(phone) : 'owner');
 
   let answer = '';

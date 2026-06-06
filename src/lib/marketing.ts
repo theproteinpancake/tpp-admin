@@ -117,8 +117,18 @@ export async function refreshInfluencerTracking(): Promise<{ updated: number }> 
 }
 
 export async function listInfluencers() {
-  const { data } = await supabaseLogistics.from('influencers').select('*').order('date_initiated', { ascending: false, nullsFirst: false });
-  return data ?? [];
+  const [{ data }, { data: costs }] = await Promise.all([
+    supabaseLogistics.from('influencers').select('*').order('date_initiated', { ascending: false, nullsFirst: false }),
+    supabaseLogistics.from('shipment_costs').select('shipbob_order_id, cost'),
+  ]);
+  const fulfilByOrder = new Map<string, number>();
+  for (const c of (costs ?? []) as any[]) if (c.shipbob_order_id) fulfilByOrder.set(String(c.shipbob_order_id), Number(c.cost) || 0);
+  return (data ?? []).map((i: any) => {
+    const cogs = i.cost_cogs != null ? Number(i.cost_cogs) : null;
+    const ful = i.shipbob_order_id ? fulfilByOrder.get(String(i.shipbob_order_id)) ?? null : null;
+    const parcel_cost = (cogs != null || ful != null) ? Math.round(((cogs || 0) + (ful || 0)) * 100) / 100 : null;
+    return { ...i, cost_fulfilment: ful, parcel_cost };
+  });
 }
 
 // Top-of-page analytics: monthly send rate + average parcel cost (COGS + fulfilment).
