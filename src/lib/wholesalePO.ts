@@ -50,7 +50,8 @@ const PARSE_SYSTEM = (skuList: string) => `You parse a wholesale purchase order 
 Our wholesale 320g SKUs: ${skuList}. A CARTON = 4× 320g bags ("box" = carton). We ship and invoice in CARTONS.
 POs arrive in MANY formats — plain email text, HTML tables, CSV, and/or PDF attachments — and sometimes SEVERAL at once for the SAME order. If multiple sources are given they are ONE order: extract ONCE, de-duplicate, prefer the most complete/structured source — NEVER sum the same line across formats.
 
-FLAVOUR→SKU: "buttermilk"=BMS, "gluten free buttermilk"/"GF buttermilk"=GFBS, "cinnamon churro"/"churro"=CIS, "maple"=MAS, "cookies & cream"=CCS, "chocolate"=CHS, "salted caramel"=SCS, "GF cinnamon churro"=GFCIS, "sugar free maple syrup"/"maple syrup"=MSS, plus any other listed flavour by name+size. Supplier codes (TPPBP01=Buttermilk, TPPMP01=Maple, TPPCC01=Cinnamon Churro, etc.) map by the product NAME shown. Ignore freight/shipping/discount/total lines.
+FLAVOUR→SKU: "buttermilk"=BMS, "gluten free buttermilk"/"GF buttermilk"=GFBS, "cinnamon churro"/"churro"=CIS, "maple"=MAS, "cookies & cream"=CCS, "chocolate"=CHS, "salted caramel"=SCS, "GF cinnamon churro"=GFCIS, "sugar free maple syrup"/"maple syrup"=MSS, plus any other listed flavour by name+size.
+GF IS A DISTINCT PRODUCT: a plain flavour is the REGULAR product only — "Buttermilk"=BMS (NOT GFBS), "Cinnamon Churro"=CIS (NOT GFCIS). The Gluten Free variant applies ONLY when "GF" or "Gluten Free" is explicitly written. Never map a plain flavour to its GF SKU or vice versa. Supplier codes (TPPBP01=Buttermilk, TPPMP01=Maple, TPPCC01=Cinnamon Churro, etc.) map by the product NAME shown. Ignore freight/shipping/discount/total lines.
 
 CARTONS vs UNITS (CRITICAL): some stores (e.g. Nutrition Warehouse) order in individual BAGS/UNITS, not cartons — e.g. qty "4" on a single-320g-bag line = 4 bags = 1 carton. Decide each line's basis:
 - CARTON basis if the description says "carton"/"x4 per carton"/"box", OR the unit/line price looks per-carton (~$32–44).
@@ -180,10 +181,23 @@ export async function assessPO(parsed: ParsedPO): Promise<POAssessment> {
   };
 }
 
+// GF/Gluten Free is a DISTINCT product. "Buttermilk" = regular only (never GF Buttermilk);
+// the GF variant is only meant when "GF"/"Gluten Free" is stated. Match must agree on GF-ness.
+const isGF = (s: string) => /\bgf\b|gluten\s*free/i.test(s || '');
+const coreFlavour = (s: string) => (s || '').toLowerCase().replace(/gluten\s*free/g, ' ').replace(/\bgf\b/g, ' ').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+
+function flavourTermMatches(line: { flavour?: string; sku?: string }, term: string): boolean {
+  if (line.sku && line.sku.toLowerCase() === term.toLowerCase().trim()) return true;
+  const lc = coreFlavour(line.flavour || ''); const tc = coreFlavour(term);
+  if (!tc) return false;
+  const sameFlavour = lc === tc || lc.includes(tc) || tc.includes(lc);
+  return sameFlavour && isGF(line.flavour || '') === isGF(term);   // regular ≠ GF
+}
+
 function applyExclusions(parsed: ParsedPO, exclude?: string[]): ParsedPO {
   if (!exclude?.length) return parsed;
-  const ex = exclude.map((e) => e.toLowerCase().trim()).filter(Boolean);
-  parsed.lines = parsed.lines.filter((l) => !ex.some((x) => (l.flavour || '').toLowerCase().includes(x) || (l.sku || '').toLowerCase() === x));
+  const terms = exclude.map((e) => e.trim()).filter(Boolean);
+  parsed.lines = parsed.lines.filter((l) => !terms.some((t) => flavourTermMatches(l, t)));
   return parsed;
 }
 
