@@ -43,17 +43,31 @@ export function senderRole(from: string): SenderRole {
 
 // Fetch an inbound Twilio media item (e.g. a WhatsApp screenshot) as base64 + type.
 // Twilio media URLs need account auth; the request 307-redirects to the actual file.
+// Detect image type from the file's MAGIC BYTES (the content-type header is often
+// wrong/octet-stream after the S3 redirect, and a media_type mismatch makes the
+// vision API reject the whole request).
+function sniffImageType(buf: Buffer): string | null {
+  if (buf.length < 12) return null;
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png';
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return 'image/gif';
+  if (buf.subarray(0, 4).toString('latin1') === 'RIFF' && buf.subarray(8, 12).toString('latin1') === 'WEBP') return 'image/webp';
+  return null;
+}
+
 export async function fetchTwilioMedia(url: string): Promise<{ base64: string; mediaType: string } | null> {
   const auth = twilioAuthHeader();
   if (!auth) return null;
   try {
     const res = await fetch(url, { headers: { Authorization: auth } });
     if (!res.ok) return null;
-    let mediaType = res.headers.get('content-type') || 'image/jpeg';
-    mediaType = mediaType.split(';')[0].trim();
-    if (!/^image\/(jpeg|png|gif|webp)$/.test(mediaType)) mediaType = 'image/jpeg';
     const buf = Buffer.from(await res.arrayBuffer());
     if (buf.length < 100) return null;
+    // trust magic bytes over the header; fall back to a clean header value
+    const headerType = (res.headers.get('content-type') || '').split(';')[0].trim();
+    const mediaType = sniffImageType(buf) || (/^image\/(jpeg|png|gif|webp)$/.test(headerType) ? headerType : null);
+    if (!mediaType) return null; // not a supported image — skip it
+    if (buf.length > 4_800_000) return null; // over the vision size limit — skip
     return { base64: buf.toString('base64'), mediaType };
   } catch { return null; }
 }

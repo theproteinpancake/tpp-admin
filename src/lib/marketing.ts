@@ -13,6 +13,14 @@ function regionFromCountry(c?: string): string {
   if (['US', 'USA', 'UNITED STATES', 'AMERICA'].includes(t)) return 'USA';
   return 'OTHER';
 }
+// Which ShipBob warehouse ships to a country: AU + NZ from Altona, UK from Manchester.
+// Anything else must be specified explicitly (returns null → caller asks).
+export function siteFromCountry(c?: string): string | null {
+  const r = regionFromCountry(c);
+  if (r === 'AU' || r === 'NZ') return 'ALTONA';
+  if (r === 'UK') return 'MANCHESTER';
+  return null;
+}
 
 // 520g bags: 1–2 fit PANSMALL (the common case); more → a larger outer.
 function boxForGift(size_g: number, qty: number): string {
@@ -42,7 +50,10 @@ export interface GiftInput {
 export async function sendInfluencerGift(input: GiftInput):
   Promise<{ ok: true; order_id: number; summary: string; box: string; sku: string } | { error: string }> {
   const qty = input.qty && input.qty > 0 ? input.qty : 1;
-  const site = (input.site || 'ALTONA').toUpperCase();
+  // site: explicit override, else inferred from the address country (AU/NZ→Altona,
+  // UK→Manchester). Other countries must be specified.
+  const site = (input.site || siteFromCountry(input.country) || '').toUpperCase();
+  if (!site) return { error: `Which warehouse should I ship from for ${input.country || 'this country'}? (reply "from AU" or "from UK")` };
   const prod = await resolveSku(input.flavour, input.size_g);
   if (!prod) return { error: `Couldn't match "${input.flavour} ${input.size_g}g" to a product SKU.` };
   const box = boxForGift(input.size_g, qty);

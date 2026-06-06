@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
       await sendWhatsApp(from, answer.text, answer.media);
     } catch (e) {
       console.error('whatsapp agent error', e);
-      await sendWhatsApp(from, '⚠️ Hit an error on that one — try again in a moment.').catch(() => {});
+      await sendWhatsApp(from, `⚠️ Hit a snag: ${String((e as any)?.message || e).slice(0, 200)}`).catch(() => {});
     }
   });
 
