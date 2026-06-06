@@ -74,7 +74,7 @@ export default function InfluencerTable({ influencers }: { influencers: Inf[] })
             <thead>
               <tr className="border-b border-gray-100 text-left text-[11px] uppercase tracking-wide text-gray-400">
                 <th className="px-3 py-2">Name</th><th className="px-3 py-2">Handle</th><th className="px-3 py-2">Flavour</th>
-                <th className="px-3 py-2">Sent</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Posted Tagged</th>
+                <th className="px-3 py-2">Sent</th><th className="px-3 py-2">Delivery Status</th><th className="px-3 py-2">Posted Status</th>
                 <th className="px-3 py-2">Tracking</th><th className="px-3 py-2 w-48">Notes</th>
               </tr>
             </thead>
