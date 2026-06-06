@@ -71,6 +71,24 @@ export async function getWROLabels(site: string, id: number): Promise<string | n
   return null;
 }
 
+// ShipBob B2C order creation requires the channel context (the integration/store the
+// order belongs to). Fetch + cache the channel id per site.
+const _channelCache: Record<string, number> = {};
+export async function getShipbobChannelId(site: string): Promise<number | null> {
+  if (_channelCache[site]) return _channelCache[site];
+  const token = TOKENS[site];
+  if (!token) return null;
+  try {
+    const res = await fetch('https://api.shipbob.com/1.0/channel', { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return null;
+    const channels = await res.json();
+    // prefer a channel that can write orders; else the first one
+    const writable = (channels || []).find((c: any) => (c.scopes || []).some((s: string) => /write/i.test(s))) || (channels || [])[0];
+    if (writable?.id) { _channelCache[site] = writable.id; return writable.id; }
+  } catch { /* ignore */ }
+  return null;
+}
+
 export interface B2CRecipient {
   name: string;
   email?: string;
@@ -104,12 +122,13 @@ export async function createB2COrder(opts: {
     },
     products: opts.products.map((p) => ({ reference_id: p.reference_id, quantity: p.quantity })),
   };
+  const channelId = await getShipbobChannelId(opts.site);
+  const headers: Record<string, string> = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  if (channelId) headers['shipbob_channel_id'] = String(channelId);
   const res = await fetch('https://api.shipbob.com/1.0/order', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    method: 'POST', headers, body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`ShipBob order create failed: ${res.status} ${await res.text()}`);
+  if (!res.ok) throw new Error(`ShipBob order create failed: ${res.status}${channelId ? '' : ' (no channel id found)'} ${await res.text()}`);
   const o = await res.json();
   return { id: o.id, status: o.status, order_number: o.order_number };
 }
