@@ -15,16 +15,25 @@ const REGIONS = ['AU', 'UK', 'NZ', 'USA', 'OTHER'];
 const REGION_LABEL: Record<string, string> = { AU: '🇦🇺 Australia', UK: '🇬🇧 UK', NZ: '🇳🇿 New Zealand', USA: '🇺🇸 USA', OTHER: '🌍 Other' };
 const STATUS = [
   { v: 'order_processing', label: 'Order processing' }, { v: 'shipped', label: 'Shipped' },
-  { v: 'delivered', label: 'Delivered' }, { v: 'posted', label: 'Posted' }, { v: 'completed', label: 'Completed' },
+  { v: 'delivered', label: 'Delivered' }, { v: 'completed', label: 'Completed' },
 ];
 const POST = ['None', 'Reel', 'Reel + Story', 'Story'];
-const STATUS_BADGE: Record<string, string> = {
-  order_processing: 'bg-gray-100 text-gray-600', shipped: 'bg-blue-100 text-blue-700',
-  delivered: 'bg-violet-100 text-violet-700', posted: 'bg-amber-100 text-amber-700', completed: 'bg-emerald-100 text-emerald-700',
+// colour by stage: not-done = amber, in-transit = blue, delivered = indigo, done = green
+const STATUS_COLOR: Record<string, string> = {
+  order_processing: 'bg-amber-50 text-amber-700 border-amber-200',
+  shipped: 'bg-blue-50 text-blue-700 border-blue-200',
+  delivered: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+  completed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+};
+const POST_COLOR: Record<string, string> = {
+  None: 'bg-gray-50 text-gray-500 border-gray-200',
+  Story: 'bg-amber-50 text-amber-700 border-amber-200',
+  Reel: 'bg-blue-50 text-blue-700 border-blue-200',
+  'Reel + Story': 'bg-emerald-50 text-emerald-700 border-emerald-200',
 };
 const fmtDate = (d: string | null) => (d ? new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { day: '2-digit', month: 'short' }) : '—');
 
-function Cell({ id, field, value, options }: { id: string; field: string; value: string; options: { v: string; label: string }[] }) {
+function Cell({ id, field, value, options, colors }: { id: string; field: string; value: string; options: { v: string; label: string }[]; colors?: Record<string, string> }) {
   const [val, setVal] = useState(value);
   const router = useRouter();
   const onChange = async (v: string) => {
@@ -32,9 +41,10 @@ function Cell({ id, field, value, options }: { id: string; field: string; value:
     await fetch('/api/marketing/influencer', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, field, value: v }) });
     router.refresh();
   };
+  const cls = colors?.[val] || 'bg-white text-gray-700 border-gray-200';
   return (
-    <select value={val} onChange={(e) => onChange(e.target.value)} className="rounded-md border border-gray-200 bg-white px-1.5 py-1 text-xs text-gray-700 focus:border-caramel focus:outline-none">
-      {options.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
+    <select value={val} onChange={(e) => onChange(e.target.value)} className={`rounded-md border px-1.5 py-1 text-xs font-medium focus:outline-none ${cls}`}>
+      {options.map((o) => <option key={o.v} value={o.v} className="bg-white text-gray-700">{o.label}</option>)}
     </select>
   );
 }
@@ -87,8 +97,8 @@ export default function InfluencerTable({ influencers }: { influencers: Inf[] })
                   <td className="px-3 py-2 text-gray-500">{i.handle ? <a className="text-blue-600 hover:underline" href={`https://instagram.com/${(i.handle || '').replace('@', '')}`} target="_blank">{i.handle}</a> : '—'}</td>
                   <td className="px-3 py-2 text-xs text-gray-600">{i.flavour_sent || '—'}</td>
                   <td className="px-3 py-2 text-gray-400">{fmtDate(i.date_initiated)}</td>
-                  <td className="px-3 py-2"><Cell id={i.id} field="status" value={i.status || 'order_processing'} options={STATUS} /></td>
-                  <td className="px-3 py-2"><Cell id={i.id} field="post_type" value={POST.includes(i.post_type || '') ? (i.post_type as string) : 'None'} options={POST.map((p) => ({ v: p, label: p }))} /></td>
+                  <td className="px-3 py-2"><Cell id={i.id} field="status" value={['order_processing', 'shipped', 'delivered', 'completed'].includes(i.status || '') ? (i.status as string) : 'order_processing'} options={STATUS} colors={STATUS_COLOR} /></td>
+                  <td className="px-3 py-2"><Cell id={i.id} field="post_type" value={POST.includes(i.post_type || '') ? (i.post_type as string) : 'None'} options={POST.map((p) => ({ v: p, label: p }))} colors={POST_COLOR} /></td>
                   <td className="px-3 py-2 text-xs text-gray-600" title={i.parcel_cost != null ? `COGS ${ccy(i.cost_cogs, i.cost_currency)} + fulfilment ${ccy(i.cost_fulfilment, i.cost_currency)}` : ''}>{ccy(i.parcel_cost, i.cost_currency)}</td>
                   <td className="px-3 py-2 text-xs">{i.tracking_url ? <a href={i.tracking_url} target="_blank" className="inline-flex items-center gap-1 text-blue-600 hover:underline">{i.tracking_number || 'track'}<ExternalLink className="h-3 w-3" /></a> : (i.tracking_number || '—')}</td>
                   <td className="px-3 py-2"><Notes id={i.id} value={i.notes || ''} /></td>

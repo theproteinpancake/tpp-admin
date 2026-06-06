@@ -20,7 +20,7 @@ import { sendWhatsApp, senderRole } from './whatsapp';
 import { processWholesalePO, processWholesalePOMulti, oosReplyBody } from './wholesalePO';
 import { createWholesaleOrder, sendWholesaleInvoice } from './wholesaleActions';
 import { getWholesaleDashboard } from './wholesale';
-import { sendInfluencerGift, updateInfluencerStatus, listInfluencers, likelyToPost, saveCollab, updateCollab, listCollabs } from './marketing';
+import { sendInfluencerGift, updateInfluencerStatus, listInfluencers, likelyToPost, saveCollab, updateCollab, listCollabs, findInfluencer, setInfluencerAlias } from './marketing';
 
 const APP_URL = process.env.PUBLIC_APP_URL || 'https://admin.theproteinpancake.co';
 const TRANSFER_DOC_LIST: [string, string][] = [['commercial-invoice', 'Commercial Invoice'], ['packing-list', 'Packing List']];
@@ -225,7 +225,9 @@ const tools: Anthropic.Tool[] = [
       type: 'object',
       properties: {
         name: { type: 'string' }, handle: { type: 'string', description: 'Instagram handle e.g. @someone' },
-        followers: { type: 'number' }, email: { type: 'string' },
+        followers: { type: 'number', description: 'follower count as a number (e.g. 142000) — ALWAYS pass when visible in a profile screenshot' },
+        aliases: { type: 'string', description: 'nickname(s) to register for future "send to X", e.g. "Regina"' },
+        email: { type: 'string' },
         address1: { type: 'string' }, address2: { type: 'string' }, city: { type: 'string' },
         state: { type: 'string' }, zip_code: { type: 'string' }, country: { type: 'string' },
         flavour: { type: 'string', description: 'e.g. "Buttermilk", "GF Cinnamon Churro"' },
@@ -237,11 +239,21 @@ const tools: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'find_influencer',
+    description: 'Look up a known/repeat influencer or affiliate by name, @handle, or registered nickname/alias (e.g. "Regina" → regs_healthy_eats). Returns their saved shipping address, email, handle and region so you can re-gift WITHOUT asking again. Use when the user says "send X to <a name we already know>".',
+    input_schema: { type: 'object', properties: { query: { type: 'string', description: 'name, handle, or nickname e.g. "Regina"' } }, required: ['query'] },
+  },
+  {
+    name: 'set_influencer_alias',
+    description: 'Register a nickname/alias for an existing influencer so future "send to <alias>" works (e.g. set alias "Regina" on regs_healthy_eats, who ships via her US family member Luis). Use when the user says e.g. "Regina is regs_healthy_eats" or "save Regina as regs".',
+    input_schema: { type: 'object', properties: { name_or_handle: { type: 'string' }, alias: { type: 'string' } }, required: ['name_or_handle', 'alias'] },
+  },
+  {
     name: 'update_influencer_status',
-    description: 'Update an influencer\'s lifecycle status: order_processing → shipped → delivered → posted → completed. Use when Kate says they\'ve posted or is done with them, or sends a screenshot showing the influencer\'s post. Match by name or @handle.',
+    description: 'Update an influencer\'s DELIVERY status: order_processing → shipped → delivered → completed. (Posting is tracked separately as Posted Status.) Use when the user updates delivery progress. Match by name or @handle.',
     input_schema: {
       type: 'object',
-      properties: { name_or_handle: { type: 'string' }, status: { type: 'string', enum: ['order_processing', 'shipped', 'delivered', 'posted', 'completed'] } },
+      properties: { name_or_handle: { type: 'string' }, status: { type: 'string', enum: ['order_processing', 'shipped', 'delivered', 'completed'] } },
       required: ['name_or_handle', 'status'],
     },
   },
@@ -597,15 +609,24 @@ Luke`;
     const r = await sendWholesaleInvoice(String(input.invoice_id));
     return r.ok ? { ok: true, note: 'Invoice authorised & emailed to the customer from Xero.' } : { error: 'Could not send the invoice — check it in Xero.' };
   }
+  if (name === 'find_influencer') {
+    const f = await findInfluencer(String(input.query));
+    if (!f) return { found: false, note: `No known influencer matching "${input.query}". If new, ask for their details.` };
+    return { found: true, ...f, note: 'Reuse this saved address/email/handle to gift (parse the address into address1/city/state/zip_code/country). Pass the aliases through to send_influencer_gift.' };
+  }
+  if (name === 'set_influencer_alias') {
+    return await setInfluencerAlias(String(input.name_or_handle), String(input.alias));
+  }
   if (name === 'send_influencer_gift') {
     const res = await sendInfluencerGift({
       name: String(input.name), handle: input.handle as string, followers: input.followers as number, email: input.email as string,
+      aliases: input.aliases as string,
       address1: String(input.address1), address2: input.address2 as string, city: String(input.city),
       state: input.state as string, zip_code: String(input.zip_code), country: String(input.country),
       flavour: String(input.flavour), size_g: Number(input.size_g), qty: input.qty as number, site: input.site as string,
     });
     if ('error' in res) return res;
-    return { ok: true, order_id: res.order_id, added: res.summary, note: `ShipBob B2C order created with the ${res.box} box. Report to Kate EXACTLY what was added: ${res.summary}` };
+    return { ok: true, order_id: res.order_id, added: res.summary, note: `ShipBob B2C order created with the ${res.box} box. Report EXACTLY what was added: ${res.summary}` };
   }
   if (name === 'update_influencer_status') {
     return await updateInfluencerStatus(String(input.name_or_handle), String(input.status));
@@ -755,8 +776,9 @@ WHOLESALE:
 - ANTI-HALLUCINATION: NEVER say an order was processed/created in ShipBob or an invoice drafted in Xero UNLESS create_wholesale_order returned the IDs. Until then say "ready to process, pending your confirmation". Never invent order/invoice numbers.
 
 INFLUENCER GIFTING (wired): the user sends an influencer's details — usually SCREENSHOT(S) of their IG chat/profile — "send this influencer Nx flavour size".
+- REPEAT/AFFILIATE influencers: if the user names someone we likely already gift ("send 1x BMM to Regina"), FIRST call find_influencer with that name/nickname. If found, REUSE their saved address/email/handle (parse the saved address into address1/city/state/zip_code/country) and gift WITHOUT re-asking; pass their aliases through. Some affiliates ship via a RELAY (e.g. Regina's gift goes to her US family member Luis @regs_healthy_eats who forwards it on) — trust the SAVED address, don't second-guess it. If the user introduces a nickname ("Regina is regs_healthy_eats" / "save her as Regina"), call set_influencer_alias.
 - ACCUMULATE across messages/screenshots; re-read the whole convo (incl. your earlier messages) before asking; NEVER re-ask a field you already have.
-- REQUIRED to send: name + full shipping address + flavour + size (email preferred). IG HANDLE + FOLLOWERS are NICE-TO-HAVE — do NOT block the send; pull them from a profile screenshot if present.
+- REQUIRED to send: name + full shipping address + flavour + size (email preferred). IG handle/followers don't block the send — BUT ALWAYS pass followers (as a number, e.g. 142000) and the handle to send_influencer_gift when they're visible in a profile screenshot.
 - If a later message corrects something (e.g. "change it to cinnamon"), use the corrected value.
 - WAREHOUSE by ADDRESS: AU or NZ → ALTONA; UK → MANCHESTER; other countries ask. Explicit "from AU/UK" overrides. Omit site to auto-pick.
 - Call send_influencer_gift (creates ShipBob order + box + logs to the dashboard); report EXACTLY what was added.

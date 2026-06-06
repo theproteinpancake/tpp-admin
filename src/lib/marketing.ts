@@ -2,7 +2,7 @@
 import { supabaseLogistics } from './supabase-logistics';
 import { createB2COrder, getOrderTracking, type B2CRecipient } from './shipbob';
 
-export const INFLUENCER_STATUSES = ['order_processing', 'shipped', 'delivered', 'posted', 'completed'] as const;
+export const INFLUENCER_STATUSES = ['order_processing', 'shipped', 'delivered', 'completed'] as const;
 export const COLLAB_STATUSES = ['planned', 'samples_incoming', 'active', 'completed', 'cancelled'] as const;
 
 function regionFromCountry(c?: string): string {
@@ -43,7 +43,7 @@ async function resolveSku(flavour: string, size_g: number): Promise<{ sku: strin
 export interface GiftInput {
   name: string; handle?: string; followers?: number; email?: string;
   address1: string; address2?: string; city: string; state?: string; zip_code: string; country: string;
-  flavour: string; size_g: number; qty?: number; site?: string;
+  flavour: string; size_g: number; qty?: number; site?: string; aliases?: string;
 }
 
 // Create the ShipBob gifting order AND save the influencer to the dashboard.
@@ -81,9 +81,44 @@ export async function sendInfluencerGift(input: GiftInput):
     date_initiated: new Date().toISOString().slice(0, 10), post_type: 'None',
     shipbob_order_id: String(order.id), order_summary: summary, status: 'order_processing',
     cost_cogs: prod.cogs != null ? Math.round(prod.cogs * qty * 100) / 100 : null,
-    cost_currency: site === 'MANCHESTER' ? 'GBP' : 'AUD',
+    cost_currency: site === 'MANCHESTER' ? 'GBP' : 'AUD', aliases: input.aliases || null,
   });
   return { ok: true, order_id: order.id, summary, box, sku: prod.sku };
+}
+
+// Look up a known/repeat influencer by name, handle, or registered alias (e.g. "regina"
+// → regs_healthy_eats). Returns their saved details so we can re-gift without re-asking.
+export async function findInfluencer(query: string):
+  Promise<{ name: string; handle: string | null; email: string | null; address: string | null; region: string | null; sent_from: string | null; aliases: string | null; followers: number | null } | null> {
+  const q = query.replace(/^@/, '').toLowerCase().trim();
+  if (!q) return null;
+  const { data } = await supabaseLogistics.from('influencers')
+    .select('name, handle, email, address, region, sent_from, aliases, followers, date_initiated')
+    .order('date_initiated', { ascending: false, nullsFirst: false });
+  const rows = (data ?? []) as any[];
+  // exact-ish match on name/handle/alias, else contains
+  const hit = rows.find((r) => [r.name, r.handle, ...String(r.aliases || '').split(',')].some((v) => (v || '').toLowerCase().replace(/^@/, '').trim() === q))
+    || rows.find((r) => (r.name || '').toLowerCase().includes(q) || (r.handle || '').toLowerCase().includes(q) || String(r.aliases || '').toLowerCase().includes(q));
+  if (!hit) return null;
+  // prefer the most complete address among that person's rows (match by handle or name)
+  const same = rows.filter((r) => (hit.handle && r.handle === hit.handle) || (!hit.handle && r.name === hit.name));
+  const withAddr = same.find((r) => r.address) || hit;
+  return { name: hit.name, handle: hit.handle, email: hit.email || withAddr.email, address: withAddr.address, region: hit.region, sent_from: hit.sent_from, aliases: hit.aliases, followers: hit.followers };
+}
+
+export async function setInfluencerAlias(nameOrHandle: string, alias: string): Promise<{ ok: true; name: string } | { error: string }> {
+  const q = nameOrHandle.replace(/^@/, '').trim();
+  const { data } = await supabaseLogistics.from('influencers')
+    .select('id, name, handle, aliases').or(`name.ilike.%${q}%,handle.ilike.%${q}%`).order('date_initiated', { ascending: false }).limit(1).maybeSingle() as any;
+  if (!data) return { error: `No influencer matching "${nameOrHandle}".` };
+  const a = alias.toLowerCase().trim();
+  const existing = String(data.aliases || '').split(',').map((x: string) => x.trim()).filter(Boolean);
+  if (!existing.includes(a)) existing.push(a);
+  const aliases = existing.join(', ');
+  // apply to all rows for this person (so re-gifts keep the alias)
+  if (data.handle) await supabaseLogistics.from('influencers').update({ aliases }).eq('handle', data.handle);
+  else await supabaseLogistics.from('influencers').update({ aliases }).eq('id', data.id);
+  return { ok: true, name: data.name };
 }
 
 export async function updateInfluencerStatus(nameOrHandle: string, status: string):
