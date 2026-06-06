@@ -519,12 +519,14 @@ Luke`;
       if (!text && !pdfs.length) return { error: 'That email has no readable PO content (no text, CSV, or PDF).' };
       const a = await processWholesalePOMulti({ text, pdfs }, exclude);
       return {
-        customer: a.customer_name, total_cartons: a.total_cartons, fulfillable: a.fulfillable,
-        lines: a.lines.map((l) => ({ flavour: l.flavour, sku: l.sku, cartons: l.cartons, altona_available: l.available, in_stock: l.ok })),
+        customer: a.customer_name, ship_to: a.ship_to, bill_to: a.bill_to,
+        customer_on_file: a.customer_on_file, needs_review: a.needs_review, flags: a.flags,
+        total_cartons: a.total_cartons, fulfillable: a.fulfillable,
+        lines: a.lines.map((l) => ({ flavour: l.flavour, sku: l.sku, cartons: l.cartons, ordered_qty: l.ordered_qty, qty_basis: l.qty_basis, altona_available: l.available, in_stock: l.ok })),
         boxes: a.boxes, free_shipping: a.free_shipping, over_b2c_limit: a.over_b2c_limit,
         oos: a.oos, suggested_oos_reply: a.oos.length ? oosReplyBody(a) : null, summary: a.summary,
         sources: `${body ? 'email text' : ''}${csvTexts.length ? ' + CSV' : ''}${pdfs.length ? ` + ${pdfs.length} PDF` : ''}`.replace(/^ \+ /, ''),
-        note: exclude?.length ? `Excluded: ${exclude.join(', ')}. Show Kate the summary and confirm before processing.` : 'Show Kate the summary and confirm before processing.',
+        note: `${exclude?.length ? `Excluded ${exclude.join(', ')}. ` : ''}${a.needs_review ? 'NEEDS REVIEW — present the details carefully to Kate (esp. a new customer or any flag) before processing.' : 'Show Kate the summary and confirm before processing.'}`,
       };
     } catch (e) {
       return { error: `Couldn't process that PO email: ${String(e).slice(0, 160)}` };
@@ -536,12 +538,14 @@ Luke`;
     const exclude = Array.isArray(input.exclude) ? (input.exclude as any[]).map(String) : undefined;
     const a = await processWholesalePO(text, exclude);
     return {
-      customer: a.customer_name, total_cartons: a.total_cartons, fulfillable: a.fulfillable,
-      lines: a.lines.map((l) => ({ flavour: l.flavour, sku: l.sku, cartons: l.cartons, altona_available: l.available, in_stock: l.ok })),
+      customer: a.customer_name, ship_to: a.ship_to, bill_to: a.bill_to,
+      customer_on_file: a.customer_on_file, needs_review: a.needs_review, flags: a.flags,
+      total_cartons: a.total_cartons, fulfillable: a.fulfillable,
+      lines: a.lines.map((l) => ({ flavour: l.flavour, sku: l.sku, cartons: l.cartons, ordered_qty: l.ordered_qty, qty_basis: l.qty_basis, altona_available: l.available, in_stock: l.ok })),
       boxes: a.boxes, free_shipping: a.free_shipping, over_b2c_limit: a.over_b2c_limit,
       oos: a.oos, suggested_oos_reply: a.oos.length ? oosReplyBody(a) : null,
       summary: a.summary,
-      note: a.over_b2c_limit ? '>24 cartons → B2B/courier, out of standard B2C scope.' : (a.fulfillable ? 'Show this summary to Kate and ask her to confirm before processing. (Creating the Xero invoice + ShipBob order is the next build step.)' : 'Short/OOS — show the suggested_oos_reply for Kate to send.'),
+      note: a.needs_review ? 'NEEDS REVIEW — present carefully to Kate (new customer / flags) before processing.' : (a.over_b2c_limit ? '>24 cartons → B2B/courier, out of standard B2C scope.' : 'Show Kate the summary and confirm before processing.'),
     };
   }
   if (name === 'send_influencer_gift') {
@@ -694,6 +698,9 @@ WHOLESALE FOCUS:
 - get_wholesale_overview for sales, who's due to reorder, lapsed customers, top customers, and 320g stock + ABC reorder timing.
 - When Kate forwards or pastes a customer PO, call parse_wholesale_po with the RAW text. It maps flavours→320g SKUs, checks Altona stock, picks the ShipBob box, and applies free shipping (>4 cartons free; ≤4 add $15 freight). Show the returned summary and ask Kate to confirm before processing.
 - 320g cartons = 4× 320g bags. Box rules: 2 cartons → PANXLARGE; ≤4 → PANOUTERSMALL; ≤8 → PANOUTER; larger splits into multiples. Orders >24 cartons are B2B/courier — flag as out of the standard B2C flow.
+- UNITS vs CARTONS: some stores (Nutrition Warehouse) order in individual 320g BAGS, not cartons (e.g. qty "4" = 4 bags = 1 carton). The parser converts and tells you (qty_basis/ordered_qty) — present cartons, and if a line flags a non-clean conversion, surface it for Kate.
+- SHIP-TO vs BILL-TO: deliver to the SPECIFIC store (ship_to / the exact branch like "Nutrition Warehouse Darwin") — NOT head office. bill_to (who pays, e.g. HQ) may differ; mention it but ship to the branch. The ShipBob recipient = the ship_to store + address.
+- NEW CUSTOMER: if customer_on_file is false (not yet in Xero), do NOT auto-process — carefully present all captured details (store name, full ship-to address, email, ABN if shown) and ask Kate to confirm/add them in Xero first. Same if needs_review is true or there are flags — show them clearly and get Kate's OK.
 - If any flavour is short/OOS, show the suggested_oos_reply for Kate to send to the customer (offer a flavour swap), and don't proceed on that line.
 - Wholesale Xero invoice + ShipBob order auto-create is the NEXT build step — for now produce the verified, confirmed summary so Kate can action it. Be upfront that wholesale auto-create isn't wired yet.
 INFLUENCER GIFTING (this IS wired): Kate sends an influencer's details — usually SCREENSHOT(S) of their IG chat/profile — and says e.g. "send this influencer 1x Buttermilk 520g from AU".

@@ -11,12 +11,24 @@ const MODEL = 'claude-sonnet-4-6';
 const PANOUTER_CAP = 8, PANOUTERSMALL_CAP = 4;
 export const B2C_MAX_CARTONS = 24;
 
-export interface POLine { sku: string; flavour: string; cartons: number; }
-export interface ParsedPO { customer_name: string | null; lines: POLine[]; unmatched: string[]; }
+export interface POLine { sku: string; flavour: string; cartons: number; ordered_qty?: number; qty_basis?: string; flag?: string | null; }
+export interface ParsedPO {
+  customer_name: string | null;     // who we ship to / the Xero contact (the specific store)
+  bill_to: string | null;           // who pays (e.g. HQ) — may differ from ship-to
+  ship_to: string | null;           // full delivery address (the specific store)
+  lines: POLine[];
+  unmatched: string[];
+  flags: string[];                  // parser warnings (unit conversion, ambiguity…)
+}
 
 export interface AssessedLine extends POLine { available: number; ok: boolean; }
 export interface POAssessment {
   customer_name: string | null;
+  bill_to: string | null;
+  ship_to: string | null;
+  customer_on_file: boolean;        // matched an existing Xero/wholesale customer?
+  needs_review: boolean;            // true if Kate must check (new customer / flags)
+  flags: string[];
   lines: AssessedLine[];
   total_cartons: number;
   fulfillable: boolean;
@@ -34,15 +46,32 @@ async function wholesaleSkus(): Promise<{ sku: string; flavour: string }[]> {
   return (data ?? []).map((p: any) => ({ sku: p.sku, flavour: p.flavour }));
 }
 
-const PARSE_SYSTEM = (skuList: string) => `You parse a wholesale purchase order for The Protein Pancake into structured lines.
-Our wholesale 320g SKUs: ${skuList}.
-Customers order in CARTONS (each carton = 4× 320g bags; "box" = carton). POs arrive in MANY formats — plain email text, an HTML table, a CSV, and/or a PDF attachment — sometimes SEVERAL at once for the SAME order. If multiple sources are given, they describe ONE order: extract it ONCE, de-duplicate, and prefer the most complete/structured source — NEVER sum the same line across formats.
-Map each flavour → the matching 320g SKU: "buttermilk"=BMS, "gluten free buttermilk"/"GF buttermilk"=GFBS, "cinnamon churro"/"churro"=CIS, "maple"=MAS, "cookies & cream"=CCS, "chocolate"=CHS, "salted caramel"=SCS, "GF cinnamon churro"=GFCIS, "sugar free maple syrup"/"maple syrup"=MSS, and any other listed flavour by name + size. Supplier SKUs/codes (e.g. TPPBP01, TPPMP01, TPPCC01) map by the product name shown. Quantities are cartons unless clearly bags. Ignore freight/shipping/discount/total lines. Capture the customer/store name.
-Reply ONLY with JSON: {"customer_name":"store or null","lines":[{"sku":"BMS","flavour":"Buttermilk","cartons":4}],"unmatched":["lines you couldn't map"]}`;
+const PARSE_SYSTEM = (skuList: string) => `You parse a wholesale purchase order for The Protein Pancake into structured JSON.
+Our wholesale 320g SKUs: ${skuList}. A CARTON = 4× 320g bags ("box" = carton). We ship and invoice in CARTONS.
+POs arrive in MANY formats — plain email text, HTML tables, CSV, and/or PDF attachments — and sometimes SEVERAL at once for the SAME order. If multiple sources are given they are ONE order: extract ONCE, de-duplicate, prefer the most complete/structured source — NEVER sum the same line across formats.
+
+FLAVOUR→SKU: "buttermilk"=BMS, "gluten free buttermilk"/"GF buttermilk"=GFBS, "cinnamon churro"/"churro"=CIS, "maple"=MAS, "cookies & cream"=CCS, "chocolate"=CHS, "salted caramel"=SCS, "GF cinnamon churro"=GFCIS, "sugar free maple syrup"/"maple syrup"=MSS, plus any other listed flavour by name+size. Supplier codes (TPPBP01=Buttermilk, TPPMP01=Maple, TPPCC01=Cinnamon Churro, etc.) map by the product NAME shown. Ignore freight/shipping/discount/total lines.
+
+CARTONS vs UNITS (CRITICAL): some stores (e.g. Nutrition Warehouse) order in individual BAGS/UNITS, not cartons — e.g. qty "4" on a single-320g-bag line = 4 bags = 1 carton. Decide each line's basis:
+- CARTON basis if the description says "carton"/"x4 per carton"/"box", OR the unit/line price looks per-carton (~$32–44).
+- UNIT (bag) basis if the line is a single 320g bag with a per-bag price (~$7–12). Then cartons = qty ÷ 4.
+- Set ordered_qty (as written), qty_basis ("cartons" or "units"), and cartons (final carton count). If a unit qty does NOT divide evenly by 4, round to nearest carton and add a flag like "NW Darwin: 5 bags ≈ 1.25 cartons — confirm".
+
+ADDRESSES: capture bill_to (who PAYS — e.g. head office, "Bill To") and ship_to (the FULL delivery address — "Deliver To"/"Ship To", the specific store). customer_name = the SPECIFIC store we ship to (e.g. "Nutrition Warehouse Darwin"), NOT the HQ. If bill-to ≠ ship-to, note it.
+
+Reply ONLY with JSON: {"customer_name":"specific store or null","bill_to":"payer or null","ship_to":"full delivery address or null","lines":[{"sku":"BMS","flavour":"Buttermilk","ordered_qty":4,"qty_basis":"units","cartons":1,"flag":null}],"unmatched":[],"flags":["any order-level warning"]}`;
 
 function parseJson(out: string): ParsedPO {
   const json = JSON.parse(out.slice(out.indexOf('{'), out.lastIndexOf('}') + 1));
-  return { customer_name: json.customer_name ?? null, lines: json.lines ?? [], unmatched: json.unmatched ?? [] };
+  const lines = (json.lines ?? []).map((l: any) => ({
+    sku: l.sku, flavour: l.flavour, cartons: Math.max(0, Math.round(Number(l.cartons) || 0)),
+    ordered_qty: l.ordered_qty ?? null, qty_basis: l.qty_basis ?? null, flag: l.flag ?? null,
+  }));
+  const lineFlags = lines.filter((l: any) => l.flag).map((l: any) => l.flag as string);
+  return {
+    customer_name: json.customer_name ?? null, bill_to: json.bill_to ?? null, ship_to: json.ship_to ?? null,
+    lines, unmatched: json.unmatched ?? [], flags: [...(json.flags ?? []), ...lineFlags],
+  };
 }
 
 export async function parseWholesalePO(text: string): Promise<ParsedPO> {
@@ -99,17 +128,33 @@ export async function assessPO(parsed: ParsedPO): Promise<POAssessment> {
   const free_shipping = total > 4;
   const over = total > B2C_MAX_CARTONS;
 
+  // Is this customer already on file in Xero/wholesale? (match the specific store name)
+  let customer_on_file = false;
+  if (parsed.customer_name) {
+    const { data: cust } = await supabaseLogistics.from('wholesale_customers')
+      .select('id').ilike('name', `%${parsed.customer_name.replace(/\s+pty\s+ltd$/i, '').trim()}%`).limit(1).maybeSingle();
+    customer_on_file = !!cust;
+  }
+
+  const flags = [...(parsed.flags || [])];
+  if (!customer_on_file) flags.push(`🆕 "${parsed.customer_name || 'this customer'}" isn't on file in Xero — needs adding (capture name, ship-to address, email, ABN). Check carefully.`);
+  if (over) flags.push('⚠️ >24 cartons — B2B/courier order, not the standard B2C flow.');
+  if (oos.length) flags.push(`⚠️ Short on: ${oos.map((o) => `${o.flavour} (need ${o.cartons}, have ${o.available})`).join('; ')}`);
+  const needs_review = !customer_on_file || (parsed.flags || []).length > 0 || lines.some((l) => l.flag);
+
   const cust = parsed.customer_name ? ` for *${parsed.customer_name}*` : '';
-  const lineStr = lines.map((l) => `• ${l.flavour} (${l.sku}) ×${l.cartons}${l.ok ? '' : ` ⚠️ only ${l.available} in stock`}`).join('\n');
+  const lineStr = lines.map((l) => `• ${l.flavour} (${l.sku}) ×${l.cartons} carton${l.cartons === 1 ? '' : 's'}${l.qty_basis === 'units' ? ` (ordered ${l.ordered_qty} units)` : ''}${l.ok ? '' : ` ⚠️ only ${l.available} in stock`}`).join('\n');
   const ship = free_shipping ? 'FREE shipping (>4 cartons)' : 'add $15 freight (≤4 cartons)';
   const boxStr = fulfillable ? planBoxes(total).join(' + ') : '—';
-  const flags = [
-    over ? '⚠️ >24 cartons — this is a B2B/courier order, not the standard B2C flow.' : '',
-    oos.length ? `⚠️ Short on: ${oos.map((o) => `${o.flavour} (need ${o.cartons}, have ${o.available})`).join('; ')}` : '',
-  ].filter(Boolean).join('\n');
-  const summary = `Wholesale PO${cust}:\n${lineStr}\n\n${total} cartons · ${ship}\nBox: ${boxStr}${flags ? `\n\n${flags}` : ''}`;
+  const addr = [parsed.ship_to ? `Ship to: ${parsed.ship_to}` : '', parsed.bill_to && parsed.bill_to !== parsed.customer_name ? `Bill to: ${parsed.bill_to}` : ''].filter(Boolean).join('\n');
+  const summary = `Wholesale PO${cust}:\n${lineStr}\n\n${total} cartons · ${ship}\nBox: ${boxStr}${addr ? `\n${addr}` : ''}${flags.length ? `\n\n${flags.join('\n')}` : ''}${needs_review ? '\n\n⚠️ NEEDS KATE TO REVIEW before processing.' : ''}`;
 
-  return { customer_name: parsed.customer_name, lines, total_cartons: total, fulfillable, oos, boxes: fulfillable ? planBoxes(total) : [], free_shipping, over_b2c_limit: over, summary };
+  return {
+    customer_name: parsed.customer_name, bill_to: parsed.bill_to, ship_to: parsed.ship_to,
+    customer_on_file, needs_review, flags,
+    lines, total_cartons: total, fulfillable, oos, boxes: fulfillable ? planBoxes(total) : [],
+    free_shipping, over_b2c_limit: over, summary,
+  };
 }
 
 function applyExclusions(parsed: ParsedPO, exclude?: string[]): ParsedPO {
