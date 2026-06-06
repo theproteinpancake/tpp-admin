@@ -82,8 +82,10 @@ export async function getShipbobChannelId(site: string): Promise<number | null> 
     const res = await fetch('https://api.shipbob.com/1.0/channel', { headers: { Authorization: `Bearer ${token}` } });
     if (!res.ok) return null;
     const channels = await res.json();
-    // prefer a channel that can write orders; else the first one
-    const writable = (channels || []).find((c: any) => (c.scopes || []).some((s: string) => /write/i.test(s))) || (channels || [])[0];
+    // MUST use the channel that can WRITE orders (the PAT/SMA channel) — the
+    // Shopify/Amazon/Triple Whale channels are read-only and 403 on order create.
+    const writable = (channels || []).find((c: any) => (c.scopes || []).includes('orders_write'))
+      || (channels || []).find((c: any) => (c.scopes || []).some((s: string) => /write/i.test(s)));
     if (writable?.id) { _channelCache[site] = writable.id; return writable.id; }
   } catch { /* ignore */ }
   return null;
