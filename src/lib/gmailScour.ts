@@ -36,6 +36,21 @@ export async function runScour(): Promise<{ scanned: number; insights: number; e
   }
   if (!emails.length) return { scanned: 0, insights: 0 };
 
+  // CURRENT OPS STATE (source of truth) so the triage can reconcile email chatter
+  // against reality — e.g. "waiting on paperwork" but the PO is already received/billed.
+  const stateLines: string[] = [];
+  try {
+    const { data: pos } = await supabaseLogistics.from('purchase_orders')
+      .select('po_number, reference, status, wro_status, xero_status, updated_at')
+      .order('updated_at', { ascending: false }).limit(30);
+    for (const p of (pos ?? []) as any[]) {
+      stateLines.push(`PO ${p.po_number || '?'} "${p.reference || ''}" — status=${p.status}${p.xero_status ? `, xero=${p.xero_status}` : ''}${p.wro_status ? `, wro=${p.wro_status}` : ''}`);
+    }
+    const { data: trs } = await supabaseLogistics.from('internal_transfers').select('reference, status');
+    for (const t of (trs ?? []) as any[]) stateLines.push(`Transfer ${t.reference} — status=${t.status}`);
+  } catch { /* state optional */ }
+  const stateBlock = stateLines.length ? `\n\nCURRENT OPS STATE (source of truth — reconcile against this):\n${stateLines.join('\n')}` : '';
+
   // one Claude pass to triage into per-job insights
   const client = new Anthropic({ apiKey });
   const list = emails.map((e, i) => `${i + 1}. [${e.category}] ${e.date} — ${e.from}\n   Subject: ${e.subject}\n   ${e.snippet}`).join('\n');
@@ -46,8 +61,9 @@ Group the emails into ongoing JOBS (one per shipment/topic) and for each return 
 Rules: ignore auto-replies, out-of-office, marketing, and anything not logistics-operational. Only flag needs_action=true when the founder personally must do something (sign a doc, pay, book a slot, create a WRO, reply). Be concise.
 IMPORTANT — ShipBob receiving: if a ShipBob email says goods / a WRO / an inbound shipment have been RECEIVED or receiving is COMPLETE at a fulfilment centre, set needs_action=true and make the action "Mark the matching transfer/PO as received" (name the shipment/WRO if shown) — this is how we confirm stock has actually landed.
 IMPORTANT — sent mail = already handled: some emails are marked [sent] (from Luke). If Luke has already REPLIED to or RESOLVED a thread (e.g. sent the paperwork/labels, paid the invoice, made a decision, answered the request), set that job's needs_action=false — do NOT keep flagging it as waiting on Luke. Never create a job whose only message is a [sent] email; use sent mail only as evidence a thread is resolved. Only flag needs_action=true for things STILL genuinely waiting on Luke with no reply from him.
+IMPORTANT — reconcile against ops state: you are given the CURRENT OPS STATE (POs + transfers with live status). If an email implies something is still pending but the ops state shows it's DONE — e.g. the matching PO is status=received or xero=BILLED or wro=Completed, or the transfer is received — then the job is COMPLETE: set needs_action=false and say so in the summary (e.g. "GF Cinnamon — received at ShipBob ✓"). Match by flavour/PO number/reference. Trust the ops state over stale email wording.
 Return ONLY a JSON array, no prose: [{"source_key": "<short topic>", "category": "maersk|abc|shipbob", "summary": "<=140 char status", "needs_action": true|false, "action": "<=90 char next step or empty"}]`,
-    messages: [{ role: 'user', content: `Recent logistics emails:\n\n${list}` }],
+    messages: [{ role: 'user', content: `Recent logistics emails:\n\n${list}${stateBlock}` }],
   });
   const text = resp.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('');
   let parsed: any[] = [];
