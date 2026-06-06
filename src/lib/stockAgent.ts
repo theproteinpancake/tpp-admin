@@ -234,6 +234,7 @@ const tools: Anthropic.Tool[] = [
         size_g: { type: 'number', enum: [320, 520, 1000], description: 'pack size in grams (520 = the common gifting size)' },
         qty: { type: 'number', description: 'number of bags (default 1)' },
         site: { type: 'string', enum: ['ALTONA', 'MANCHESTER'] },
+        force: { type: 'boolean', description: 'proceed even if the flavour is OUT OF STOCK (creates a backorder that auto-fulfils when restocked) — ONLY after Kate explicitly confirms' },
       },
       required: ['name', 'address1', 'city', 'zip_code', 'country', 'flavour', 'size_g'],
     },
@@ -624,8 +625,10 @@ Luke`;
       address1: String(input.address1), address2: input.address2 as string, city: String(input.city),
       state: input.state as string, zip_code: String(input.zip_code), country: String(input.country),
       flavour: String(input.flavour), size_g: Number(input.size_g), qty: input.qty as number, site: input.site as string,
+      force: input.force as boolean,
     });
     if ('error' in res) return res;
+    if ('oos' in res) return res;   // OOS — agent must ask Kate before proceeding
     return { ok: true, order_id: res.order_id, added: res.summary, note: `ShipBob B2C order created with the ${res.box} box. Report EXACTLY what was added: ${res.summary}` };
   }
   if (name === 'update_influencer_status') {
@@ -781,7 +784,7 @@ INFLUENCER GIFTING (wired): the user sends an influencer's details — usually S
 - REQUIRED to send: name + full shipping address + flavour + size (email preferred). IG handle/followers don't block the send — BUT ALWAYS pass followers (as a number, e.g. 142000) and the handle to send_influencer_gift when they're visible in a profile screenshot.
 - If a later message corrects something (e.g. "change it to cinnamon"), use the corrected value.
 - WAREHOUSE by ADDRESS: AU or NZ → ALTONA; UK → MANCHESTER; other countries ask. Explicit "from AU/UK" overrides. Omit site to auto-pick.
-- Call send_influencer_gift (creates ShipBob order + box + logs to the dashboard); report EXACTLY what was added.
+- Call send_influencer_gift (it FIRST checks ShipBob stock for that flavour/size). If it returns oos (out of stock), do NOT create the order — tell Kate the flavour is OOS and ask whether to (1) load it anyway (it'll sit as a backorder and auto-fulfil once restocked) or (2) swap to another flavour in the SAME size. If she says proceed → call again with force:true. If she swaps (e.g. "Maple instead") → call again with the new flavour (same size). Only on success report EXACTLY what was added.
 - update_influencer_status (order_processing→shipped→delivered→posted→completed); the user sets posted/completed, often via a screenshot of the post. get_influencers lists them.
 
 COLLABS: when the user describes a business collab/partnership (often a chat screenshot) — call save_collab (partner, handle, email, address, type, due_date, expecting_samples + qty, description). update_collab to mark samples received / completed. get_collabs lists them.

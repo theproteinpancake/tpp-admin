@@ -43,12 +43,12 @@ async function resolveSku(flavour: string, size_g: number): Promise<{ sku: strin
 export interface GiftInput {
   name: string; handle?: string; followers?: number; email?: string;
   address1: string; address2?: string; city: string; state?: string; zip_code: string; country: string;
-  flavour: string; size_g: number; qty?: number; site?: string; aliases?: string;
+  flavour: string; size_g: number; qty?: number; site?: string; aliases?: string; force?: boolean;
 }
 
 // Create the ShipBob gifting order AND save the influencer to the dashboard.
 export async function sendInfluencerGift(input: GiftInput):
-  Promise<{ ok: true; order_id: number; summary: string; box: string; sku: string } | { error: string }> {
+  Promise<{ ok: true; order_id: number; summary: string; box: string; sku: string } | { oos: true; sku: string; label: string; available: number; site: string; note: string } | { error: string }> {
   const qty = input.qty && input.qty > 0 ? input.qty : 1;
   // site: explicit override, else inferred from the address country (AU/NZ→Altona,
   // UK→Manchester). Other countries must be specified.
@@ -56,6 +56,19 @@ export async function sendInfluencerGift(input: GiftInput):
   if (!site) return { error: `Which warehouse should I ship from for ${input.country || 'this country'}? (reply "from AU" or "from UK")` };
   const prod = await resolveSku(input.flavour, input.size_g);
   if (!prod) return { error: `Couldn't match "${input.flavour} ${input.size_g}g" to a product SKU.` };
+
+  // Stock check — don't silently create a backorder. If OOS, return for Kate's call.
+  if (!input.force) {
+    const { data: stock } = await supabaseLogistics.from('v_stock_current')
+      .select('available').eq('location_code', site).eq('sku', prod.sku).maybeSingle();
+    const available = Number((stock as any)?.available ?? 0);
+    if (available < qty) {
+      const sz = input.size_g >= 1000 ? `${input.size_g / 1000}kg` : `${input.size_g}g`;
+      return { oos: true, sku: prod.sku, label: prod.label, available, site,
+        note: `${prod.label} is OUT OF STOCK at ${site} (${available} available). Ask Kate: (1) load it anyway — it'll sit as a backorder and auto-fulfil once restocked, or (2) swap to another ${sz} flavour. Then call send_influencer_gift again with force:true (to proceed) or the new flavour (to swap).` };
+    }
+  }
+
   const box = boxForGift(input.size_g, qty);
 
   const recipient: B2CRecipient = {
