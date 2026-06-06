@@ -137,6 +137,42 @@ export async function getXeroContactId(name: string): Promise<string | null> {
   }
 }
 
+// Create a wholesale SALES invoice (ACCREC). Lines by ItemCode (Xero applies the
+// item's sales price); GST-free (TaxType NONE, like our products). DRAFT by default.
+export async function createXeroInvoice(opts: {
+  contactId: string;
+  lines: { sku: string; quantity: number }[];
+  freight?: number;            // $ freight line if not free shipping
+  reference?: string;
+  status?: 'DRAFT' | 'AUTHORISED';
+}): Promise<{ id: string; number: string; total: number }> {
+  const freightAcct = process.env.XERO_FREIGHT_ACCOUNT || '';
+  const lineItems: any[] = opts.lines.map((l) => ({ ItemCode: l.sku, Quantity: l.quantity, TaxType: 'NONE' }));
+  if (opts.freight && freightAcct) lineItems.push({ Description: 'Freight', Quantity: 1, UnitAmount: opts.freight, AccountCode: freightAcct, TaxType: 'NONE' });
+  const body = {
+    Invoices: [{
+      Type: 'ACCREC', Contact: { ContactID: opts.contactId },
+      Date: new Date().toISOString().slice(0, 10),
+      LineAmountTypes: 'Exclusive', Reference: opts.reference || undefined,
+      Status: opts.status || 'DRAFT', LineItems: lineItems,
+    }],
+  };
+  const res = await xeroPost('/Invoices', body);
+  const inv = res.Invoices?.[0];
+  return { id: inv?.InvoiceID, number: inv?.InvoiceNumber, total: Number(inv?.Total) || 0 };
+}
+
+// Authorise + email an invoice to the contact's email on file (Xero sends it).
+export async function emailXeroInvoice(invoiceId: string): Promise<boolean> {
+  try {
+    await xeroPost('/Invoices', { Invoices: [{ InvoiceID: invoiceId, Status: 'AUTHORISED' }] });
+    await xeroPost(`/Invoices/${invoiceId}/Email`, {});
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function createXeroPurchaseOrder(opts: {
   contactName: string;
   lines: { ItemCode: string; Quantity: number; UnitAmount: number | null }[];

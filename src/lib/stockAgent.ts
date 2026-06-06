@@ -18,6 +18,7 @@ import { getPoForecast } from './poForecast';
 import { MAERSK } from './transferConstants';
 import { sendWhatsApp, senderRole } from './whatsapp';
 import { processWholesalePO, processWholesalePOMulti, oosReplyBody } from './wholesalePO';
+import { createWholesaleOrder, sendWholesaleInvoice } from './wholesaleActions';
 import { getWholesaleDashboard } from './wholesale';
 import { sendInfluencerGift, updateInfluencerStatus, listInfluencers, likelyToPost, saveCollab, updateCollab, listCollabs } from './marketing';
 
@@ -190,6 +191,31 @@ const tools: Anthropic.Tool[] = [
       },
       required: ['text'],
     },
+  },
+  {
+    name: 'create_wholesale_order',
+    description: 'ACTUALLY process a confirmed wholesale PO — creates the ShipBob B2C order (carton SKUs + the box) AND drafts the Xero invoice to the customer. ONLY call after Kate has CONFIRMED the parsed summary AND the customer is on file in Xero. Fill from the confirmed PO: customer_name (the matched Xero contact), recipient (ship-to store + structured address), lines (sku + cartons), box, free_shipping, reference (PO number). After it returns, report back EXACTLY what was created (ShipBob order id + contents, Xero invoice number) for Kate to cross-check before sending.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        customer_name: { type: 'string' },
+        recipient: {
+          type: 'object',
+          properties: { name: { type: 'string' }, address1: { type: 'string' }, address2: { type: 'string' }, city: { type: 'string' }, state: { type: 'string' }, zip_code: { type: 'string' }, country: { type: 'string' }, email: { type: 'string' } },
+          required: ['name', 'address1', 'city', 'zip_code', 'country'],
+        },
+        lines: { type: 'array', items: { type: 'object', properties: { sku: { type: 'string' }, cartons: { type: 'number' } } } },
+        box: { type: 'string', enum: ['PANOUTERSMALL', 'PANOUTER', 'PANXLARGE'] },
+        free_shipping: { type: 'boolean' },
+        reference: { type: 'string', description: 'customer PO number' },
+      },
+      required: ['customer_name', 'recipient', 'lines', 'box', 'free_shipping'],
+    },
+  },
+  {
+    name: 'send_wholesale_invoice',
+    description: 'Authorise + email the drafted wholesale Xero invoice to the customer. ONLY after Kate has cross-checked that the ShipBob order matches the Xero invoice and says to send. Pass the xero_invoice_id returned by create_wholesale_order.',
+    input_schema: { type: 'object', properties: { invoice_id: { type: 'string' } }, required: ['invoice_id'] },
   },
   {
     name: 'send_influencer_gift',
@@ -548,6 +574,22 @@ Luke`;
       note: a.needs_review ? 'NEEDS REVIEW — present carefully to Kate (new customer / flags) before processing.' : (a.over_b2c_limit ? '>24 cartons → B2B/courier, out of standard B2C scope.' : 'Show Kate the summary and confirm before processing.'),
     };
   }
+  if (name === 'create_wholesale_order') {
+    const r = (input.recipient || {}) as any;
+    const res = await createWholesaleOrder({
+      customer_name: String(input.customer_name),
+      recipient: { name: String(r.name), address1: String(r.address1), address2: r.address2, city: String(r.city), state: r.state, zip_code: String(r.zip_code), country: String(r.country), email: r.email },
+      lines: (input.lines as any[] || []).map((l) => ({ sku: String(l.sku), cartons: Number(l.cartons) })),
+      box: String(input.box), free_shipping: !!input.free_shipping, reference: input.reference as string,
+    });
+    if ('error' in res) return res;
+    return { ok: true, shipbob_order_id: res.shipbob_order_id, xero_invoice: res.xero_invoice, xero_invoice_id: res.xero_invoice_id, xero_total: res.xero_total,
+      note: `DONE. ShipBob order #${res.shipbob_order_id}: ${res.shipbob_added}. Xero invoice ${res.xero_invoice} (DRAFT, $${res.xero_total}). Report this EXACTLY to Kate and ask her to cross-check, then reply "send invoice" to email it (pass xero_invoice_id ${res.xero_invoice_id}).` };
+  }
+  if (name === 'send_wholesale_invoice') {
+    const r = await sendWholesaleInvoice(String(input.invoice_id));
+    return r.ok ? { ok: true, note: 'Invoice authorised & emailed to the customer from Xero.' } : { error: 'Could not send the invoice — check it in Xero.' };
+  }
   if (name === 'send_influencer_gift') {
     const res = await sendInfluencerGift({
       name: String(input.name), handle: input.handle as string, followers: input.followers as number, email: input.email as string,
@@ -703,7 +745,8 @@ WHOLESALE FOCUS:
 - SHIP-TO vs BILL-TO: deliver to the SPECIFIC store (ship_to / the exact branch like "Nutrition Warehouse Darwin") — NOT head office. bill_to (who pays, e.g. HQ) may differ; mention it but ship to the branch. The ShipBob recipient = the ship_to store + address.
 - NEW CUSTOMER: if customer_on_file is false (not yet in Xero), do NOT auto-process — carefully present all captured details (store name, full ship-to address, email, ABN if shown) and ask Kate to confirm/add them in Xero first. Same if needs_review is true or there are flags — show them clearly and get Kate's OK.
 - If any flavour is short/OOS, show the suggested_oos_reply for Kate to send to the customer (offer a flavour swap), and don't proceed on that line.
-- Wholesale Xero invoice + ShipBob order auto-create is the NEXT build step — for now produce the verified, confirmed summary so Kate can action it. Be upfront that wholesale auto-create isn't wired yet.
+- PROCESSING a confirmed PO (this IS now wired): after Kate CONFIRMS the summary AND the customer is on file in Xero, call create_wholesale_order — it creates the ShipBob B2C order (carton SKUs + box) and DRAFTS the Xero invoice. Then report back EXACTLY what the tool returned (ShipBob order #, Xero invoice #) and ask Kate to cross-check. When she's happy, call send_wholesale_invoice (with the xero_invoice_id) to authorise + email it. If the customer ISN'T on file, do NOT call create_wholesale_order — ask Kate to add them in Xero first.
+- ANTI-HALLUCINATION (critical): NEVER say an order was "processed/queued/created in ShipBob" or an invoice "drafted/created in Xero" UNLESS create_wholesale_order actually returned success with the IDs. Until then it is only a parsed summary — say it's "ready to process, pending your confirmation", not done. Never invent order numbers or invoice numbers.
 INFLUENCER GIFTING (this IS wired): Kate sends an influencer's details — usually SCREENSHOT(S) of their IG chat/profile — and says e.g. "send this influencer 1x Buttermilk 520g from AU".
 - ACCUMULATE ACROSS MESSAGES: details often arrive over SEVERAL messages/screenshots (one with address+email, another with the IG profile/handle). Before asking for ANYTHING, re-read the whole recent conversation — INCLUDING your own earlier messages where you already listed the details — and combine them. NEVER re-ask for a field you already have. Only ask for what's genuinely still missing.
 - REQUIRED to send: name + full shipping address (street, city, state, postcode, country) + flavour + size. Email strongly preferred. The Instagram HANDLE and FOLLOWER COUNT are NICE-TO-HAVE — do NOT block or delay the send waiting on them; if you have the required fields, SEND, and pull the handle/followers from a profile screenshot if present (or add later).
