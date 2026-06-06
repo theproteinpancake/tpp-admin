@@ -49,7 +49,12 @@ export async function POST(req: NextRequest) {
       await sendWhatsApp(from, answer.text, answer.media);
     } catch (e) {
       console.error('whatsapp agent error', e);
-      await sendWhatsApp(from, `⚠️ Hit a snag: ${String((e as any)?.message || e).slice(0, 200)}`).catch(() => {});
+      const raw = String((e as any)?.message || e);
+      let msg = '⚠️ Hit a snag on that one — give it another go in a moment. (Luke\'s been pinged if it persists.)';
+      if (/credit balance|Plans & Billing|insufficient.*quota/i.test(raw)) msg = '⚠️ The assistant\'s AI credits have run out — Luke needs to top up the Anthropic account. Back to normal as soon as that\'s sorted! 🙏';
+      else if (/overloaded|rate.?limit|429|529/i.test(raw)) msg = '⚠️ The AI is a bit overloaded right now — try again in a minute. 🙏';
+      else if (/gmail|google/i.test(raw)) msg = '⚠️ Couldn\'t reach the inbox just now — try again shortly (Gmail may need reconnecting in Settings).';
+      await sendWhatsApp(from, msg).catch(() => {});
     }
   });
 
