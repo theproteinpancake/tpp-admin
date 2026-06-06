@@ -151,7 +151,7 @@ export async function assessPO(parsed: ParsedPO): Promise<POAssessment> {
   const oos = lines.filter((l) => !l.ok).map((l) => ({ sku: l.sku, flavour: l.flavour, cartons: l.cartons, available: l.available }));
   const total = lines.reduce((s, l) => s + l.cartons, 0);
   const fulfillable = oos.length === 0 && lines.length > 0;
-  const free_shipping = total > 4;
+  const free_shipping = total >= 4;        // 4+ cartons free; 1–3 → $15 freight
   const over = total > B2C_MAX_CARTONS;
 
   // Is this customer already on file in Xero/wholesale? (fuzzy match the store name)
@@ -167,7 +167,7 @@ export async function assessPO(parsed: ParsedPO): Promise<POAssessment> {
 
   const cust = parsed.customer_name ? ` for *${parsed.customer_name}*` : '';
   const lineStr = lines.map((l) => `• ${l.flavour} (${l.sku}) ×${l.cartons} carton${l.cartons === 1 ? '' : 's'}${l.qty_basis === 'units' ? ` (ordered ${l.ordered_qty} units)` : ''}${l.ok ? '' : ` ⚠️ only ${l.available} in stock`}`).join('\n');
-  const ship = free_shipping ? 'FREE shipping (>4 cartons)' : 'add $15 freight (≤4 cartons)';
+  const ship = free_shipping ? 'FREE shipping (4+ cartons)' : 'add $15 freight (≤3 cartons)';
   const boxStr = fulfillable ? planBoxes(total).join(' + ') : '—';
   const addr = [parsed.ship_to ? `Ship to: ${parsed.ship_to}` : '', parsed.bill_to && parsed.bill_to !== parsed.customer_name ? `Bill to: ${parsed.bill_to}` : ''].filter(Boolean).join('\n');
   const summary = `Wholesale PO${cust}:\n${lineStr}\n\n${total} cartons · ${ship}\nBox: ${boxStr}${addr ? `\n${addr}` : ''}${flags.length ? `\n\n${flags.join('\n')}` : ''}${needs_review ? '\n\n⚠️ NEEDS KATE TO REVIEW before processing.' : ''}`;
