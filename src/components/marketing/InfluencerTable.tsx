@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, Trash2 } from 'lucide-react';
 
 type Inf = {
   id: string; name: string; handle: string | null; followers: number | null; email: string | null;
@@ -63,6 +63,22 @@ function Notes({ id, value }: { id: string; value: string }) {
   );
 }
 
+function DeleteBtn({ id, name }: { id: string; name: string }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const del = async () => {
+    if (!confirm(`Remove ${name} from the influencer list? This can't be undone.`)) return;
+    setBusy(true);
+    try { await fetch(`/api/marketing/influencer?id=${encodeURIComponent(id)}`, { method: 'DELETE' }); router.refresh(); }
+    finally { setBusy(false); }
+  };
+  return (
+    <button onClick={del} disabled={busy} title="Remove influencer" className="rounded p-1 text-gray-300 hover:bg-red-50 hover:text-red-500 disabled:opacity-40">
+      <Trash2 className="h-3.5 w-3.5" />
+    </button>
+  );
+}
+
 export default function InfluencerTable({ influencers }: { influencers: Inf[] }) {
   const [region, setRegion] = useState<string>('ALL');
   const visible = region === 'ALL' ? influencers : influencers.filter((i) => (i.region || 'OTHER') === region);
@@ -87,7 +103,7 @@ export default function InfluencerTable({ influencers }: { influencers: Inf[] })
               <tr className="border-b border-gray-100 text-left text-[11px] uppercase tracking-wide text-gray-400">
                 <th className="px-3 py-2">Name</th><th className="px-3 py-2">Handle</th><th className="px-3 py-2">Flavour</th>
                 <th className="px-3 py-2">Sent</th><th className="px-3 py-2">Delivery Status</th><th className="px-3 py-2">Posted Status</th>
-                <th className="px-3 py-2">Cost</th><th className="px-3 py-2">Tracking</th><th className="px-3 py-2 w-48">Notes</th>
+                <th className="px-3 py-2">Cost</th><th className="px-3 py-2">Tracking</th><th className="px-3 py-2 w-48">Notes</th><th className="px-3 py-2"></th>
               </tr>
             </thead>
             <tbody>
@@ -102,6 +118,7 @@ export default function InfluencerTable({ influencers }: { influencers: Inf[] })
                   <td className="px-3 py-2 text-xs text-gray-600" title={i.parcel_cost != null ? `COGS ${ccy(i.cost_cogs, i.cost_currency)} + fulfilment ${ccy(i.cost_fulfilment, i.cost_currency)}` : ''}>{ccy(i.parcel_cost, i.cost_currency)}</td>
                   <td className="px-3 py-2 text-xs">{i.tracking_url ? <a href={i.tracking_url} target="_blank" className="inline-flex items-center gap-1 text-blue-600 hover:underline">{i.tracking_number || 'track'}<ExternalLink className="h-3 w-3" /></a> : (i.tracking_number || '—')}</td>
                   <td className="px-3 py-2"><Notes id={i.id} value={i.notes || ''} /></td>
+                  <td className="px-3 py-2"><DeleteBtn id={i.id} name={i.name} /></td>
                 </tr>
               ))}
             </tbody>
