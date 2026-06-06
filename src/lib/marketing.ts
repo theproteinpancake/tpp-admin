@@ -29,15 +29,15 @@ function boxForGift(size_g: number, qty: number): string {
   return 'PANXLARGE';
 }
 
-async function resolveSku(flavour: string, size_g: number): Promise<{ sku: string; label: string } | null> {
+async function resolveSku(flavour: string, size_g: number): Promise<{ sku: string; label: string; cogs: number | null } | null> {
   const { data } = await supabaseLogistics.from('products')
-    .select('sku, flavour, unit_size_g').eq('active', true).eq('unit_size_g', size_g);
+    .select('sku, flavour, unit_size_g, cogs').eq('active', true).eq('unit_size_g', size_g);
   const f = flavour.toLowerCase().trim();
   const hit = (data ?? []).find((p: any) => (p.flavour || '').toLowerCase() === f)
     || (data ?? []).find((p: any) => (p.flavour || '').toLowerCase().includes(f) || f.includes((p.flavour || '').toLowerCase()));
   if (!hit) return null;
   const sz = size_g >= 1000 ? `${size_g / 1000}kg` : `${size_g}g`;
-  return { sku: hit.sku, label: `${hit.flavour} ${sz}` };
+  return { sku: hit.sku, label: `${hit.flavour} ${sz}`, cogs: hit.cogs ?? null };
 }
 
 export interface GiftInput {
@@ -80,6 +80,8 @@ export async function sendInfluencerGift(input: GiftInput):
     flavour_sent: `${qty}× ${prod.label}`, sent_from: site, region: regionFromCountry(input.country),
     date_initiated: new Date().toISOString().slice(0, 10), post_type: 'None',
     shipbob_order_id: String(order.id), order_summary: summary, status: 'order_processing',
+    cost_cogs: prod.cogs != null ? Math.round(prod.cogs * qty * 100) / 100 : null,
+    cost_currency: site === 'MANCHESTER' ? 'GBP' : 'AUD',
   });
   return { ok: true, order_id: order.id, summary, box, sku: prod.sku };
 }
@@ -117,6 +119,52 @@ export async function refreshInfluencerTracking(): Promise<{ updated: number }> 
 export async function listInfluencers() {
   const { data } = await supabaseLogistics.from('influencers').select('*').order('date_initiated', { ascending: false, nullsFirst: false });
   return data ?? [];
+}
+
+// Top-of-page analytics: monthly send rate + average parcel cost (COGS + fulfilment).
+export async function influencerAnalytics() {
+  const all = await listInfluencers() as any[];
+  // fulfilment cost per order (ShipBob invoice_amount), joined by order id
+  const { data: costs } = await supabaseLogistics.from('shipment_costs').select('shipbob_order_id, cost, currency');
+  const fulfilByOrder = new Map<string, { cost: number; currency: string }>();
+  for (const c of (costs ?? []) as any[]) if (c.shipbob_order_id) fulfilByOrder.set(String(c.shipbob_order_id), { cost: Number(c.cost) || 0, currency: c.currency });
+
+  // 12-month rolling send graph (by date_initiated)
+  const now = new Date();
+  const months: { label: string; count: number }[] = [];
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push({ label: d.toLocaleDateString('en-AU', { month: 'short' }), count: 0 });
+  }
+  const monthIndex = (iso: string) => {
+    const d = new Date(iso + 'T00:00:00');
+    const diff = (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
+    return diff >= 0 && diff <= 11 ? 11 - diff : -1;
+  };
+  let sentLast12 = 0;
+  for (const i of all) {
+    if (!i.date_initiated) continue;
+    const idx = monthIndex(i.date_initiated);
+    if (idx >= 0) { months[idx].count++; sentLast12++; }
+  }
+  const avgPerMonth = Math.round((sentLast12 / 12) * 10) / 10;
+
+  // average parcel cost = COGS (captured at send) + fulfilment (from ShipBob)
+  let cogsSum = 0, cogsN = 0, fulSum = 0, fulN = 0, parcelSum = 0, parcelN = 0;
+  for (const i of all) {
+    const cogs = i.cost_cogs != null ? Number(i.cost_cogs) : null;
+    const ful = i.shipbob_order_id ? fulfilByOrder.get(String(i.shipbob_order_id))?.cost ?? null : null;
+    if (cogs != null) { cogsSum += cogs; cogsN++; }
+    if (ful != null) { fulSum += ful; fulN++; }
+    if (cogs != null || ful != null) { parcelSum += (cogs || 0) + (ful || 0); parcelN++; }
+  }
+  const avg = (s: number, n: number) => (n ? Math.round((s / n) * 100) / 100 : null);
+
+  return {
+    total: all.length, sentLast12, avgPerMonth, months,
+    avg_cogs: avg(cogsSum, cogsN), avg_fulfilment: avg(fulSum, fulN), avg_parcel: avg(parcelSum, parcelN),
+    costed_count: parcelN, fulfilment_count: fulN,
+  };
 }
 
 // "Most likely to post next" = shipped/delivered, longest since they got stock, not yet posted.
