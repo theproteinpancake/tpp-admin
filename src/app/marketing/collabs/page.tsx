@@ -1,19 +1,11 @@
 import { Handshake, CalendarClock, PackageCheck } from 'lucide-react';
 import { listCollabs } from '@/lib/marketing';
-import StatusSelect from '@/components/marketing/StatusSelect';
+import CollabsTable from '@/components/marketing/CollabsTable';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 const fmtDate = (d: string | null) => (d ? new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: '2-digit' }) : '—');
-const STATUS_OPTS = [
-  { v: 'planned', label: 'Planned' }, { v: 'samples_incoming', label: 'Samples incoming' },
-  { v: 'active', label: 'Active' }, { v: 'completed', label: 'Completed' }, { v: 'cancelled', label: 'Cancelled' },
-];
-const BADGE: Record<string, string> = {
-  planned: 'bg-gray-100 text-gray-600', samples_incoming: 'bg-amber-100 text-amber-700',
-  active: 'bg-blue-100 text-blue-700', completed: 'bg-emerald-100 text-emerald-700', cancelled: 'bg-red-100 text-red-600',
-};
 
 export default async function CollabsPage() {
   const collabs = (await listCollabs()) as any[];
@@ -46,30 +38,11 @@ export default async function CollabsPage() {
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-100 text-left text-xs uppercase tracking-wide text-gray-400">
-              <th className="px-4 py-3">Partner</th><th className="px-4 py-3">Handle</th><th className="px-4 py-3">Type</th>
-              <th className="px-4 py-3">Due</th><th className="px-4 py-3">Samples</th><th className="px-4 py-3">Notes</th><th className="px-4 py-3">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {collabs.map((c) => (
-              <tr key={c.id} className="border-b border-gray-50 hover:bg-cream/30">
-                <td className="px-4 py-3 font-medium text-gray-800">{c.partner_name}</td>
-                <td className="px-4 py-3 text-gray-500">{c.handle || '—'}</td>
-                <td className="px-4 py-3 text-gray-600">{c.collab_type || '—'}</td>
-                <td className="px-4 py-3 text-gray-500">{fmtDate(c.due_date)}</td>
-                <td className="px-4 py-3 text-xs">{c.expecting_samples ? (c.samples_received ? '✓ received' : `expecting${c.sample_qty ? ` ${c.sample_qty}` : ''}`) : '—'}</td>
-                <td className="px-4 py-3 text-xs text-gray-400">{c.title || '—'}</td>
-                <td className="px-4 py-3"><div className="flex items-center gap-2"><span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${BADGE[c.status] || 'bg-gray-100 text-gray-600'}`}>{(c.status || '').replace('_', ' ')}</span><StatusSelect table="collabs" id={c.id} value={c.status || 'planned'} options={STATUS_OPTS} /></div></td>
-              </tr>
-            ))}
-            {collabs.length === 0 && <tr><td colSpan={7} className="px-4 py-6 text-center text-gray-400">No collabs yet — Kate can add one via WhatsApp (send the chat screenshot + a short description).</td></tr>}
-          </tbody>
-        </table>
-      </div>
+      <CollabsTable rows={collabs.map((c) => ({
+        id: c.id, partner_name: c.partner_name, handle: c.handle, collab_type: c.collab_type, due_date: c.due_date,
+        expecting_samples: c.expecting_samples, samples_received: c.samples_received, sample_qty: c.sample_qty,
+        title: c.title, status: c.status,
+      }))} />
     </div>
   );
 }

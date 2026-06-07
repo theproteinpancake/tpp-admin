@@ -1,13 +1,12 @@
-import { Layers, AlertTriangle, Clock } from 'lucide-react';
+import { AlertTriangle, Clock } from 'lucide-react';
 import { getLots, expiryStatus, EXPIRY_META } from '@/lib/lots';
 import { flavourColor } from '@/lib/flavours';
+import BatchesTable from '@/components/stock/BatchesTable';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-const fmtInt = (n: number) => n.toLocaleString('en-AU');
 const sizeText = (g: number | null) => (g == null ? '' : g >= 1000 ? `${g / 1000}kg` : `${g}g`);
-const fmtDate = (d: string | null) => (d ? new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
 
 export default async function BatchesPage() {
   const lots = await getLots();
@@ -28,45 +27,14 @@ export default async function BatchesPage() {
         <Card icon={<Clock className="h-5 w-5 text-amber-500" />} label="Under 3 months" value={String(warning.length)} tone="text-gray-900" />
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              {['Product', 'Site', 'Lot', 'Best before', 'Days left', 'On hand', 'Status'].map((h) => (
-                <th key={h} className="whitespace-nowrap px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {lots.map((l) => {
-              const st = expiryStatus(l.days_left);
-              const meta = EXPIRY_META[st];
-              return (
-                <tr key={l.id} className="hover:bg-cream/30">
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2.5">
-                      <span className="h-6 w-1.5 shrink-0 rounded-full" style={{ background: flavourColor(l.flavour) }} />
-                      <div>
-                        <div className="font-medium text-gray-900">{l.flavour ?? l.sku}</div>
-                        <div className="text-[11px] text-gray-500">{l.sku} · {sizeText(l.unit_size_g)}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{l.site}</td>
-                  <td className="px-4 py-3 font-mono text-sm text-gray-700">{l.lot_number}</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-700">{fmtDate(l.expiry_date)}</td>
-                  <td className="px-4 py-3 text-sm text-gray-700">{l.days_left == null ? '—' : `${l.days_left}d`}</td>
-                  <td className="px-4 py-3 text-sm font-semibold text-gray-900">{fmtInt(l.on_hand)}</td>
-                  <td className="px-4 py-3">
-                    <span className="inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold text-white" style={{ backgroundColor: meta.bg }}>{meta.label}</span>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      {lots.length === 0 && <p className="mt-4 text-sm text-gray-500">No lot data yet — it populates from the daily ShipBob sync.</p>}
+      <BatchesTable rows={lots.map((l) => {
+        const meta = EXPIRY_META[expiryStatus(l.days_left)];
+        return {
+          id: l.id, flavour: l.flavour, sku: l.sku, size: sizeText(l.unit_size_g), site: l.site,
+          lot_number: l.lot_number, expiry_date: l.expiry_date, days_left: l.days_left, on_hand: l.on_hand,
+          color: flavourColor(l.flavour), statusLabel: meta.label, statusBg: meta.bg,
+        };
+      })} />
     </div>
   );
 }

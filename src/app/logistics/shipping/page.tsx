@@ -1,22 +1,17 @@
-import { TrendingUp, AlertTriangle, ExternalLink, Receipt, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { TrendingUp, AlertTriangle, Receipt, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { getShippingData, shipbobOrderUrl } from '@/lib/shipping';
 import { getBillingData, buildHighlights, SITE_LABEL } from '@/lib/billing';
 import ShippingTrendChart from '@/components/stock/ShippingTrendChart';
 import InvoiceForm from '@/components/billing/InvoiceForm';
+import OutliersTable from '@/components/billing/OutliersTable';
+import InvoicesTable from '@/components/billing/InvoicesTable';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 const money = (n: number, ccy: string) =>
   new Intl.NumberFormat('en-AU', { style: 'currency', currency: ccy || 'AUD' }).format(n);
-const fmtDate = (d: string | null) => (d ? new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { day: '2-digit', month: 'short' }) : '—');
 const fmtMonth = (m: string) => new Date(m + '-01T00:00:00').toLocaleDateString('en-AU', { month: 'short', year: '2-digit' });
-
-const INV_STATUS: Record<string, { label: string; bg: string }> = {
-  unpaid: { label: 'Unpaid', bg: '#d97706' },
-  paid: { label: 'Paid', bg: '#059669' },
-  disputed: { label: 'Disputed', bg: '#dc2626' },
-};
 
 export default async function ShippingPage() {
   const [{ weekly, outliers }, billing] = await Promise.all([getShippingData(), getBillingData()]);
@@ -69,41 +64,11 @@ export default async function ShippingPage() {
           <h2 className="text-lg font-semibold text-gray-900">Cost outliers</h2>
           <span className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-700">take a closer look</span>
         </div>
-        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                {['Shipment', 'Site', 'Date', 'Ship cost', 'vs median', 'Option', ''].map((h) => (
-                  <th key={h} className="whitespace-nowrap px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {outliers.map((o) => (
-                <tr key={o.id} className="hover:bg-cream/30">
-                  <td className="px-4 py-3 text-sm">
-                    <div className="font-medium text-gray-900">{o.shipbob_shipment_id}</div>
-                    {o.order_number && <div className="text-[11px] text-gray-400">order {o.order_number}</div>}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{o.site}</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-600">{fmtDate(o.ship_date)}</td>
-                  <td className="px-4 py-3 text-sm font-semibold text-gray-900">{money(o.cost, o.currency)}</td>
-                  <td className="px-4 py-3">
-                    <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-800">{o.x_median}× median</span>
-                  </td>
-                  <td className="px-4 py-3 text-xs text-gray-500">{o.ship_option || '—'}</td>
-                  <td className="px-4 py-3">
-                    <a href={shipbobOrderUrl(o.shipbob_shipment_id)} target="_blank" rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-xs font-medium text-maple hover:underline">
-                      ShipBob <ExternalLink className="h-3 w-3" />
-                    </a>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {outliers.length === 0 && <p className="mt-3 text-sm text-gray-500">No outliers right now — shipping costs look normal. ✅</p>}
+        <OutliersTable rows={outliers.map((o) => ({
+          id: o.id, shipment_id: o.shipbob_shipment_id, order_number: o.order_number, site: o.site,
+          ship_date: o.ship_date, cost: o.cost, currency: o.currency, x_median: o.x_median,
+          ship_option: o.ship_option, url: shipbobOrderUrl(o.shipbob_shipment_id),
+        }))} />
       </section>
 
       {/* ── Billing ── */}
@@ -180,35 +145,11 @@ export default async function ShippingPage() {
             No invoices logged yet. Use <span className="font-medium">Log invoice</span> to record ShipBob billing-tab invoices (storage, receiving, B2B) and track paid / unpaid / disputed.
           </p>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  {['Invoice', 'Site', 'Date', 'Period', 'Total', 'Status', 'Notes'].map((h) => (
-                    <th key={h} className="whitespace-nowrap px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {invoices.map((inv) => {
-                  const st = INV_STATUS[inv.status] || INV_STATUS.unpaid;
-                  return (
-                    <tr key={inv.id} className="hover:bg-cream/30">
-                      <td className="px-4 py-3 text-sm font-medium text-gray-900">{inv.invoice_number || '—'}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{inv.site ? SITE_LABEL[inv.site] || inv.site : '—'}</td>
-                      <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-600">{fmtDate(inv.invoice_date)}</td>
-                      <td className="whitespace-nowrap px-4 py-3 text-xs text-gray-500">{inv.period_start ? `${fmtDate(inv.period_start)}–${fmtDate(inv.period_end)}` : '—'}</td>
-                      <td className="px-4 py-3 text-sm font-semibold text-gray-900">{inv.total_amount != null ? money(inv.total_amount, inv.currency || 'AUD') : '—'}</td>
-                      <td className="px-4 py-3">
-                        <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold text-white" style={{ backgroundColor: st.bg }}>{st.label}</span>
-                      </td>
-                      <td className="px-4 py-3 text-xs text-gray-500">{inv.notes || '—'}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <InvoicesTable rows={invoices.map((inv) => ({
+            id: inv.id, invoice_number: inv.invoice_number, siteLabel: inv.site ? SITE_LABEL[inv.site] || inv.site : '',
+            invoice_date: inv.invoice_date, period_start: inv.period_start, period_end: inv.period_end,
+            total_amount: inv.total_amount, currency: inv.currency, status: inv.status, notes: inv.notes,
+          }))} />
         )}
       </section>
     </div>

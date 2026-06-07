@@ -4,8 +4,8 @@ import { getPurchaseOrders, poUnits, PO_STATUS_META, OPEN_STATUSES, type POStatu
 import { getConnection } from '@/lib/xero';
 import { getPoForecast } from '@/lib/poForecast';
 import { flavourColor } from '@/lib/flavours';
-import POActions from '@/components/po/POActions';
 import XeroButtons from '@/components/po/XeroButtons';
+import POTable from '@/components/po/POTable';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -91,48 +91,18 @@ export default async function PurchaseOrdersPage() {
           No purchase orders yet. <Link href="/logistics/purchase-orders/new" className="font-medium text-maple underline">Create your first PO</Link>.
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                {['PO / Supplier', 'Dest', 'Status', 'Expected', 'Units (recv/ord)', 'Value', 'Items'].map((h) => (
-                  <th key={h} className="whitespace-nowrap px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {pos.map((po) => {
-                const u = poUnits(po);
-                const meta = PO_STATUS_META[po.status as POStatus];
-                return (
-                  <tr key={po.id} className="align-top hover:bg-cream/30">
-                    <td className="px-4 py-3">
-                      <div className="font-medium text-gray-900">{po.supplier?.name ?? 'Supplier —'}</div>
-                      <div className="text-[11px] text-gray-400">{po.po_number || po.id.slice(0, 8)}</div>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{po.destination?.code ?? '—'}</td>
-                    <td className="px-4 py-3">
-                      <span className={`mb-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${meta.chip}`}>{meta.label}</span>
-                      <POActions id={po.id} status={po.status} />
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-600">{po.expected_date ?? '—'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700">
-                      {u.received}/{u.ordered}
-                      {u.outstanding > 0 && <span className="ml-1 text-[11px] text-amber-600">(+{u.outstanding} inbound)</span>}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-700">{money(po.total_cost, po.currency)}</td>
-                    <td className="px-4 py-3 text-xs text-gray-500">
-                      {po.items.slice(0, 4).map((i, idx) => (
-                        <div key={idx}>{i.product?.sku ?? '?'} {sizeLabel(i.product?.unit_size_g ?? null)} ×{i.qty_ordered}</div>
-                      ))}
-                      {po.items.length > 4 && <div>+{po.items.length - 4} more</div>}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <POTable rows={pos.map((po) => {
+          const u = poUnits(po);
+          const meta = PO_STATUS_META[po.status as POStatus];
+          return {
+            id: po.id, supplier_name: po.supplier?.name ?? 'Supplier —', po_ref: po.po_number || po.id.slice(0, 8),
+            dest: po.destination?.code ?? '—', status: po.status, statusLabel: meta.label, statusChip: meta.chip,
+            expected_date: po.expected_date ?? null, received: u.received, ordered: u.ordered, outstanding: u.outstanding,
+            total_cost: po.total_cost, valueText: money(po.total_cost, po.currency),
+            itemLines: po.items.slice(0, 4).map((i) => `${i.product?.sku ?? '?'} ${sizeLabel(i.product?.unit_size_g ?? null)} ×${i.qty_ordered}`),
+            extraItems: Math.max(0, po.items.length - 4),
+          };
+        })} />
       )}
     </div>
   );
