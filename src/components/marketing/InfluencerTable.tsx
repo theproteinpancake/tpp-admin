@@ -1,7 +1,7 @@
 'use client';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { ExternalLink, Trash2 } from 'lucide-react';
+import { ExternalLink, Trash2, Search, X } from 'lucide-react';
 
 type Inf = {
   id: string; name: string; handle: string | null; followers: number | null; email: string | null;
@@ -79,10 +79,41 @@ function DeleteBtn({ id, name }: { id: string; name: string }) {
   );
 }
 
+const SORTS: { v: string; label: string }[] = [
+  { v: 'date_desc', label: 'Newest sent' }, { v: 'date_asc', label: 'Oldest sent' },
+  { v: 'name', label: 'Name A–Z' }, { v: 'followers', label: 'Most followers' }, { v: 'cost', label: 'Highest cost' },
+];
+const normStatus = (s: string | null) => (['order_processing', 'shipped', 'delivered', 'completed'].includes(s || '') ? (s as string) : 'order_processing');
+const normPost = (p: string | null) => (POST.includes(p || '') ? (p as string) : 'None');
+
 export default function InfluencerTable({ influencers }: { influencers: Inf[] }) {
   const [region, setRegion] = useState<string>('ALL');
-  const visible = region === 'ALL' ? influencers : influencers.filter((i) => (i.region || 'OTHER') === region);
-  const groups = REGIONS.map((r) => ({ region: r, rows: visible.filter((i) => (i.region || 'OTHER') === r) })).filter((g) => g.rows.length);
+  const [q, setQ] = useState('');
+  const [statusF, setStatusF] = useState('');
+  const [postF, setPostF] = useState('');
+  const [sort, setSort] = useState('date_desc');
+
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    let out = influencers.filter((i) => {
+      if (region !== 'ALL' && (i.region || 'OTHER') !== region) return false;
+      if (statusF && normStatus(i.status) !== statusF) return false;
+      if (postF && normPost(i.post_type) !== postF) return false;
+      if (needle && !`${i.name} ${i.handle || ''} ${i.flavour_sent || ''}`.toLowerCase().includes(needle)) return false;
+      return true;
+    });
+    const t = (d: string | null) => { const v = Date.parse((d || '') + 'T00:00:00'); return Number.isNaN(v) ? 0 : v; };
+    out = [...out].sort((a, b) =>
+      sort === 'name' ? a.name.localeCompare(b.name)
+      : sort === 'followers' ? (b.followers || 0) - (a.followers || 0)
+      : sort === 'cost' ? (b.parcel_cost || 0) - (a.parcel_cost || 0)
+      : sort === 'date_asc' ? t(a.date_initiated) - t(b.date_initiated)
+      : t(b.date_initiated) - t(a.date_initiated));
+    return out;
+  }, [influencers, region, q, statusF, postF, sort]);
+
+  const groups = REGIONS.map((r) => ({ region: r, rows: filtered.filter((i) => (i.region || 'OTHER') === r) })).filter((g) => g.rows.length);
+  const active = !!q || !!statusF || !!postF;
 
   return (
     <div>
@@ -93,6 +124,31 @@ export default function InfluencerTable({ influencers }: { influencers: Inf[] })
             {r === 'ALL' ? `All (${influencers.length})` : `${REGION_LABEL[r].split(' ')[0]} ${r} (${influencers.filter((i) => (i.region || 'OTHER') === r).length})`}
           </button>
         ))}
+      </div>
+
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name / handle / flavour…"
+            className="w-56 rounded-lg border border-gray-200 py-1.5 pl-8 pr-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-caramel focus:outline-none focus:ring-1 focus:ring-caramel" />
+        </div>
+        <select value={statusF} onChange={(e) => setStatusF(e.target.value)} className="rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-gray-700 focus:border-caramel focus:outline-none">
+          <option value="">Delivery: All</option>
+          {STATUS.map((s) => <option key={s.v} value={s.v}>{s.label}</option>)}
+        </select>
+        <select value={postF} onChange={(e) => setPostF(e.target.value)} className="rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-gray-700 focus:border-caramel focus:outline-none">
+          <option value="">Posted: All</option>
+          {POST.map((p) => <option key={p} value={p}>{p}</option>)}
+        </select>
+        <select value={sort} onChange={(e) => setSort(e.target.value)} className="rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-gray-700 focus:border-caramel focus:outline-none">
+          {SORTS.map((s) => <option key={s.v} value={s.v}>{s.label}</option>)}
+        </select>
+        {active && (
+          <button onClick={() => { setQ(''); setStatusF(''); setPostF(''); }} className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-100">
+            <X className="h-3.5 w-3.5" /> Clear
+          </button>
+        )}
+        <span className="ml-auto text-xs text-gray-400">{filtered.length} of {influencers.length}</span>
       </div>
 
       {groups.map((g) => (
