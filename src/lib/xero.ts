@@ -155,13 +155,13 @@ export async function findInvoiceByReference(reference: string): Promise<{ id: s
 export async function createXeroInvoice(opts: {
   contactId: string;
   lines: { sku: string; quantity: number }[];
-  freight?: number;            // $ freight line if not free shipping
+  freight?: number | boolean;  // truthy → add the GST-free FREIGHT item ($15, priced by Xero)
   reference?: string;
   status?: 'DRAFT' | 'AUTHORISED';
 }): Promise<{ id: string; number: string; total: number }> {
-  const freightAcct = process.env.XERO_FREIGHT_ACCOUNT || '';
   const lineItems: any[] = opts.lines.map((l) => ({ ItemCode: l.sku, Quantity: l.quantity, TaxType: 'NONE' }));
-  if (opts.freight && freightAcct) lineItems.push({ Description: 'Freight', Quantity: 1, UnitAmount: opts.freight, AccountCode: freightAcct, TaxType: 'NONE' });
+  // Freight = the Xero 'FREIGHT' item (Freight Charge, $15, GST-free). Xero applies its price.
+  if (opts.freight) lineItems.push({ ItemCode: 'FREIGHT', Quantity: 1, TaxType: 'NONE' });
   const body = {
     Invoices: [{
       Type: 'ACCREC', Contact: { ContactID: opts.contactId },
