@@ -101,14 +101,26 @@ async function gget(path: string, account?: string): Promise<any> {
 // Search messages (Gmail query syntax), returns lightweight {id, from, subject, snippet, date}
 export async function gmailSearch(query: string, max = 10, account?: string) {
   const list = await gget(`/messages?q=${encodeURIComponent(query)}&maxResults=${max}`, account);
-  const ids = (list.messages || []).map((m: any) => m.id);
+  const msgs = (list.messages || []) as { id: string; threadId: string }[];
   const out = [];
-  for (const id of ids) {
-    const m = await gget(`/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`, account);
+  for (const m0 of msgs) {
+    const m = await gget(`/messages/${m0.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date&metadataHeaders=Message-ID`, account);
     const h = (m.payload?.headers || []).reduce((a: any, x: any) => (a[x.name] = x.value, a), {});
-    out.push({ id, from: h.From, subject: h.Subject, date: h.Date, snippet: m.snippet });
+    out.push({ id: m0.id, threadId: m.threadId as string, from: h.From, subject: h.Subject, date: h.Date, messageId: h['Message-ID'], snippet: m.snippet });
   }
   return out;
+}
+
+// Latest message in a thread (for reply-watching). Returns from/snippet/internalDate (ms).
+export async function gmailGetThreadLatest(threadId: string, account?: string): Promise<{ from: string; snippet: string; internalDate: number } | null> {
+  try {
+    const t = await gget(`/threads/${threadId}?format=metadata&metadataHeaders=From`, account);
+    const msgs = (t.messages || []) as any[];
+    if (!msgs.length) return null;
+    const last = msgs[msgs.length - 1];
+    const h = (last.payload?.headers || []).reduce((a: any, x: any) => (a[x.name] = x.value, a), {});
+    return { from: h.From || '', snippet: last.snippet || '', internalDate: Number(last.internalDate || 0) };
+  } catch { return null; }
 }
 
 export async function gmailGetBody(id: string, account?: string): Promise<string> {
@@ -206,6 +218,27 @@ export async function gmailCreateDraft(to: string, subject: string, body: string
     body: JSON.stringify({ message: { raw: rawMessage(to, subject, body, attachment, cc) } }),
   });
   if (!res.ok) throw new Error(`Gmail draft failed: ${res.status} ${await res.text()}`);
+  return (await res.json()).id;
+}
+
+// Create a threaded REPLY draft in a specific inbox (does not send). Returns draft id.
+// Used for OOS-stockist replies so they sit in the original PO thread for review.
+export async function gmailCreateReplyDraft(opts: {
+  account?: string; to: string; subject: string; body: string; threadId?: string; inReplyTo?: string; cc?: string;
+}): Promise<string> {
+  const token = await getGoogleToken(opts.account);
+  if (!token) throw new Error(opts.account ? `Gmail (${opts.account}) not connected` : 'Gmail not connected');
+  const subj = /^re:/i.test(opts.subject) ? opts.subject : `Re: ${opts.subject}`;
+  const ccLine = opts.cc ? [`Cc: ${opts.cc}`] : [];
+  const refLines = opts.inReplyTo ? [`In-Reply-To: ${opts.inReplyTo}`, `References: ${opts.inReplyTo}`] : [];
+  const lines = [`To: ${opts.to}`, ...ccLine, `Subject: ${encHeader(subj)}`, ...refLines, 'Content-Type: text/plain; charset=UTF-8', '', opts.body].join('\r\n');
+  const message: Record<string, unknown> = { raw: b64url(lines) };
+  if (opts.threadId) message.threadId = opts.threadId;
+  const res = await fetch(`${GMAIL}/drafts`, {
+    method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message }),
+  });
+  if (!res.ok) throw new Error(`Gmail reply draft failed: ${res.status} ${await res.text()}`);
   return (await res.json()).id;
 }
 

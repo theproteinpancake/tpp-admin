@@ -21,6 +21,7 @@ import { processWholesalePO, processWholesalePOMulti, oosReplyBody } from './who
 import { createWholesaleOrder, sendWholesaleInvoice } from './wholesaleActions';
 import { getWholesaleDashboard } from './wholesale';
 import { sendInfluencerGift, updateInfluencerStatus, listInfluencers, likelyToPost, saveCollab, updateCollab, listCollabs, findInfluencer, setInfluencerAlias } from './marketing';
+import { setRestockEta } from './restock';
 
 const APP_URL = process.env.PUBLIC_APP_URL || 'https://admin.theproteinpancake.co';
 const TRANSFER_DOC_LIST: [string, string][] = [['commercial-invoice', 'Commercial Invoice'], ['packing-list', 'Packing List']];
@@ -325,6 +326,11 @@ const tools: Anthropic.Tool[] = [
     name: 'send_email_draft',
     description: 'Send a Gmail draft. ONLY when the user explicitly approves sending (e.g. "send it to Sharon").',
     input_schema: { type: 'object', properties: { draft_id: { type: 'string' } }, required: ['draft_id'] },
+  },
+  {
+    name: 'set_restock_eta',
+    description: 'Record (or clear) when an out-of-stock flavour is due back in. The OOS WhatsApp pings and auto-drafted stockist reply emails fold this in ("due back next week"). Use when Luke/Kate says e.g. "BMS is due back next week", "Buttermilk back in ~10 days", or "Cinnamon 520g restocks on the 20th". Pass flavour + EITHER eta_text (free phrase) OR eta_date (YYYY-MM-DD). Pass neither to clear.',
+    input_schema: { type: 'object', properties: { flavour: { type: 'string' }, eta_text: { type: 'string' }, eta_date: { type: 'string' } }, required: ['flavour'] },
   },
 ];
 
@@ -704,6 +710,14 @@ Luke`;
     try { await gmailSendDraft(String(input.draft_id)); return { sent: true }; }
     catch (e) { return { error: String(e).slice(0, 160) }; }
   }
+  if (name === 'set_restock_eta') {
+    if (!input.flavour) return { error: 'Which flavour?' };
+    try {
+      await setRestockEta(String(input.flavour), input.eta_text ? String(input.eta_text) : null, input.eta_date ? String(input.eta_date) : null);
+      const when = input.eta_text || input.eta_date || 'cleared';
+      return { ok: true, note: `Noted — ${input.flavour} restock: ${when}. I'll fold that into OOS messages + stockist email drafts.` };
+    } catch (e) { return { error: String(e).slice(0, 160) }; }
+  }
   return { error: 'unknown tool' };
 }
 
@@ -777,6 +791,8 @@ WHOLESALE:
 - GF is a DISTINCT product: "Buttermilk" = regular only (never GF Buttermilk); the GF variant only when "GF"/"Gluten Free" is stated. Same for Cinnamon Churro.
 - NEW CUSTOMER / needs_review / flags: do NOT auto-process — present the captured details (name, ship-to address, email, ABN) and get the user's OK / ask them to add the customer in Xero first.
 - OOS: show suggested_oos_reply (flavour swap) and don't proceed on that line.
+- SCOUR PINGS (hourly auto-detect): you proactively message Kate when a new PO lands. If she replies "process [customer]" / "yep do it", call find_po_email for that customer, then process_po_email + (after she confirms) create_wholesale_order — the dedup guard prevents doubles. For an OOS PO the scour ALREADY drafted a swap/partial reply in her inbox; if she wants changes, redraft via draft_sharon_reply-style flow or tell her where it is. When the stockist replies (you'll ping her), action what they chose (swap → process with the new flavour; "send the rest" → process excluding the OOS line via the exclude param).
+- RESTOCK ETAs: if Luke/Kate mentions when an OOS flavour is due back ("BMS back next week", "Cinnamon restocks the 20th"), call set_restock_eta so it auto-appears in OOS pings + stockist email drafts.
 - NO DOUBLE-PROCESSING: if already_processed is true (a ShipBob order / Xero invoice already exists for this PO), STOP — do NOT call create_wholesale_order. Tell the user it's already handled and show the existing invoice/order from the existing field. Only proceed if they EXPLICITLY say to create a duplicate. (create_wholesale_order also self-guards, but flag it first.)
 - PROCESSING (wired): after the user CONFIRMS the summary AND the customer is on file (and it's NOT already processed), call create_wholesale_order (creates ShipBob B2C order + box, DRAFTS Xero invoice). Report the EXACT ShipBob order # + Xero invoice # for cross-check; then send_wholesale_invoice(xero_invoice_id) to authorise + email. If the customer isn't on file, ask them to add it in Xero first.
 - ANTI-HALLUCINATION: NEVER say an order was processed/created in ShipBob or an invoice drafted in Xero UNLESS create_wholesale_order returned the IDs. Until then say "ready to process, pending your confirmation". Never invent order/invoice numbers.
