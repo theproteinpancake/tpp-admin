@@ -154,6 +154,29 @@ export async function getOrderTracking(site: string, id: number): Promise<{ stat
   } catch { return null; }
 }
 
+// Has a ShipBob order already been created for this reference recently? (dedup guard)
+export async function findRecentOrderByReference(site: string, reference: string, days = 14): Promise<{ id: number } | null> {
+  const token = TOKENS[site];
+  if (!token || !reference) return null;
+  try {
+    for (let page = 1; page <= 4; page++) {
+      const res = await fetch(`https://api.shipbob.com/1.0/order?Page=${page}&Limit=100&SortOrder=Newest`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return null;
+      const batch = await res.json();
+      if (!batch?.length) return null;
+      for (const o of batch) {
+        if (String(o.reference_id || '') === reference || String(o.order_number || '') === reference) return { id: o.id };
+      }
+      // stop scanning once we're past the recency window
+      const oldest = batch[batch.length - 1];
+      const od = (oldest?.purchase_date || oldest?.created_date || '').slice(0, 10);
+      if (od && od < new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10)) break;
+      if (batch.length < 100) break;
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
 export async function getWRO(site: string, id: number): Promise<any> {
   const token = TOKENS[site];
   const res = await fetch(`https://api.shipbob.com/1.0/receiving/${id}`, {

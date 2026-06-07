@@ -137,6 +137,19 @@ export async function getXeroContactId(name: string): Promise<string | null> {
   }
 }
 
+// Find an existing (non-deleted) ACCREC invoice by Reference (the customer PO number) —
+// so we never invoice the same PO twice.
+export async function findInvoiceByReference(reference: string): Promise<{ id: string; number: string; status: string } | null> {
+  if (!reference) return null;
+  try {
+    const r = await xeroGet(`/Invoices?where=${encodeURIComponent(`Type=="ACCREC"&&Reference=="${reference}"`)}`);
+    const inv = (r.Invoices ?? []).find((i: any) => i.Status !== 'DELETED' && i.Status !== 'VOIDED');
+    return inv ? { id: inv.InvoiceID, number: inv.InvoiceNumber, status: inv.Status } : null;
+  } catch {
+    return null;
+  }
+}
+
 // Create a wholesale SALES invoice (ACCREC). Lines by ItemCode (Xero applies the
 // item's sales price); GST-free (TaxType NONE, like our products). DRAFT by default.
 export async function createXeroInvoice(opts: {

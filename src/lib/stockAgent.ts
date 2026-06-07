@@ -565,6 +565,7 @@ Luke`;
       if (!text && !pdfs.length) return { error: 'That email has no readable PO content (no text, CSV, or PDF).' };
       const a = await processWholesalePOMulti({ text, pdfs }, exclude);
       return {
+        po_number: a.po_number, already_processed: a.already_processed, existing: a.existing,
         customer: a.customer_name, ship_to: a.ship_to, bill_to: a.bill_to,
         customer_on_file: a.customer_on_file, needs_review: a.needs_review, flags: a.flags,
         total_cartons: a.total_cartons, fulfillable: a.fulfillable,
@@ -584,6 +585,7 @@ Luke`;
     const exclude = Array.isArray(input.exclude) ? (input.exclude as any[]).map(String) : undefined;
     const a = await processWholesalePO(text, exclude);
     return {
+      po_number: a.po_number, already_processed: a.already_processed, existing: a.existing,
       customer: a.customer_name, ship_to: a.ship_to, bill_to: a.bill_to,
       customer_on_file: a.customer_on_file, needs_review: a.needs_review, flags: a.flags,
       total_cartons: a.total_cartons, fulfillable: a.fulfillable,
@@ -600,10 +602,10 @@ Luke`;
       customer_name: String(input.customer_name),
       recipient: { name: String(r.name), address1: String(r.address1), address2: r.address2, city: String(r.city), state: r.state, zip_code: String(r.zip_code), country: String(r.country), email: r.email },
       lines: (input.lines as any[] || []).map((l) => ({ sku: String(l.sku), cartons: Number(l.cartons) })),
-      box: String(input.box), free_shipping: !!input.free_shipping, reference: input.reference as string,
+      box: String(input.box), free_shipping: !!input.free_shipping, reference: input.reference as string, po_number: input.reference as string,
     });
     if ('error' in res) return res;
-    return { ok: true, shipbob_order_id: res.shipbob_order_id, xero_invoice: res.xero_invoice, xero_invoice_id: res.xero_invoice_id, xero_total: res.xero_total,
+    return { ok: true, shipbob_order_id: res.shipbob_order_id, xero_invoice: res.xero_invoice, xero_invoice_id: res.xero_invoice_id, xero_total: res.xero_total, reused: res.reused,
       note: `DONE. ShipBob order #${res.shipbob_order_id}: ${res.shipbob_added}. Xero invoice ${res.xero_invoice} (DRAFT, $${res.xero_total}). Report this EXACTLY to Kate and ask her to cross-check, then reply "send invoice" to email it (pass xero_invoice_id ${res.xero_invoice_id}).` };
   }
   if (name === 'send_wholesale_invoice') {
@@ -775,7 +777,8 @@ WHOLESALE:
 - GF is a DISTINCT product: "Buttermilk" = regular only (never GF Buttermilk); the GF variant only when "GF"/"Gluten Free" is stated. Same for Cinnamon Churro.
 - NEW CUSTOMER / needs_review / flags: do NOT auto-process — present the captured details (name, ship-to address, email, ABN) and get the user's OK / ask them to add the customer in Xero first.
 - OOS: show suggested_oos_reply (flavour swap) and don't proceed on that line.
-- PROCESSING (wired): after the user CONFIRMS the summary AND the customer is on file, call create_wholesale_order (creates ShipBob B2C order + box, DRAFTS Xero invoice). Report the EXACT ShipBob order # + Xero invoice # for cross-check; then send_wholesale_invoice(xero_invoice_id) to authorise + email. If the customer isn't on file, ask them to add it in Xero first.
+- NO DOUBLE-PROCESSING: if already_processed is true (a ShipBob order / Xero invoice already exists for this PO), STOP — do NOT call create_wholesale_order. Tell the user it's already handled and show the existing invoice/order from the existing field. Only proceed if they EXPLICITLY say to create a duplicate. (create_wholesale_order also self-guards, but flag it first.)
+- PROCESSING (wired): after the user CONFIRMS the summary AND the customer is on file (and it's NOT already processed), call create_wholesale_order (creates ShipBob B2C order + box, DRAFTS Xero invoice). Report the EXACT ShipBob order # + Xero invoice # for cross-check; then send_wholesale_invoice(xero_invoice_id) to authorise + email. If the customer isn't on file, ask them to add it in Xero first.
 - ANTI-HALLUCINATION: NEVER say an order was processed/created in ShipBob or an invoice drafted in Xero UNLESS create_wholesale_order returned the IDs. Until then say "ready to process, pending your confirmation". Never invent order/invoice numbers.
 
 INFLUENCER GIFTING (wired): the user sends an influencer's details — usually SCREENSHOT(S) of their IG chat/profile — "send this influencer Nx flavour size".

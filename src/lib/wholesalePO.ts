@@ -3,6 +3,7 @@
 // stock can fulfil it, pick the ShipBob box, and apply the free-shipping rule.
 import Anthropic from '@anthropic-ai/sdk';
 import { supabaseLogistics } from './supabase-logistics';
+import { findInvoiceByReference } from './xero';
 
 const MODEL = 'claude-sonnet-4-6';
 
@@ -13,6 +14,7 @@ export const B2C_MAX_CARTONS = 24;
 
 export interface POLine { sku: string; flavour: string; cartons: number; ordered_qty?: number; qty_basis?: string; flag?: string | null; }
 export interface ParsedPO {
+  po_number: string | null;         // customer PO number (dedup key)
   customer_name: string | null;     // who we ship to / the Xero contact (the specific store)
   bill_to: string | null;           // who pays (e.g. HQ) — may differ from ship-to
   ship_to: string | null;           // full delivery address (the specific store)
@@ -23,6 +25,9 @@ export interface ParsedPO {
 
 export interface AssessedLine extends POLine { available: number; ok: boolean; }
 export interface POAssessment {
+  po_number: string | null;
+  already_processed: boolean;       // a ShipBob order / Xero invoice already exists for this PO
+  existing: { xero_invoice?: string | null; shipbob_order_id?: string | null; when?: string | null } | null;
   customer_name: string | null;
   bill_to: string | null;
   ship_to: string | null;
@@ -60,7 +65,8 @@ CARTONS vs UNITS (CRITICAL): some stores (e.g. Nutrition Warehouse) order in ind
 
 ADDRESSES: capture bill_to (who PAYS — e.g. head office, "Bill To") and ship_to (the FULL delivery address — "Deliver To"/"Ship To", the specific store). customer_name = the SPECIFIC store we ship to (e.g. "Nutrition Warehouse Darwin"), NOT the HQ. If bill-to ≠ ship-to, note it.
 
-Reply ONLY with JSON: {"customer_name":"specific store or null","bill_to":"payer or null","ship_to":"full delivery address or null","lines":[{"sku":"BMS","flavour":"Buttermilk","ordered_qty":4,"qty_basis":"units","cartons":1,"flag":null}],"unmatched":[],"flags":["any order-level warning"]}`;
+Also capture the customer's PO NUMBER (e.g. "PO347986", "398022", "401135", "PO #PO347986") as po_number — this is how we avoid processing the same order twice.
+Reply ONLY with JSON: {"po_number":"the PO number or null","customer_name":"specific store or null","bill_to":"payer or null","ship_to":"full delivery address or null","lines":[{"sku":"BMS","flavour":"Buttermilk","ordered_qty":4,"qty_basis":"units","cartons":1,"flag":null}],"unmatched":[],"flags":["any order-level warning"]}`;
 
 function parseJson(out: string): ParsedPO {
   const json = JSON.parse(out.slice(out.indexOf('{'), out.lastIndexOf('}') + 1));
@@ -70,6 +76,7 @@ function parseJson(out: string): ParsedPO {
   }));
   const lineFlags = lines.filter((l: any) => l.flag).map((l: any) => l.flag as string);
   return {
+    po_number: json.po_number ?? null,
     customer_name: json.customer_name ?? null, bill_to: json.bill_to ?? null, ship_to: json.ship_to ?? null,
     lines, unmatched: json.unmatched ?? [], flags: [...(json.flags ?? []), ...lineFlags],
   };
@@ -159,12 +166,30 @@ export async function assessPO(parsed: ParsedPO): Promise<POAssessment> {
   const matched = await findWholesaleCustomer(parsed.customer_name).catch(() => null);
   const customer_on_file = !!matched;
 
+  // DEDUP: has this PO already been invoiced (Xero) or ordered (our log)?
+  let already_processed = false;
+  let existing: POAssessment['existing'] = null;
+  if (parsed.po_number) {
+    try {
+      const [{ data: logRow }, inv] = await Promise.all([
+        supabaseLogistics.from('wholesale_po_log').select('shipbob_order_id, xero_invoice_id, status, created_at').eq('po_number', parsed.po_number).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+        findInvoiceByReference(parsed.po_number),   // self-catches → null on error
+      ]);
+      const lr = logRow as any;
+      if (inv || lr?.shipbob_order_id || lr?.xero_invoice_id) {
+        already_processed = true;
+        existing = { xero_invoice: inv?.number || lr?.xero_invoice_id || null, shipbob_order_id: lr?.shipbob_order_id || null, when: lr?.created_at || null };
+      }
+    } catch { /* dedup is best-effort */ }
+  }
+
   const flags = [...(parsed.flags || [])];
+  if (already_processed) flags.push(`🛑 ALREADY PROCESSED — PO ${parsed.po_number} already has${existing?.xero_invoice ? ` Xero invoice ${existing.xero_invoice}` : ''}${existing?.shipbob_order_id ? ` / ShipBob order #${existing.shipbob_order_id}` : ''}. Do NOT create another — confirm with the user first.`);
   if (!customer_on_file) flags.push(`🆕 "${parsed.customer_name || 'this customer'}" isn't on file in Xero — needs adding (capture name, ship-to address, email, ABN). Check carefully.`);
   else if (matched && normName(matched.name) !== normName(parsed.customer_name || '')) flags.push(`ℹ️ Matched to existing Xero contact "${matched.name}".`);
   if (over) flags.push('⚠️ >24 cartons — B2B/courier order, not the standard B2C flow.');
   if (oos.length) flags.push(`⚠️ Short on: ${oos.map((o) => `${o.flavour} (need ${o.cartons}, have ${o.available})`).join('; ')}`);
-  const needs_review = !customer_on_file || (parsed.flags || []).length > 0 || lines.some((l) => l.flag);
+  const needs_review = already_processed || !customer_on_file || (parsed.flags || []).length > 0 || lines.some((l) => l.flag);
 
   const cust = parsed.customer_name ? ` for *${parsed.customer_name}*` : '';
   const lineStr = lines.map((l) => `• ${l.flavour} (${l.sku}) ×${l.cartons} carton${l.cartons === 1 ? '' : 's'}${l.qty_basis === 'units' ? ` (ordered ${l.ordered_qty} units)` : ''}${l.ok ? '' : ` ⚠️ only ${l.available} in stock`}`).join('\n');
@@ -174,6 +199,7 @@ export async function assessPO(parsed: ParsedPO): Promise<POAssessment> {
   const summary = `Wholesale PO${cust}:\n${lineStr}\n\n${total} cartons · ${ship}\nBox: ${boxStr}${addr ? `\n${addr}` : ''}${flags.length ? `\n\n${flags.join('\n')}` : ''}${needs_review ? '\n\n⚠️ NEEDS KATE TO REVIEW before processing.' : ''}`;
 
   return {
+    po_number: parsed.po_number, already_processed, existing,
     customer_name: parsed.customer_name, bill_to: parsed.bill_to, ship_to: parsed.ship_to,
     customer_on_file, needs_review, flags,
     lines, total_cartons: total, fulfillable, oos, boxes: fulfillable ? planBoxes(total) : [],
