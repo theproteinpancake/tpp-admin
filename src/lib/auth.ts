@@ -19,7 +19,7 @@ export function verifyPassword(pw: string, stored?: string | null): boolean {
   return hb.length === cand.length && crypto.timingSafeEqual(hb, cand);
 }
 
-export interface SessionUser { uid: string; email: string; role: string }
+export interface SessionUser { uid: string; email: string; role: string; sections?: string[] }
 export function signSession(u: SessionUser): string {
   const data = Buffer.from(JSON.stringify(u)).toString('base64url');
   const sig = crypto.createHmac('sha256', sessionSecret()).update(data).digest('base64url');

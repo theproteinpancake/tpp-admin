@@ -25,6 +25,7 @@
     "@types/react": "^19.2.10",
     "autoprefixer": "^10.4.24",
     "date-fns": "^4.1.0",
+    "exceljs": "^4.4.0",
     "googleapis": "^171.4.0",
     "lucide-react": "^0.563.0",
     "mammoth": "^1.11.0",

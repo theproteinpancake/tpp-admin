@@ -22,6 +22,7 @@ import { createWholesaleOrder, sendWholesaleInvoice } from './wholesaleActions';
 import { getWholesaleDashboard } from './wholesale';
 import { sendInfluencerGift, updateInfluencerStatus, listInfluencers, likelyToPost, saveCollab, updateCollab, listCollabs, findInfluencer, setInfluencerAlias } from './marketing';
 import { setRestockEta } from './restock';
+import { xlsxToText } from './xlsx';
 
 const APP_URL = process.env.PUBLIC_APP_URL || 'https://admin.theproteinpancake.co';
 const TRANSFER_DOC_LIST: [string, string][] = [['commercial-invoice', 'Commercial Invoice'], ['packing-list', 'Packing List']];
@@ -565,10 +566,12 @@ Luke`;
       ]);
       const pdfs = atts.filter((a) => /pdf/i.test(a.mimeType) || /\.pdf$/i.test(a.filename)).map((a) => ({ filename: a.filename, base64: a.base64 }));
       const csvTexts = atts
-        .filter((a) => /csv|excel|spreadsheet/i.test(a.mimeType) || /\.(csv|tsv|txt)$/i.test(a.filename))
+        .filter((a) => /csv|text\/plain/i.test(a.mimeType) || /\.(csv|tsv|txt)$/i.test(a.filename))
         .map((a) => `--- ${a.filename} ---\n${Buffer.from(a.base64, 'base64').toString('utf-8').slice(0, 5000)}`);
-      const text = [body, ...csvTexts].filter(Boolean).join('\n\n');
-      if (!text && !pdfs.length) return { error: 'That email has no readable PO content (no text, CSV, or PDF).' };
+      const xlsxAtts = atts.filter((a) => /spreadsheetml|ms-excel/i.test(a.mimeType) || /\.xlsx?$/i.test(a.filename));
+      const xlsxTexts = (await Promise.all(xlsxAtts.map((a) => xlsxToText(a.base64, a.filename)))).filter(Boolean);
+      const text = [body, ...csvTexts, ...xlsxTexts].filter(Boolean).join('\n\n');
+      if (!text && !pdfs.length) return { error: 'That email has no readable PO content (no text, CSV, Excel, or PDF).' };
       const a = await processWholesalePOMulti({ text, pdfs }, exclude);
       return {
         po_number: a.po_number, already_processed: a.already_processed, existing: a.existing,
@@ -578,7 +581,7 @@ Luke`;
         lines: a.lines.map((l) => ({ flavour: l.flavour, sku: l.sku, cartons: l.cartons, ordered_qty: l.ordered_qty, qty_basis: l.qty_basis, altona_available: l.available, in_stock: l.ok })),
         boxes: a.boxes, free_shipping: a.free_shipping, over_b2c_limit: a.over_b2c_limit,
         oos: a.oos, suggested_oos_reply: a.oos.length ? oosReplyBody(a) : null, summary: a.summary,
-        sources: `${body ? 'email text' : ''}${csvTexts.length ? ' + CSV' : ''}${pdfs.length ? ` + ${pdfs.length} PDF` : ''}`.replace(/^ \+ /, ''),
+        sources: `${body ? 'email text' : ''}${csvTexts.length ? ' + CSV' : ''}${xlsxTexts.length ? ' + Excel' : ''}${pdfs.length ? ` + ${pdfs.length} PDF` : ''}`.replace(/^ \+ /, ''),
         note: `${exclude?.length ? `Excluded ${exclude.join(', ')}. ` : ''}${a.needs_review ? 'NEEDS REVIEW — present the details carefully to Kate (esp. a new customer or any flag) before processing.' : 'Show Kate the summary and confirm before processing.'}`,
       };
     } catch (e) {
@@ -866,9 +869,16 @@ export async function askStockAgent(question: string, phone?: string, images?: A
   const messages: Anthropic.MessageParam[] = [...history, { role: 'user', content: images?.length ? userContent : (question || '(no message)') }];
   const system = systemFor(phone ? senderRole(phone) : 'owner');
 
+  // Prompt caching: the tools + (per-role) system prompt are large and static across the
+  // tool-use loop and across turns — cache them so we only pay full price on a cache miss
+  // (~5-min TTL). Breakpoints on the last tool + the system block cache the whole prefix.
+  const cachedTools: Anthropic.Tool[] = tools.map((t, i) =>
+    i === tools.length - 1 ? ({ ...t, cache_control: { type: 'ephemeral' } } as Anthropic.Tool) : t);
+  const systemBlocks: Anthropic.TextBlockParam[] = [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }];
+
   let answer = '';
   for (let i = 0; i < 8; i++) {
-    const resp = await client.messages.create({ model: MODEL, max_tokens: 1500, system, tools, messages });
+    const resp = await client.messages.create({ model: MODEL, max_tokens: 1500, system: systemBlocks, tools: cachedTools, messages });
     if (resp.stop_reason === 'tool_use') {
       const results: Anthropic.ToolResultBlockParam[] = [];
       for (const block of resp.content) {

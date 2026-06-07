@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyTotp } from '@/lib/totp';
-import { getUserByEmail, verifyPassword, signSession } from '@/lib/auth';
+import { getUserByEmail, verifyPassword, signSession, allowedSections } from '@/lib/auth';
 import { getConfig, twoFAEnabled, twoFASecret } from '@/lib/settings';
 
-const setCookies = (res: NextResponse, user: { id: string; email: string; role: string }) => {
+const setCookies = (res: NextResponse, user: { id: string; email: string; role: string; sections?: string[] | null }) => {
   const opts = { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax' as const, maxAge: 60 * 60 * 24 * 7, path: '/' };
   res.cookies.set('tpp-admin-auth', 'authenticated', opts);            // gate (unchanged)
-  res.cookies.set('tpp-user', signSession({ uid: user.id, email: user.email, role: user.role }), opts); // identity
+  res.cookies.set('tpp-user', signSession({ uid: user.id, email: user.email, role: user.role, sections: allowedSections(user) }), opts); // identity
   return res;
 };
 

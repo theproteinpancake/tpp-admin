@@ -7,6 +7,7 @@ import { supabaseLogistics } from './supabase-logistics';
 import { gmailSearch, gmailGetBody, gmailGetAllAttachments, gmailGetThreadLatest, gmailCreateReplyDraft } from './google';
 import { processWholesalePOMulti } from './wholesalePO';
 import { getRestockPhrase } from './restock';
+import { xlsxToText } from './xlsx';
 import { sendWhatsApp, KATE_NUMBER } from './whatsapp';
 
 const INBOXES: { acc: string | undefined; tag: string }[] = [{ acc: 'kate', tag: 'kate' }, { acc: undefined, tag: 'luke' }];
@@ -64,8 +65,10 @@ export async function runWholesalePoScour(): Promise<{ scanned: number; new_pos:
         gmailGetAllAttachments(c.id, account).catch(() => []),
       ]);
       const pdfs = atts.filter((a) => /pdf/i.test(a.mimeType) || /\.pdf$/i.test(a.filename)).map((a) => ({ filename: a.filename, base64: a.base64 }));
-      const csvTexts = atts.filter((a) => /csv|excel|spreadsheet/i.test(a.mimeType) || /\.(csv|tsv|txt)$/i.test(a.filename)).map((a) => `--- ${a.filename} ---\n${Buffer.from(a.base64, 'base64').toString('utf-8').slice(0, 5000)}`);
-      const text = [body, ...csvTexts].filter(Boolean).join('\n\n');
+      const csvTexts = atts.filter((a) => /csv|text\/plain/i.test(a.mimeType) || /\.(csv|tsv|txt)$/i.test(a.filename)).map((a) => `--- ${a.filename} ---\n${Buffer.from(a.base64, 'base64').toString('utf-8').slice(0, 5000)}`);
+      const xlsxAtts = atts.filter((a) => /spreadsheetml|ms-excel/i.test(a.mimeType) || /\.xlsx?$/i.test(a.filename));
+      const xlsxTexts = (await Promise.all(xlsxAtts.map((a) => xlsxToText(a.base64, a.filename)))).filter(Boolean);
+      const text = [body, ...csvTexts, ...xlsxTexts].filter(Boolean).join('\n\n');
       if (text || pdfs.length) assessment = await processWholesalePOMulti({ text, pdfs });
     } catch { /* parse failure → treat as non-PO */ }
 
