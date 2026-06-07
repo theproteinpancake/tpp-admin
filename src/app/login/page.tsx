@@ -63,7 +63,7 @@ export default function LoginPage() {
               placeholder="Email"
               autoFocus
               autoComplete="username"
-              className="w-full rounded-xl border border-gray-200 px-4 py-3 transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-caramel"
+              className="w-full rounded-xl border border-gray-200 px-4 py-3 text-gray-900 placeholder:text-gray-400 transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-caramel"
             />
           )}
 
@@ -74,7 +74,7 @@ export default function LoginPage() {
             placeholder="Password"
             autoComplete="current-password"
             readOnly={needCode}
-            className="w-full rounded-xl border border-gray-200 px-4 py-3 transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-caramel disabled:bg-gray-50"
+            className="w-full rounded-xl border border-gray-200 px-4 py-3 text-gray-900 placeholder:text-gray-400 transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-caramel disabled:bg-gray-50"
           />
 
           {needCode && (
@@ -84,7 +84,7 @@ export default function LoginPage() {
               onChange={(e) => setToken(e.target.value.replace(/\D/g, '').slice(0, 6))}
               placeholder="6-digit authenticator code"
               autoFocus
-              className="w-full rounded-xl border border-gray-200 px-4 py-3 text-center tracking-[0.3em] transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-caramel"
+              className="w-full rounded-xl border border-gray-200 px-4 py-3 text-center text-gray-900 placeholder:text-gray-400 tracking-[0.3em] transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-caramel"
             />
           )}
 
