@@ -1,6 +1,6 @@
 import { Settings as SettingsIcon, Mail, Users, ShieldCheck, Plug, KeyRound, Check, X } from 'lucide-react';
 import { getConfig, listStaff, integrationStatus } from '@/lib/settings';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, isOwner } from '@/lib/auth';
 import StaffManager from '@/components/settings/StaffManager';
 import TwoFA from '@/components/settings/TwoFA';
 import AdminEmail from '@/components/settings/AdminEmail';
@@ -35,6 +35,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const [adminEmail, staff, integ, me] = await Promise.all([
     getConfig('admin_email'), listStaff(), integrationStatus(), getCurrentUser(),
   ]);
+  const owner = isOwner(me);
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6">
@@ -64,32 +65,38 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           </div>
         </Card>
 
-        <Card icon={Mail} title="Admin email" desc="Primary owner / admin contact">
-          <AdminEmail initial={adminEmail || 'luke@theproteinpancake.co'} />
-        </Card>
+        {owner && (
+          <Card icon={Mail} title="Admin email" desc="Primary owner / admin contact">
+            <AdminEmail initial={adminEmail || 'luke@theproteinpancake.co'} />
+          </Card>
+        )}
 
-        <Card icon={Users} title="Staff" desc="Add staff, set roles, and send setup links">
-          <StaffManager initial={staff as any} />
-        </Card>
+        {owner && (
+          <Card icon={Users} title="Staff & access" desc="Add people, set their role + which sections they see">
+            <StaffManager initial={staff as any} />
+          </Card>
+        )}
 
-        <Card icon={Plug} title="Integrations">
-          <div className="divide-y divide-gray-100">
-            <Conn ok={integ.gmail_primary.connected} label="Gmail (ops inbox)" detail={(integ.gmail_primary as any).email} />
-            <div className="flex items-center justify-between gap-2 py-2 text-sm">
-              <span className="text-gray-700">Gmail — Kate {(integ.gmail_kate as any).email ? <span className="ml-2 text-xs text-gray-400">{(integ.gmail_kate as any).email}</span> : ''}</span>
-              <a href="/api/google/connect?account=kate" className="rounded-lg bg-caramel px-3 py-1.5 text-xs font-medium text-white hover:bg-maple">
-                {integ.gmail_kate.connected ? 'Reconnect' : 'Connect Kate’s Gmail'}
-              </a>
+        {owner && (
+          <Card icon={Plug} title="Integrations">
+            <div className="divide-y divide-gray-100">
+              <Conn ok={integ.gmail_primary.connected} label="Gmail (ops inbox)" detail={(integ.gmail_primary as any).email} />
+              <div className="flex items-center justify-between gap-2 py-2 text-sm">
+                <span className="text-gray-700">Gmail — Kate {(integ.gmail_kate as any).email ? <span className="ml-2 text-xs text-gray-400">{(integ.gmail_kate as any).email}</span> : ''}</span>
+                <a href="/api/google/connect?account=kate" className="rounded-lg bg-caramel px-3 py-1.5 text-xs font-medium text-white hover:bg-maple">
+                  {integ.gmail_kate.connected ? 'Reconnect' : 'Connect Kate’s Gmail'}
+                </a>
+              </div>
+              <Conn ok={integ.xero.connected} label="Xero" detail={(integ.xero as any).org} />
+              <Conn ok={integ.shipbob_au.connected} label="ShipBob — Altona (AU)" />
+              <Conn ok={integ.shipbob_uk.connected} label="ShipBob — Manchester (UK)" />
+              <div className="flex items-center justify-between gap-2 py-2 text-sm">
+                <span className="text-gray-700">Gmail (ops inbox)</span>
+                <a href="/api/google/connect" className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50">Reconnect</a>
+              </div>
             </div>
-            <Conn ok={integ.xero.connected} label="Xero" detail={(integ.xero as any).org} />
-            <Conn ok={integ.shipbob_au.connected} label="ShipBob — Altona (AU)" />
-            <Conn ok={integ.shipbob_uk.connected} label="ShipBob — Manchester (UK)" />
-            <div className="flex items-center justify-between gap-2 py-2 text-sm">
-              <span className="text-gray-700">Gmail (ops inbox)</span>
-              <a href="/api/google/connect" className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50">Reconnect</a>
-            </div>
-          </div>
-        </Card>
+          </Card>
+        )}
       </div>
     </div>
   );

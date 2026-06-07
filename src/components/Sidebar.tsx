@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
+import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
@@ -25,12 +26,15 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
+type Section = 'app' | 'logistics' | 'wholesale' | 'marketing';
 type NavItem = { name: string; href: string; icon: LucideIcon };
-type NavGroup = { label: string; items: NavItem[] };
+type NavGroup = { label: string; section: Section; items: NavItem[] };
+type Me = { name: string | null; email: string; role: string; sections: Section[]; isOwner: boolean };
 
 const groups: NavGroup[] = [
   {
     label: 'App',
+    section: 'app',
     items: [
       { name: 'App Dashboard', href: '/app', icon: LayoutDashboard },
       { name: 'Recipes', href: '/recipes', icon: UtensilsCrossed },
@@ -41,6 +45,7 @@ const groups: NavGroup[] = [
   },
   {
     label: 'Logistics',
+    section: 'logistics',
     items: [
       { name: 'Assistant', href: '/logistics/assistant', icon: Sparkles },
       { name: 'Stock Overview', href: '/logistics/stock', icon: Package },
@@ -53,6 +58,7 @@ const groups: NavGroup[] = [
   },
   {
     label: 'Wholesale',
+    section: 'wholesale',
     items: [
       { name: 'Dashboard', href: '/wholesale', icon: Store },
       { name: 'Orders', href: '/wholesale/orders', icon: ShoppingCart },
@@ -60,6 +66,7 @@ const groups: NavGroup[] = [
   },
   {
     label: 'Marketing',
+    section: 'marketing',
     items: [
       { name: 'Influencers', href: '/marketing/influencers', icon: Megaphone },
       { name: 'Collabs', href: '/marketing/collabs', icon: Handshake },
@@ -67,8 +74,20 @@ const groups: NavGroup[] = [
   },
 ];
 
+const ROLE_LABEL: Record<string, string> = {
+  owner: 'Owner', admin: 'Owner', wholesale: 'Wholesale & Marketing',
+  marketing: 'Marketing', logistics: 'Logistics', staff: 'Staff',
+};
+
 export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const [me, setMe] = useState<Me | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/me').then((r) => (r.ok ? r.json() : null)).then((d) => { if (alive && d?.email) setMe(d); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
@@ -77,6 +96,9 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
   const isActive = (href: string) =>
     pathname === href || (href !== '/' && pathname.startsWith(href));
+
+  // Until /api/me resolves, show nothing extra; once we know the user, scope the nav.
+  const visibleGroups = me ? groups.filter((g) => me.sections.includes(g.section)) : groups;
 
   return (
     <div className="flex h-screen w-64 flex-col bg-white border-r border-gray-200">
@@ -91,7 +113,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
       {/* Navigation */}
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
-        {groups.map((group) => (
+        {visibleGroups.map((group) => (
           <div key={group.label}>
             <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
               {group.label}
@@ -122,6 +144,17 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
       {/* Bottom Section */}
       <div className="border-t border-gray-200 p-3">
+        {me && (
+          <div className="mb-2 flex items-center gap-2.5 rounded-lg bg-cream/60 px-3 py-2">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-caramel text-[13px] font-semibold text-white">
+              {(me.name || me.email).trim().charAt(0).toUpperCase()}
+            </div>
+            <div className="min-w-0 leading-tight">
+              <p className="truncate text-[13px] font-semibold text-gray-900">{me.name || me.email}</p>
+              <p className="truncate text-[11px] text-gray-500">{ROLE_LABEL[me.role] || me.role}</p>
+            </div>
+          </div>
+        )}
         <Link
           href="/settings"
           onClick={onNavigate}

@@ -50,3 +50,34 @@ export async function getCurrentUser(): Promise<any | null> {
 export function newSetupToken(): string {
   return crypto.randomBytes(18).toString('base64url');
 }
+
+// ---------- Roles & section access ----------
+// Top-level dashboard sections, matched against URL prefixes by the nav + page guards.
+export const ALL_SECTIONS = ['app', 'logistics', 'wholesale', 'marketing'] as const;
+export type Section = (typeof ALL_SECTIONS)[number];
+
+export const ROLES: { value: string; label: string; sections: Section[] }[] = [
+  { value: 'owner', label: 'Owner (full access)', sections: [...ALL_SECTIONS] },
+  { value: 'wholesale', label: 'Wholesale & Marketing', sections: ['wholesale', 'marketing'] },
+  { value: 'marketing', label: 'Marketing only', sections: ['marketing'] },
+  { value: 'logistics', label: 'Logistics & App', sections: ['app', 'logistics'] },
+  { value: 'staff', label: 'Staff (custom)', sections: [] },
+];
+
+export function isOwner(user?: { role?: string } | null): boolean {
+  return !!user && (user.role === 'owner' || user.role === 'admin');
+}
+
+// Effective sections for a user: owner = all; else explicit per-user override, else role default.
+export function allowedSections(user?: { role?: string; sections?: string[] | null } | null): Section[] {
+  if (!user) return [];
+  if (isOwner(user)) return [...ALL_SECTIONS];
+  if (Array.isArray(user.sections) && user.sections.length) {
+    return user.sections.filter((s): s is Section => (ALL_SECTIONS as readonly string[]).includes(s));
+  }
+  return ROLES.find((r) => r.value === user.role)?.sections ?? [];
+}
+
+export function canAccess(user: { role?: string; sections?: string[] | null } | null, section: Section): boolean {
+  return allowedSections(user).includes(section);
+}
