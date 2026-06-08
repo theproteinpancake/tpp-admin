@@ -5,9 +5,10 @@ import type { StockRow } from '@/lib/supabase-logistics';
 import { flavourColor } from '@/lib/flavours';
 import { getShortestDated, expiryStatus, EXPIRY_META } from '@/lib/lots';
 import { getBillingHighlights, SITE_LABEL } from '@/lib/billing';
-import { getActionCenter, type Severity } from '@/lib/actionCenter';
+import { getActionCenter } from '@/lib/actionCenter';
 import TrendSparkline, { type Point } from '@/components/stock/TrendSparkline';
 import SyncNowButton from '@/components/stock/SyncNowButton';
+import ActionCenter from '@/components/stock/ActionCenter';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -180,6 +181,38 @@ function StockTable({
   );
 }
 
+function PriorityRow({ label, rows }: { label: string; rows: StockRow[] }) {
+  return (
+    <section className="mb-6">
+      <div className="mb-3 flex items-center gap-2">
+        <TrendingDown className="h-5 w-5 text-red-500" />
+        <h2 className="text-lg font-semibold text-gray-900">Highest priority</h2>
+        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">{label}</span>
+      </div>
+      {rows.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-gray-200 bg-white px-4 py-4 text-sm text-gray-400">Nothing urgent here — stock looks healthy or sales velocity is still building.</p>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          {rows.map((r) => (
+            <div key={r.product_id} className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm" style={{ borderTop: `3px solid ${flavourColor(r.flavour)}` }}>
+              <div className="text-sm font-semibold text-gray-900">{r.flavour}</div>
+              <div className="text-[11px] text-gray-500">{r.sku} · {r.unit_size_g && r.unit_size_g >= 1000 ? `${r.unit_size_g / 1000}kg` : `${r.unit_size_g}g`}</div>
+              <div className="mt-2 flex items-baseline gap-1">
+                <span className="text-xl font-bold text-gray-900">{cover(r.days_of_cover)}</span>
+                <span className="text-[11px] text-gray-400">cover</span>
+              </div>
+              <div className="mt-0.5 text-[11px] text-gray-500">
+                {fmtInt(r.available)} avail{r.inbound > 0 && <span className="text-blue-600"> · +{fmtInt(r.inbound)} in</span>}
+              </div>
+              <div className="mt-2"><StatusPill status={computeStatus(r)} /></div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default async function StockOverviewPage() {
   const { sites, rows, history, lastSync } = await getStockData();
   const shortestDated = await getShortestDated(6);
@@ -206,11 +239,13 @@ export default async function StockOverviewPage() {
   const siteList = sites.map((s) => ({ code: s.code, name: s.name }));
   const hasVelocity = rows.some((r) => r.days_of_cover != null);
 
-  // 5 SKUs running out soonest at Altona (selling + lowest cover)
-  const urgent = rows
-    .filter((r) => r.active && r.category === 'mix' && r.location_code === 'ALTONA' && r.days_of_cover != null)
+  // 5 SKUs running out soonest per site (selling + lowest cover)
+  const urgentFor = (site: string) => rows
+    .filter((r) => r.active && r.category === 'mix' && r.location_code === site && r.days_of_cover != null)
     .sort((a, b) => (a.days_of_cover ?? 1e9) - (b.days_of_cover ?? 1e9))
     .slice(0, 5);
+  const urgentAU = urgentFor('ALTONA');
+  const urgentUK = urgentFor('MANCHESTER');
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
@@ -225,6 +260,10 @@ export default async function StockOverviewPage() {
         </div>
         <SyncNowButton />
       </div>
+
+      {/* Highest priority — top of page, per site */}
+      <PriorityRow label="Altona" rows={urgentAU} />
+      <PriorityRow label="Manchester" rows={urgentUK} />
 
       {/* Site summary cards */}
       <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -267,34 +306,8 @@ export default async function StockOverviewPage() {
         })}
       </div>
 
-      {/* Action Center — proactive: what needs attention */}
-      {actions.length > 0 && (
-        <section className="mb-8">
-          <div className="mb-3 flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-caramel" />
-            <h2 className="text-lg font-semibold text-gray-900">Action Center</h2>
-            <span className="rounded-full bg-cream px-2 py-0.5 text-[11px] font-medium text-maple">{actions.length} to action</span>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {actions.map((a) => {
-              const sev: Record<Severity, string> = { critical: '#dc2626', warning: '#d97706', info: '#2563eb' };
-              return (
-                <Link key={a.key} href={a.href} className="group rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition-colors hover:border-caramel">
-                  <div className="flex items-center justify-between">
-                    <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-gray-900">
-                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: sev[a.severity] }} />
-                      {a.title}
-                    </span>
-                    <span className="rounded-full bg-gray-100 px-1.5 text-[11px] font-medium text-gray-500">{a.count}</span>
-                  </div>
-                  <p className="mt-1.5 text-xs text-gray-600">{a.detail}</p>
-                  <p className="mt-2 text-[11px] text-gray-400 group-hover:text-maple">💬 “{a.command}”</p>
-                </Link>
-              );
-            })}
-          </div>
-        </section>
-      )}
+      {/* Action Center — proactive: what needs attention (6 at a time, dismissable) */}
+      <ActionCenter actions={actions} />
 
       {/* Billing highlights */}
       <section className="mb-8">
@@ -339,34 +352,6 @@ export default async function StockOverviewPage() {
           })}
         </div>
       </section>
-
-      {/* Running out soonest */}
-      {urgent.length > 0 && (
-        <section className="mb-8">
-          <div className="mb-3 flex items-center gap-2">
-            <TrendingDown className="h-5 w-5 text-red-500" />
-            <h2 className="text-lg font-semibold text-gray-900">Highest priority</h2>
-            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">Altona</span>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            {urgent.map((r) => (
-              <div key={r.product_id} className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm"
-                style={{ borderTop: `3px solid ${flavourColor(r.flavour)}` }}>
-                <div className="text-sm font-semibold text-gray-900">{r.flavour}</div>
-                <div className="text-[11px] text-gray-500">{r.sku} · {r.unit_size_g && r.unit_size_g >= 1000 ? `${r.unit_size_g / 1000}kg` : `${r.unit_size_g}g`}</div>
-                <div className="mt-2 flex items-baseline gap-1">
-                  <span className="text-xl font-bold text-gray-900">{cover(r.days_of_cover)}</span>
-                  <span className="text-[11px] text-gray-400">cover</span>
-                </div>
-                <div className="mt-0.5 text-[11px] text-gray-500">
-                  {fmtInt(r.available)} avail{r.inbound > 0 && <span className="text-blue-600"> · +{fmtInt(r.inbound)} in</span>}
-                </div>
-                <div className="mt-2"><StatusPill status={computeStatus(r)} /></div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
 
       {/* Shortest-dated stock (best-before) */}
       {shortestDated.length > 0 && (
