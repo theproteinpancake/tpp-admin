@@ -9,6 +9,7 @@ import { getActionCenter } from '@/lib/actionCenter';
 import TrendSparkline, { type Point } from '@/components/stock/TrendSparkline';
 import SyncNowButton from '@/components/stock/SyncNowButton';
 import ActionCenter from '@/components/stock/ActionCenter';
+import ProductThumb from '@/components/ProductThumb';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -143,7 +144,7 @@ function StockTable({
                 <tr key={g.product_id} className="hover:bg-cream/30">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2.5">
-                      <span className="h-7 w-1.5 shrink-0 rounded-full" style={{ background: flavourColor(g.flavour) }} />
+                      <ProductThumb flavour={g.flavour} size={30} />
                       <div>
                         <div className="font-medium text-gray-900">{g.flavour ?? g.name}</div>
                         <div className="text-[11px] text-gray-500">{g.sku}{sizeText(g) ? ` · ${sizeText(g)}` : ''}</div>
@@ -195,8 +196,13 @@ function PriorityRow({ label, rows }: { label: string; rows: StockRow[] }) {
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
           {rows.map((r) => (
             <div key={r.product_id} className="rounded-lg border border-gray-200 bg-paper p-2.5 shadow-sm" style={{ borderTop: `3px solid ${flavourColor(r.flavour)}` }}>
-              <div className="truncate text-[13px] font-semibold leading-tight text-gray-900">{r.flavour}</div>
-              <div className="text-[10px] text-gray-500">{r.sku} · {r.unit_size_g && r.unit_size_g >= 1000 ? `${r.unit_size_g / 1000}kg` : `${r.unit_size_g}g`}</div>
+              <div className="flex items-center gap-2">
+                <ProductThumb flavour={r.flavour} size={34} />
+                <div className="min-w-0">
+                  <div className="truncate text-[13px] font-semibold leading-tight text-gray-900">{r.flavour}</div>
+                  <div className="text-[10px] text-gray-500">{r.sku} · {r.unit_size_g && r.unit_size_g >= 1000 ? `${r.unit_size_g / 1000}kg` : `${r.unit_size_g}g`}</div>
+                </div>
+              </div>
               <div className="mt-1.5 flex items-baseline gap-1">
                 <span className="text-lg font-bold leading-none text-gray-900">{cover(r.days_of_cover)}</span>
                 <span className="text-[10px] text-gray-400">cover</span>
@@ -367,6 +373,7 @@ export default async function StockOverviewPage() {
               return (
                 <div key={l.id} className="flex items-center gap-3 rounded-xl border border-gray-200 bg-paper p-3 shadow-sm"
                   style={{ borderLeft: `4px solid ${flavourColor(l.flavour)}` }}>
+                  <ProductThumb flavour={l.flavour} size={40} />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-semibold text-gray-900">{l.flavour ?? l.sku} {l.unit_size_g ? (l.unit_size_g >= 1000 ? `${l.unit_size_g / 1000}kg` : `${l.unit_size_g}g`) : ''}</div>
                     <div className="text-[11px] text-gray-500">{l.site} · lot {l.lot_number} · {fmtInt(l.on_hand)} units</div>

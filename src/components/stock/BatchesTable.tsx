@@ -1,5 +1,6 @@
 'use client';
 import FilterableTable, { type Column } from '@/components/ui/FilterableTable';
+import ProductThumb from '@/components/ProductThumb';
 
 export type BatchRow = {
   id: string | number; flavour: string | null; sku: string; size: string; site: string;
@@ -14,7 +15,7 @@ export default function BatchesTable({ rows }: { rows: BatchRow[] }) {
   const columns: Column<BatchRow>[] = [
     { key: 'flavour', header: 'Product', sort: 'text', value: (r) => r.flavour ?? r.sku, cell: (r) => (
       <div className="flex items-center gap-2.5">
-        <span className="h-6 w-1.5 shrink-0 rounded-full" style={{ background: r.color }} />
+        <ProductThumb flavour={r.flavour} size={28} />
         <div><div className="font-medium text-gray-900">{r.flavour ?? r.sku}</div><div className="text-[11px] text-gray-500">{r.sku} · {r.size}</div></div>
       </div>
     ) },
