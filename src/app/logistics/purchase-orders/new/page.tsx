@@ -14,7 +14,7 @@ export default async function NewPOPage() {
         <ArrowLeft className="h-4 w-4" /> Back to Purchase Orders
       </Link>
       <h1 className="mb-6 text-2xl font-bold text-gray-900">New Purchase Order</h1>
-      <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
+      <div className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm sm:p-6">
         <NewPOForm
           suppliers={suppliers as never}
           locations={locations as never}

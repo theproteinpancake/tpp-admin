@@ -28,7 +28,7 @@ export default function POTable({ rows }: { rows: PORow[] }) {
     ) },
   ];
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+    <div className="rounded-xl border border-gray-200 bg-paper p-3 shadow-sm">
       <FilterableTable rows={rows} columns={columns} getKey={(r) => r.id} initialSort={{ key: 'expected_date', dir: 'asc' }}
         searchPlaceholder="Search supplier / PO…" empty="No purchase orders match." />
     </div>

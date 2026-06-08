@@ -33,7 +33,7 @@ export default async function TransfersPage() {
       </div>
 
       {transfers.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-gray-300 bg-white px-4 py-8 text-center text-sm text-gray-500">
+        <p className="rounded-xl border border-dashed border-gray-300 bg-paper px-4 py-8 text-center text-sm text-gray-500">
           No transfers yet. Ask the assistant on WhatsApp to “build a transfer for everything Manchester is low on”.
         </p>
       ) : (
@@ -41,7 +41,7 @@ export default async function TransfersPage() {
           {transfers.map((t) => {
             const st = STATUS[t.status] || STATUS.draft;
             return (
-              <div key={t.id} className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+              <div key={t.id} className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">

@@ -28,17 +28,17 @@ export default async function PackagingPage() {
 
       {/* Summary */}
       <div className="mb-8 grid gap-4 sm:grid-cols-3">
-        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
           <p className="text-sm font-semibold text-gray-900">Pouch SKUs tracked</p>
           <div className="mt-2 text-2xl font-bold text-gray-900">{pouchSet}<span className="text-sm font-normal text-gray-400"> / {pouches.length}</span></div>
           <p className="text-xs text-gray-400">baselines entered</p>
         </div>
-        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
           <p className="text-sm font-semibold text-gray-900">Pouches to reorder</p>
           <div className={`mt-2 text-2xl font-bold ${pouchAlerts ? 'text-red-600' : 'text-emerald-600'}`}>{pouchAlerts}</div>
           <p className="text-xs text-gray-400">within lead time</p>
         </div>
-        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
           <p className="text-sm font-semibold text-gray-900">Custom packaging to reorder</p>
           <div className={`mt-2 text-2xl font-bold ${customAlerts ? 'text-red-600' : 'text-emerald-600'}`}>{customAlerts}</div>
           <p className="text-xs text-gray-400">boxes &amp; cards</p>
@@ -52,7 +52,7 @@ export default async function PackagingPage() {
           <h2 className="text-lg font-semibold text-gray-900">Empty pouches (ABC)</h2>
         </div>
         <p className="mb-3 text-xs text-gray-500">Enter the stock-take baseline ABC provides. Every PO placed after that date auto-deducts, giving a live remaining count and a reorder flag at lead time (default 60 days).</p>
-        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-paper shadow-sm">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
@@ -103,11 +103,11 @@ export default async function PackagingPage() {
           <CustomPackagingForm />
         </div>
         {custom.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-gray-300 bg-white px-4 py-6 text-center text-sm text-gray-500">
+          <p className="rounded-xl border border-dashed border-gray-300 bg-paper px-4 py-6 text-center text-sm text-gray-500">
             No custom packaging yet. Add your shipping boxes (Visy AU / CBS UK) and thank-you cards (China) to track on-hand and reorder timing.
           </p>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+          <div className="overflow-x-auto rounded-xl border border-gray-200 bg-paper shadow-sm">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>

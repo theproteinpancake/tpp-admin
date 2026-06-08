@@ -17,7 +17,7 @@ export default function StatusSelect({ table, id, value, options }: {
   };
   return (
     <select value={val} disabled={busy} onChange={(e) => onChange(e.target.value)}
-      className="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700 focus:border-caramel focus:outline-none disabled:opacity-50">
+      className="rounded-md border border-gray-200 bg-paper px-2 py-1 text-xs text-gray-700 focus:border-caramel focus:outline-none disabled:opacity-50">
       {options.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
     </select>
   );

@@ -65,7 +65,7 @@ export default function CreatorsPage() {
       </div>
 
       {/* Search */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6">
+      <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-4 mb-6">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
           <input
@@ -82,7 +82,7 @@ export default function CreatorsPage() {
       {loading ? (
         <div className="text-center text-gray-500 py-8">Loading creators...</div>
       ) : filteredCreators.length === 0 ? (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center">
+        <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-8 text-center">
           <p className="text-gray-500 mb-4">No creators found.</p>
           <Link href="/creators/new" className="text-caramel hover:underline">
             Add your first creator
@@ -93,7 +93,7 @@ export default function CreatorsPage() {
           {filteredCreators.map((creator) => (
             <div
               key={creator.id}
-              className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow"
+              className="bg-paper rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow"
             >
               {/* Header with profile image */}
               <div className="h-24 bg-gradient-to-r from-caramel to-maple relative">

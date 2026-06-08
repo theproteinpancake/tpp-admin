@@ -85,7 +85,7 @@ function SetupInner() {
 export default function SetupPage() {
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-cream via-churro/40 to-cream">
-      <div className="w-full max-w-md rounded-2xl border border-churro/60 bg-white p-8 shadow-xl">
+      <div className="w-full max-w-md rounded-2xl border border-churro/60 bg-paper p-8 shadow-xl">
         <Suspense fallback={<p className="text-center text-sm text-gray-400">Loading…</p>}>
           <SetupInner />
         </Suspense>

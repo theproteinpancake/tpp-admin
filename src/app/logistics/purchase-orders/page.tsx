@@ -54,7 +54,7 @@ export default async function PurchaseOrdersPage() {
           <span className="rounded-full bg-cream px-2 py-0.5 text-[11px] font-medium text-maple">live velocity · ABC 30-day lead</span>
         </div>
         {forecast.months.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-gray-300 bg-white px-4 py-6 text-center text-sm text-gray-500">
+          <p className="rounded-xl border border-dashed border-gray-300 bg-paper px-4 py-6 text-center text-sm text-gray-500">
             Nothing to order in the next 3 months — current stock + inbound POs cover projected demand. ✅
           </p>
         ) : (
@@ -62,7 +62,7 @@ export default async function PurchaseOrdersPage() {
             {forecast.months.map((m) => {
               const isNow = m.key === nowMonthKey;
               return (
-                <div key={m.key} className={`rounded-xl border bg-white p-4 shadow-sm ${isNow ? 'border-caramel' : 'border-gray-200'}`}>
+                <div key={m.key} className={`rounded-xl border bg-paper p-4 shadow-sm ${isNow ? 'border-caramel' : 'border-gray-200'}`}>
                   <div className="mb-2 flex items-center justify-between">
                     <span className="text-sm font-semibold text-gray-900">{m.label}{isNow && <span className="ml-1.5 rounded-full bg-red-50 px-1.5 text-[10px] font-medium text-red-600">order now</span>}</span>
                     <span className="text-xs text-gray-400">{m.units.toLocaleString()} units</span>
@@ -87,7 +87,7 @@ export default async function PurchaseOrdersPage() {
       </section>
 
       {pos.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-300 bg-white p-10 text-center text-gray-500">
+        <div className="rounded-xl border border-dashed border-gray-300 bg-paper p-10 text-center text-gray-500">
           No purchase orders yet. <Link href="/logistics/purchase-orders/new" className="font-medium text-maple underline">Create your first PO</Link>.
         </div>
       ) : (
@@ -110,7 +110,7 @@ export default async function PurchaseOrdersPage() {
 
 function Card({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+    <div className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
       <div className="flex items-center gap-2 text-sm font-medium text-gray-500">{icon}{label}</div>
       <div className="mt-2 text-2xl font-bold text-gray-900">{value}</div>
     </div>

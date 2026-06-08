@@ -37,13 +37,13 @@ export default function Chat() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-3rem)] flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <div className="mb-3">
-        <h1 className="flex items-center gap-2 text-2xl font-bold text-gray-900"><Sparkles className="h-6 w-6 text-caramel" /> Assistant</h1>
-        <p className="mt-1 text-sm text-gray-500">Chat to your logistics hub — same brain as the WhatsApp agent.</p>
+        <h1 className="flex items-center gap-2 text-xl font-bold text-gray-900 sm:text-2xl"><Sparkles className="h-5 w-5 text-caramel sm:h-6 sm:w-6" /> Assistant</h1>
+        <p className="mt-0.5 text-xs text-gray-500 sm:text-sm">Chat to your logistics hub — same brain as the WhatsApp agent.</p>
       </div>
 
-      <div className="flex-1 space-y-3 overflow-y-auto rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto rounded-xl border border-gray-200 bg-paper p-4 shadow-sm">
         {msgs.length === 0 && (
           <div className="flex flex-wrap gap-2 pt-2">
             {SUGGESTIONS.map((s) => (
@@ -56,7 +56,7 @@ export default function Chat() {
             <div className={`max-w-[80%] whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm ${m.role === 'user' ? 'bg-caramel text-white' : 'bg-gray-100 text-gray-800'}`}>
               {m.text}
               {m.media && (
-                <a href={m.media} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 rounded-lg bg-white/90 px-2 py-1 text-xs font-medium text-maple">
+                <a href={m.media} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 rounded-lg bg-paper/90 px-2 py-1 text-xs font-medium text-maple">
                   <FileText className="h-3.5 w-3.5" /> attachment
                 </a>
               )}

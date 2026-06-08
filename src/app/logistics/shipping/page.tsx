@@ -38,7 +38,7 @@ export default async function ShippingPage() {
 
       <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {summary.map((s) => (
-          <div key={s.site} className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+          <div key={s.site} className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
             <p className="text-sm font-semibold text-gray-900">{s.site === 'ALTONA' ? 'Altona (AU)' : 'Manchester (UK)'}</p>
             <div className="mt-2 text-2xl font-bold text-gray-900">{money(s.avg, s.ccy)}</div>
             <p className="text-xs text-gray-400">avg shipping / order (12-wk)</p>
@@ -50,7 +50,7 @@ export default async function ShippingPage() {
         ))}
       </div>
 
-      <section className="mb-8 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+      <section className="mb-8 rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
         <div className="mb-3 flex items-center gap-2">
           <TrendingUp className="h-5 w-5 text-caramel" />
           <h2 className="text-lg font-semibold text-gray-900">Avg shipping cost / order — weekly</h2>
@@ -81,7 +81,7 @@ export default async function ShippingPage() {
           {highlights.map((h) => {
             const up = h.momPct != null && h.momPct > 0;
             return (
-              <div key={h.site} className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+              <div key={h.site} className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
                 <p className="text-sm font-semibold text-gray-900">{SITE_LABEL[h.site]}</p>
                 <div className="mt-1 flex items-baseline gap-2">
                   <span className="text-2xl font-bold text-gray-900">{money(h.thisMonth, h.currency)}</span>
@@ -101,7 +101,7 @@ export default async function ShippingPage() {
           })}
         </div>
 
-        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-paper shadow-sm">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
@@ -141,7 +141,7 @@ export default async function ShippingPage() {
           <InvoiceForm />
         </div>
         {invoices.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-gray-300 bg-white px-4 py-6 text-center text-sm text-gray-500">
+          <p className="rounded-xl border border-dashed border-gray-300 bg-paper px-4 py-6 text-center text-sm text-gray-500">
             No invoices logged yet. Use <span className="font-medium">Log invoice</span> to record ShipBob billing-tab invoices (storage, receiving, B2B) and track paid / unpaid / disputed.
           </p>
         ) : (

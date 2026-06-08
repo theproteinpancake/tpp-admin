@@ -45,7 +45,7 @@ export default async function WholesaleDashboard() {
           { label: 'This month', cur: d.totals.month, prev: d.totals.prev_month, sub: 'vs last month' },
           { label: 'This year', cur: d.totals.year, prev: d.totals.prev_year, sub: 'vs last year' },
         ].map((c) => (
-          <div key={c.label} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+          <div key={c.label} className="rounded-xl border border-gray-200 bg-paper p-4 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-wide text-gray-400">{c.label}</p>
             <p className="mt-1 text-2xl font-bold text-gray-900">{money(c.cur)}</p>
             <p className="mt-1 flex items-center gap-1.5 text-xs text-gray-400"><Delta cur={c.cur} prev={c.prev} /> {c.sub}</p>
@@ -54,7 +54,7 @@ export default async function WholesaleDashboard() {
       </div>
 
       {/* Trend */}
-      <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="mb-6 rounded-xl border border-gray-200 bg-paper p-4 shadow-sm">
         <p className="mb-3 text-sm font-semibold text-gray-700">Monthly wholesale sales (12 mo)</p>
         <div className="flex h-40 items-end gap-1.5">
           {d.months.map((m, i) => (
@@ -70,7 +70,7 @@ export default async function WholesaleDashboard() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Due to order */}
-        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="rounded-xl border border-gray-200 bg-paper p-4 shadow-sm">
           <p className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-700"><Clock className="h-4 w-4 text-caramel" /> Due to reorder</p>
           {d.due.length === 0 ? <p className="text-sm text-gray-400">No customers due right now.</p> : (
             <div className="space-y-2">
@@ -91,7 +91,7 @@ export default async function WholesaleDashboard() {
         </div>
 
         {/* Top customers */}
-        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="rounded-xl border border-gray-200 bg-paper p-4 shadow-sm">
           <p className="mb-3 text-sm font-semibold text-gray-700">Top customers</p>
           <div className="space-y-2">
             {d.topCustomers.map((c, i) => (
@@ -106,7 +106,7 @@ export default async function WholesaleDashboard() {
 
       {/* Lapsed customers (re-engagement) */}
       {d.lapsed.length > 0 && (
-        <div className="mt-6 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="mt-6 rounded-xl border border-gray-200 bg-paper p-4 shadow-sm">
           <p className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-700"><AlertTriangle className="h-4 w-4 text-amber-500" /> Lapsed — worth a re-engagement nudge</p>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {d.lapsed.map((c) => (
@@ -120,7 +120,7 @@ export default async function WholesaleDashboard() {
       )}
 
       {/* 320g stock + reorder timing */}
-      <div className="mt-6 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="mt-6 rounded-xl border border-gray-200 bg-paper p-4 shadow-sm">
         <p className="mb-3 text-sm font-semibold text-gray-700">320g wholesale stock (Altona) — when to reorder from ABC</p>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">

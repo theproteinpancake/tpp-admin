@@ -25,7 +25,7 @@ export default function OutliersTable({ rows }: { rows: OutlierRow[] }) {
     ) },
   ];
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+    <div className="rounded-xl border border-gray-200 bg-paper p-3 shadow-sm">
       <FilterableTable rows={rows} columns={columns} getKey={(r) => r.id} initialSort={{ key: 'x_median', dir: 'desc' }}
         searchPlaceholder="Search shipment / order…" empty="No outliers right now — shipping costs look normal. ✅" />
     </div>

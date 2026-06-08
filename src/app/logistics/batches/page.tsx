@@ -41,7 +41,7 @@ export default async function BatchesPage() {
 
 function Card({ icon, label, value, tone }: { icon: React.ReactNode; label: string; value: string; tone: string }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+    <div className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
       <div className="flex items-center gap-2 text-sm font-medium text-gray-500">{icon}{label}</div>
       <div className={`mt-2 text-2xl font-bold ${tone}`}>{value}</div>
     </div>

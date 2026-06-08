@@ -34,7 +34,7 @@ export default function CollabsTable({ rows }: { rows: CollabRow[] }) {
     ) },
   ];
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+    <div className="rounded-xl border border-gray-200 bg-paper p-3 shadow-sm">
       <FilterableTable rows={rows} columns={columns} getKey={(r) => r.id} initialSort={{ key: 'due_date', dir: 'asc' }}
         searchPlaceholder="Search partner / handle…" empty="No collabs yet — Kate can add one via WhatsApp." />
     </div>

@@ -47,7 +47,7 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-cream via-churro/40 to-cream">
-      <div className="w-full max-w-md rounded-2xl border border-churro/60 bg-white p-8 shadow-xl">
+      <div className="w-full max-w-md rounded-2xl border border-churro/60 bg-paper p-8 shadow-xl">
         <div className="mb-8 text-center">
           <Image src="/tpp-smile.png" alt="The Protein Pancake" width={64} height={64} className="mx-auto mb-4 rounded-2xl shadow-sm" priority />
           <h1 className="text-2xl font-bold text-gray-900">TPP Control</h1>

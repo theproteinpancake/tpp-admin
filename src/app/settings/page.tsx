@@ -21,7 +21,7 @@ function Conn({ ok, label, detail }: { ok: boolean; label: string; detail?: stri
 }
 
 const Card = ({ icon: Icon, title, desc, children }: any) => (
-  <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+  <div className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
     <div className="mb-3 flex items-center gap-2">
       <Icon className="h-5 w-5 text-caramel" />
       <div><h2 className="text-sm font-semibold text-gray-900">{title}</h2>{desc && <p className="text-xs text-gray-400">{desc}</p>}</div>

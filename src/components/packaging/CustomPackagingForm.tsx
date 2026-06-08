@@ -23,7 +23,7 @@ export default function CustomPackagingForm() {
   return (
     <form
       action={(fd) => start(async () => { setErr(null); const r = await saveCustomPackaging(fd); if (r?.ok) setOpen(false); else setErr(r?.error || 'Failed'); })}
-      className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm"
+      className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm"
     >
       <div className="mb-4 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-gray-900">Add custom packaging</h3>

@@ -191,7 +191,7 @@ export default function NotificationsPage() {
               setFormIsOneTime(true);
               setShowAddModal(true);
             }}
-            className="flex items-center gap-2 bg-white text-caramel px-4 py-2 rounded-lg hover:bg-cream transition-colors"
+            className="flex items-center gap-2 bg-paper text-caramel px-4 py-2 rounded-lg hover:bg-cream transition-colors"
           >
             <Send className="h-4 w-4" />
             Send Now
@@ -200,7 +200,7 @@ export default function NotificationsPage() {
       </div>
 
       {/* Scheduled Notifications */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div className="bg-paper rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200">
           <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
             <Clock className="h-5 w-5 text-caramel" />
@@ -289,7 +289,7 @@ export default function NotificationsPage() {
       {/* Add/Edit Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4">
+          <div className="bg-paper rounded-xl shadow-xl w-full max-w-lg mx-4">
             <div className="px-6 py-4 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-gray-900">
                 {editingNotification ? 'Edit Notification' : 'New Notification'}

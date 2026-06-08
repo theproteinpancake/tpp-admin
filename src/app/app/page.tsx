@@ -99,7 +99,7 @@ export default function Dashboard() {
         {statCards.map((stat) => (
           <div
             key={stat.title}
-            className="bg-white rounded-xl shadow-sm border border-gray-200 p-6"
+            className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6"
           >
             <div className="flex items-center justify-between">
               <div>
@@ -120,7 +120,7 @@ export default function Dashboard() {
       {/* Quick Actions */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Recent Activity */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Recent Activity</h2>
           <div className="space-y-4">
             <div className="flex items-center gap-4 p-3 bg-gray-50 rounded-lg">
@@ -157,7 +157,7 @@ export default function Dashboard() {
         </div>
 
         {/* Quick Actions */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h2>
           <div className="grid grid-cols-2 gap-4">
             <a

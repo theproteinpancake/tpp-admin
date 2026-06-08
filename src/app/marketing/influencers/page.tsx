@@ -24,12 +24,12 @@ export default async function InfluencersPage() {
 
       {/* Analytics */}
       <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="rounded-xl border border-gray-200 bg-paper p-4 shadow-sm">
           <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-gray-400"><CalendarDays className="h-3.5 w-3.5" /> Avg influencers / month</p>
           <p className="mt-1 text-2xl font-bold text-gray-900">{stats.avgPerMonth}</p>
           <p className="text-[11px] text-gray-400">{stats.sentLast12} sent in the last 12 months</p>
         </div>
-        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm lg:col-span-2">
+        <div className="rounded-xl border border-gray-200 bg-paper p-4 shadow-sm lg:col-span-2">
           <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">Sent per month (12 mo)</p>
           <div className="flex h-20 items-end gap-1.5">
             {stats.months.map((m, i) => (
@@ -44,7 +44,7 @@ export default async function InfluencersPage() {
         </div>
       </div>
 
-      <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="mb-6 rounded-xl border border-gray-200 bg-paper p-4 shadow-sm">
         <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-gray-400"><DollarSign className="h-3.5 w-3.5" /> Avg cost per parcel</p>
         <div className="mt-1 flex flex-wrap items-baseline gap-x-6 gap-y-1">
           <span className="text-2xl font-bold text-gray-900">{money(stats.avg_parcel)}</span>
@@ -54,7 +54,7 @@ export default async function InfluencersPage() {
       </div>
 
       {likely.length > 0 && (
-        <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="mb-6 rounded-xl border border-gray-200 bg-paper p-4 shadow-sm">
           <p className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-700"><Clock className="h-4 w-4 text-caramel" /> Most likely to post next</p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
             {likely.map((i) => (

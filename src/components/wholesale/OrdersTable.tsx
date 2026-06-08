@@ -36,7 +36,7 @@ export default function OrdersTable({ rows }: { rows: OrderRow[] }) {
     ) },
   ];
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+    <div className="rounded-xl border border-gray-200 bg-paper p-3 shadow-sm">
       <FilterableTable rows={rows} columns={columns} getKey={(r) => r.invoice_number} initialSort={{ key: 'invoice_number', dir: 'desc' }}
         searchPlaceholder="Search invoice / customer / ref…" empty="No orders yet — hit “Sync from Xero” on the dashboard." />
     </div>

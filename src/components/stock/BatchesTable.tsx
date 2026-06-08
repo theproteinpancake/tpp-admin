@@ -26,7 +26,7 @@ export default function BatchesTable({ rows }: { rows: BatchRow[] }) {
     { key: 'statusLabel', header: 'Status', filter: 'select', sort: 'text', cell: (r) => <span className="inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold text-white" style={{ backgroundColor: r.statusBg }}>{r.statusLabel}</span> },
   ];
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+    <div className="rounded-xl border border-gray-200 bg-paper p-3 shadow-sm">
       <FilterableTable rows={rows} columns={columns} getKey={(r) => r.id} initialSort={{ key: 'days_left', dir: 'asc' }}
         searchPlaceholder="Search product / lot…" empty="No lot data yet — it populates from the daily ShipBob sync." />
     </div>

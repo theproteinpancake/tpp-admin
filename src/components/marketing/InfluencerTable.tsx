@@ -41,10 +41,10 @@ function Cell({ id, field, value, options, colors }: { id: string; field: string
     await fetch('/api/marketing/influencer', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, field, value: v }) });
     router.refresh();
   };
-  const cls = colors?.[val] || 'bg-white text-gray-700 border-gray-200';
+  const cls = colors?.[val] || 'bg-paper text-gray-700 border-gray-200';
   return (
     <select value={val} onChange={(e) => onChange(e.target.value)} className={`rounded-md border px-1.5 py-1 text-xs font-medium focus:outline-none ${cls}`}>
-      {options.map((o) => <option key={o.v} value={o.v} className="bg-white text-gray-700">{o.label}</option>)}
+      {options.map((o) => <option key={o.v} value={o.v} className="bg-paper text-gray-700">{o.label}</option>)}
     </select>
   );
 }
@@ -152,7 +152,7 @@ export default function InfluencerTable({ influencers }: { influencers: Inf[] })
       </div>
 
       {groups.map((g) => (
-        <div key={g.region} className="mb-5 overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div key={g.region} className="mb-5 overflow-x-auto rounded-xl border border-gray-200 bg-paper shadow-sm">
           <div className="border-b border-gray-100 bg-cream/40 px-4 py-2 text-sm font-semibold text-maple">{REGION_LABEL[g.region]} <span className="text-xs font-normal text-gray-400">· {g.rows.length}</span></div>
           <table className="w-full text-sm">
             <thead>

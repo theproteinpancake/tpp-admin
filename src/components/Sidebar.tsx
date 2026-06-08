@@ -23,6 +23,7 @@ import {
   ShoppingCart,
   Megaphone,
   Handshake,
+  X,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -79,7 +80,7 @@ const ROLE_LABEL: Record<string, string> = {
   marketing: 'Marketing', logistics: 'Logistics', staff: 'Staff',
 };
 
-export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
+export default function Sidebar({ onNavigate, onClose }: { onNavigate?: () => void; onClose?: () => void }) {
   const pathname = usePathname();
   const [me, setMe] = useState<Me | null>(null);
 
@@ -105,14 +106,19 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const isActive = (href: string) => href === activeHref;
 
   return (
-    <div className="flex h-screen w-64 flex-col bg-white border-r border-gray-200">
+    <div className="flex h-screen w-64 flex-col bg-paper border-r border-gray-200">
       {/* Logo */}
-      <div className="flex h-16 items-center gap-2.5 border-b border-gray-200 px-5">
+      <div className="safe-top flex h-16 items-center gap-2.5 border-b border-gray-200 px-5">
         <Image src="/tpp-smile.png" alt="The Protein Pancake" width={36} height={36} className="rounded-lg shadow-sm" />
         <div className="leading-tight">
           <h1 className="text-[15px] font-bold text-gray-900">TPP Control</h1>
           <p className="text-[11px] text-gray-500">The Protein Pancake</p>
         </div>
+        {onClose && (
+          <button onClick={onClose} aria-label="Close menu" className="ml-auto rounded-lg p-1.5 text-gray-500 hover:bg-cream md:hidden">
+            <X className="h-5 w-5" />
+          </button>
+        )}
       </div>
 
       {/* Navigation */}

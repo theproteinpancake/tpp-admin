@@ -37,7 +37,7 @@ export default function ActionCenter({ actions }: { actions: ActionItem[] }) {
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {visible.map((a) => (
-          <div key={a.key} className="group relative rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition-colors hover:border-caramel">
+          <div key={a.key} className="group relative rounded-xl border border-gray-200 bg-paper p-4 shadow-sm transition-colors hover:border-caramel">
             <button onClick={() => dismiss(a.key)} disabled={busy === a.key} title="Dismiss"
               className="absolute right-2 top-2 rounded-full p-1 text-gray-300 hover:bg-gray-100 hover:text-gray-600 disabled:opacity-40">
               <X className="h-3.5 w-3.5" />
@@ -58,7 +58,7 @@ export default function ActionCenter({ actions }: { actions: ActionItem[] }) {
       </div>
       {items.length > PAGE && (
         <div className="mt-3 text-center">
-          <button onClick={() => setShowAll((s) => !s)} className="rounded-lg border border-gray-200 bg-white px-4 py-1.5 text-xs font-medium text-gray-600 hover:bg-cream">
+          <button onClick={() => setShowAll((s) => !s)} className="rounded-lg border border-gray-200 bg-paper px-4 py-1.5 text-xs font-medium text-gray-600 hover:bg-cream">
             {showAll ? 'Show less' : `Show all ${items.length}`}
           </button>
         </div>

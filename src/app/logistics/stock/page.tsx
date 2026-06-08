@@ -49,7 +49,7 @@ function StatusPill({ status }: { status: StockStatus }) {
   return (
     <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold text-white"
       style={{ backgroundColor: meta.bg }}>
-      <span className="h-1.5 w-1.5 rounded-full bg-white/85" />
+      <span className="h-1.5 w-1.5 rounded-full bg-paper/85" />
       {meta.label}
     </span>
   );
@@ -124,7 +124,7 @@ function StockTable({
   return (
     <>
       {/* Desktop / tablet: comparison table */}
-      <div className="hidden overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm md:block">
+      <div className="hidden overflow-x-auto rounded-xl border border-gray-200 bg-paper shadow-sm md:block">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
@@ -163,7 +163,7 @@ function StockTable({
       {/* Mobile: one card per SKU, sites stacked */}
       <div className="space-y-2.5 md:hidden">
         {groups.map((g) => (
-          <div key={g.product_id} className="overflow-hidden rounded-xl border border-gray-200 bg-white p-3 shadow-sm"
+          <div key={g.product_id} className="overflow-hidden rounded-xl border border-gray-200 bg-paper p-3 shadow-sm"
             style={{ borderLeft: `4px solid ${flavourColor(g.flavour)}` }}>
             <div className="mb-1 flex items-baseline justify-between">
               <span className="font-semibold text-gray-900">{g.flavour ?? g.name}</span>
@@ -190,21 +190,21 @@ function PriorityRow({ label, rows }: { label: string; rows: StockRow[] }) {
         <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">{label}</span>
       </div>
       {rows.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-gray-200 bg-white px-4 py-4 text-sm text-gray-400">Nothing urgent here — stock looks healthy or sales velocity is still building.</p>
+        <p className="rounded-xl border border-dashed border-gray-200 bg-paper px-4 py-3 text-sm text-gray-400">Nothing urgent here — stock looks healthy or sales velocity is still building.</p>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
           {rows.map((r) => (
-            <div key={r.product_id} className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm" style={{ borderTop: `3px solid ${flavourColor(r.flavour)}` }}>
-              <div className="text-sm font-semibold text-gray-900">{r.flavour}</div>
-              <div className="text-[11px] text-gray-500">{r.sku} · {r.unit_size_g && r.unit_size_g >= 1000 ? `${r.unit_size_g / 1000}kg` : `${r.unit_size_g}g`}</div>
-              <div className="mt-2 flex items-baseline gap-1">
-                <span className="text-xl font-bold text-gray-900">{cover(r.days_of_cover)}</span>
-                <span className="text-[11px] text-gray-400">cover</span>
+            <div key={r.product_id} className="rounded-lg border border-gray-200 bg-paper p-2.5 shadow-sm" style={{ borderTop: `3px solid ${flavourColor(r.flavour)}` }}>
+              <div className="truncate text-[13px] font-semibold leading-tight text-gray-900">{r.flavour}</div>
+              <div className="text-[10px] text-gray-500">{r.sku} · {r.unit_size_g && r.unit_size_g >= 1000 ? `${r.unit_size_g / 1000}kg` : `${r.unit_size_g}g`}</div>
+              <div className="mt-1.5 flex items-baseline gap-1">
+                <span className="text-lg font-bold leading-none text-gray-900">{cover(r.days_of_cover)}</span>
+                <span className="text-[10px] text-gray-400">cover</span>
               </div>
-              <div className="mt-0.5 text-[11px] text-gray-500">
-                {fmtInt(r.available)} avail{r.inbound > 0 && <span className="text-blue-600"> · +{fmtInt(r.inbound)} in</span>}
+              <div className="mt-0.5 text-[10px] text-gray-500">
+                {fmtInt(r.available)} avail{r.inbound > 0 && <span className="text-tppblue"> · +{fmtInt(r.inbound)} in</span>}
               </div>
-              <div className="mt-2"><StatusPill status={computeStatus(r)} /></div>
+              <div className="mt-1.5"><StatusPill status={computeStatus(r)} /></div>
             </div>
           ))}
         </div>
@@ -248,14 +248,14 @@ export default async function StockOverviewPage() {
   const urgentUK = urgentFor('MANCHESTER');
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
+    <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-8">
       {/* Header */}
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Stock Overview</h1>
-          <p className="mt-1 text-gray-500">
-            Live on-hand across Altona (AU) and Manchester (UK)
-            {lastSync && <> · last synced {lastSync}</>}
+      <div className="mb-5 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold text-gray-900 sm:text-2xl">Stock Overview</h1>
+          <p className="mt-0.5 text-xs text-gray-500 sm:text-sm">
+            Live on-hand · Altona (AU) &amp; Manchester (UK)
+            {lastSync && <> · synced {lastSync}</>}
           </p>
         </div>
         <SyncNowButton />
@@ -270,7 +270,7 @@ export default async function StockOverviewPage() {
         {sites.map((s) => {
           const sum = summariseSite(rows, s.code);
           return (
-            <div key={s.id} className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+            <div key={s.id} className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-semibold text-gray-900">{s.name.replace(' ShipBob', '')}</p>
                 <span className="rounded-full bg-cream px-2 py-0.5 text-[11px] font-medium text-maple">{s.country}</span>
@@ -322,7 +322,7 @@ export default async function StockOverviewPage() {
           {billing.map((h) => {
             const up = h.momPct != null && h.momPct > 0;
             return (
-              <div key={h.site} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+              <div key={h.site} className="rounded-xl border border-gray-200 bg-paper p-4 shadow-sm">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-semibold text-gray-900">{SITE_LABEL[h.site]}</p>
                   {h.momPct != null && (
@@ -365,7 +365,7 @@ export default async function StockOverviewPage() {
             {shortestDated.map((l) => {
               const meta = EXPIRY_META[expiryStatus(l.days_left)];
               return (
-                <div key={l.id} className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white p-3 shadow-sm"
+                <div key={l.id} className="flex items-center gap-3 rounded-xl border border-gray-200 bg-paper p-3 shadow-sm"
                   style={{ borderLeft: `4px solid ${flavourColor(l.flavour)}` }}>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-semibold text-gray-900">{l.flavour ?? l.sku} {l.unit_size_g ? (l.unit_size_g >= 1000 ? `${l.unit_size_g / 1000}kg` : `${l.unit_size_g}g`) : ''}</div>

@@ -794,7 +794,7 @@ export default function EditRecipePage() {
 
       <form onSubmit={handleSubmit} className="space-y-8">
         {/* Basic Info */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Basic Information</h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -881,7 +881,7 @@ export default function EditRecipePage() {
         </div>
 
         {/* Media Upload */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Media</h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -978,7 +978,7 @@ export default function EditRecipePage() {
         </div>
 
         {/* Timing & Servings */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Time & Servings</h2>
 
           <div className="grid grid-cols-3 gap-6">
@@ -1022,7 +1022,7 @@ export default function EditRecipePage() {
         </div>
 
         {/* Nutrition */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-gray-900">Nutrition (per serving)</h2>
             <button
@@ -1161,7 +1161,7 @@ export default function EditRecipePage() {
         </div>
 
         {/* Ratings */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Ratings (synced with Shopify)</h2>
           <p className="text-sm text-gray-500 mb-4">
             Set the recipe rating (1-5 stars) and review count. These will display in the app and sync to Shopify blog posts.
@@ -1205,7 +1205,7 @@ export default function EditRecipePage() {
         </div>
 
         {/* Ingredients */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Ingredients</h2>
 
           <div className="space-y-3">
@@ -1261,7 +1261,7 @@ export default function EditRecipePage() {
         </div>
 
         {/* Instructions */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Instructions</h2>
 
           <div className="space-y-3">
@@ -1299,7 +1299,7 @@ export default function EditRecipePage() {
         </div>
 
         {/* Tags */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Tags</h2>
 
           <div className="flex flex-wrap gap-2 mb-4">
@@ -1336,7 +1336,7 @@ export default function EditRecipePage() {
         </div>
 
         {/* Tips */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Tips & Notes</h2>
           <textarea
             value={form.tips}
@@ -1348,7 +1348,7 @@ export default function EditRecipePage() {
         </div>
 
         {/* SEO */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
@@ -1426,7 +1426,7 @@ export default function EditRecipePage() {
         </div>
 
         {/* Publishing Options */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Publishing</h2>
 
           <div className="space-y-4">

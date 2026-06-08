@@ -24,7 +24,7 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
     { key: 'notes', header: 'Notes', cell: (r) => <span className="text-xs text-gray-500">{r.notes || '—'}</span> },
   ];
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+    <div className="rounded-xl border border-gray-200 bg-paper p-3 shadow-sm">
       <FilterableTable rows={rows} columns={columns} getKey={(r) => r.id} initialSort={{ key: 'invoice_date', dir: 'desc' }} searchPlaceholder="Search invoices…" empty="No invoices logged yet." />
     </div>
   );

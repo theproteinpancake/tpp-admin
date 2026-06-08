@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-import { Menu, X } from 'lucide-react';
+import { Menu } from 'lucide-react';
 import Sidebar from './Sidebar';
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
@@ -16,7 +17,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   if (pathname === '/login') return <>{children}</>;
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex h-screen bg-cream">
       {/* Mobile overlay */}
       {open && (
         <div
@@ -28,43 +29,32 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* Sidebar: off-canvas drawer on mobile, static on md+ */}
       <div
-        className={`fixed inset-y-0 left-0 z-40 transform transition-transform duration-200 md:static md:z-auto md:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 transform shadow-xl transition-transform duration-200 md:static md:z-auto md:translate-x-0 md:shadow-none ${
           open ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <Sidebar onNavigate={() => setOpen(false)} />
+        <Sidebar onNavigate={() => setOpen(false)} onClose={() => setOpen(false)} />
       </div>
 
       {/* Main column */}
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Mobile top bar */}
-        <header className="flex h-14 items-center gap-3 border-b border-gray-200 bg-white px-4 md:hidden">
+        <header className="safe-top sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-black/5 bg-paper/95 px-3 backdrop-blur md:hidden">
           <button
             onClick={() => setOpen(true)}
             aria-label="Open menu"
-            className="rounded-lg p-1.5 text-gray-700 hover:bg-cream"
+            className="-ml-0.5 rounded-lg p-2 text-gray-700 hover:bg-cream active:bg-cream"
           >
             <Menu className="h-6 w-6" />
           </button>
           <div className="flex items-center gap-2">
-            <span className="flex h-7 w-7 items-center justify-center rounded-md bg-caramel text-sm">🥞</span>
-            <span className="text-sm font-bold text-gray-900">TPP Control</span>
+            <Image src="/tpp-smile.png" alt="" width={26} height={26} className="rounded-md shadow-sm" />
+            <span className="text-[15px] font-bold text-gray-900">TPP Control</span>
           </div>
         </header>
 
         <main className="flex-1 overflow-auto">{children}</main>
       </div>
-
-      {/* Close button inside drawer on mobile */}
-      {open && (
-        <button
-          onClick={() => setOpen(false)}
-          aria-label="Close menu"
-          className="fixed left-[15.5rem] top-3 z-50 rounded-lg bg-white/90 p-1.5 text-gray-700 shadow md:hidden"
-        >
-          <X className="h-5 w-5" />
-        </button>
-      )}
     </div>
   );
 }
