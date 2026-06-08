@@ -11,8 +11,9 @@ export const maxDuration = 30;
 //   POST → create + submit + store        GET → report approval status
 // Both require the cron secret. Variables: {{1}} customer (#PO), {{2}} line summary, {{3}} action.
 const CONTENT_API = 'https://content.twilio.com/v1/Content';
-const TEMPLATE_NAME = 'wholesale_po_alert';
-const TEMPLATE_BODY = '🛒 New wholesale PO — {{1}}\n🧾 {{2}}\n\n{{3}}';
+// Plenty of fixed text around the 3 variables — Meta rejects templates whose variables
+// are too large a share of the message ("too many variables for its length").
+const TEMPLATE_BODY = '🛒 New wholesale purchase order from {{1}}.\n\nOrder summary: {{2}}\n\nWhat happens next: {{3}}\n\nReply to this message and I\'ll get it sorted, or open the TPP dashboard for the full details.';
 
 async function handle(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -32,14 +33,18 @@ async function handle(req: NextRequest) {
     return NextResponse.json({ ok: true, configured: true, content_sid: existing, approval: (j as any)?.whatsapp ?? j });
   }
 
-  // POST → create, submit for approval, store
-  if (existing) return NextResponse.json({ ok: true, already: true, content_sid: existing, note: 'Already created — GET to check approval status.' });
+  // POST → create, submit for approval, store. ?force=1 re-creates even if one exists
+  // (e.g. after a rejection). Each submission uses a unique name (WhatsApp names must be
+  // unique within the business account).
+  const force = new URL(req.url).searchParams.get('force');
+  if (existing && !force) return NextResponse.json({ ok: true, already: true, content_sid: existing, note: 'Already created — GET to check approval status, or POST with &force=1 to recreate.' });
 
+  const name = `wholesale_po_alert_${Date.now().toString(36)}`;
   const createRes = await fetch(CONTENT_API, {
     method: 'POST',
     headers: { Authorization: auth, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      friendly_name: TEMPLATE_NAME,
+      friendly_name: name,
       language: 'en',
       variables: { '1': 'Highland Evolution (#PO347986)', '2': 'Buttermilk ×4, Salted Caramel ×2', '3': 'Stock is good — reply to process it.' },
       types: { 'twilio/text': { body: TEMPLATE_BODY } },
@@ -54,7 +59,7 @@ async function handle(req: NextRequest) {
   const approvalRes = await fetch(`${CONTENT_API}/${contentSid}/ApprovalRequests/whatsapp`, {
     method: 'POST',
     headers: { Authorization: auth, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: TEMPLATE_NAME, category: 'UTILITY' }),
+    body: JSON.stringify({ name, category: 'UTILITY' }),
   });
   const approval = await approvalRes.json().catch(() => ({}));
 
