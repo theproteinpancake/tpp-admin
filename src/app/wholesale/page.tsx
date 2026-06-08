@@ -39,16 +39,16 @@ export default async function WholesaleDashboard() {
       </div>
 
       {/* Totals */}
-      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="mb-6 grid grid-cols-3 gap-2">
         {[
-          { label: 'This week', cur: d.totals.week, prev: d.totals.prev_week, sub: 'vs last week' },
-          { label: 'This month', cur: d.totals.month, prev: d.totals.prev_month, sub: 'vs last month' },
-          { label: 'This year', cur: d.totals.year, prev: d.totals.prev_year, sub: 'vs last year' },
+          { label: 'This week', cur: d.totals.week, prev: d.totals.prev_week, sub: 'vs last wk' },
+          { label: 'This month', cur: d.totals.month, prev: d.totals.prev_month, sub: 'vs last mo' },
+          { label: 'This year', cur: d.totals.year, prev: d.totals.prev_year, sub: 'vs last yr' },
         ].map((c) => (
-          <div key={c.label} className="rounded-xl border border-gray-200 bg-paper p-4 shadow-sm">
-            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">{c.label}</p>
-            <p className="mt-1 text-2xl font-bold text-caramel">{money(c.cur)}</p>
-            <p className="mt-1 flex items-center gap-1.5 text-xs text-gray-400"><Delta cur={c.cur} prev={c.prev} /> {c.sub}</p>
+          <div key={c.label} className="rounded-xl border border-gray-200 bg-paper p-3 shadow-sm sm:p-4">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400 sm:text-xs">{c.label}</p>
+            <p className="mt-1 text-lg font-bold text-caramel sm:text-2xl">{money(c.cur)}</p>
+            <p className="mt-1 flex items-center gap-1 text-[10px] text-gray-400 sm:text-xs"><Delta cur={c.cur} prev={c.prev} /> {c.sub}</p>
           </div>
         ))}
       </div>
