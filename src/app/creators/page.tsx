@@ -48,34 +48,31 @@ export default function CreatorsPage() {
   );
 
   return (
-    <div className="p-8">
+    <div className="px-4 py-5 sm:p-8">
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-3xl font-bold text-caramel">Creators</h1>
-          <p className="text-gray-600 mt-1">Manage recipe creators and influencers</p>
+      <div className="mb-5 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold text-caramel sm:text-3xl">Creators</h1>
+          <p className="mt-0.5 text-xs text-gray-500 sm:text-sm">Manage recipe creators and influencers</p>
         </div>
         <Link
           href="/creators/new"
-          className="flex items-center gap-2 bg-caramel text-white px-4 py-2.5 rounded-lg hover:bg-maple transition-colors"
+          className="flex shrink-0 items-center gap-1.5 rounded-lg bg-caramel px-3 py-2 text-sm font-medium text-white hover:bg-maple"
         >
-          <Plus className="h-5 w-5" />
-          Add Creator
+          <Plus className="h-4 w-4" /> Add<span className="hidden sm:inline"> Creator</span>
         </Link>
       </div>
 
       {/* Search */}
-      <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-4 mb-6">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Search creators..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent"
-          />
-        </div>
+      <div className="relative mb-4">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+        <input
+          type="text"
+          placeholder="Search creators…"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full rounded-lg border border-gray-300 bg-paper py-2 pl-9 pr-3 text-sm text-caramel placeholder:text-gray-400 focus:border-caramel focus:outline-none focus:ring-1 focus:ring-caramel"
+        />
       </div>
 
       {/* Creators Grid */}

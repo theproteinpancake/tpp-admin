@@ -134,85 +134,97 @@ export default function RecipesPage() {
   const categories = ['all', 'breakfast', 'lunch', 'dinner', 'snack', 'dessert', 'baking'];
 
   return (
-    <div className="p-8">
+    <div className="px-4 py-5 sm:p-8">
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-3xl font-bold text-caramel">Recipes</h1>
-          <p className="text-gray-600 mt-1">Manage your recipe library</p>
+      <div className="mb-5 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold text-caramel sm:text-3xl">Recipes</h1>
+          <p className="mt-0.5 text-xs text-gray-500 sm:text-sm">Manage your recipe library</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-2">
           {linkedToShopifyCount > 0 && (
             <button
               onClick={bulkSyncToShopify}
               disabled={syncing}
-              className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="flex items-center gap-1.5 rounded-lg bg-tppblue px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
             >
               {syncing ? (
-                <>
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  Syncing {syncProgress.current}/{syncProgress.total}...
-                </>
+                <><Loader2 className="h-4 w-4 animate-spin" /><span>{syncProgress.current}/{syncProgress.total}</span></>
               ) : (
-                <>
-                  <RefreshCw className="h-5 w-5" />
-                  Sync All to Shopify ({linkedToShopifyCount})
-                </>
+                <><RefreshCw className="h-4 w-4" /><span className="hidden sm:inline">Sync to Shopify </span>({linkedToShopifyCount})</>
               )}
             </button>
           )}
-          <Link
-            href="/recipes/new"
-            className="flex items-center gap-2 bg-caramel text-white px-4 py-2.5 rounded-lg hover:bg-maple transition-colors"
-          >
-            <Plus className="h-5 w-5" />
-            Add Recipe
+          <Link href="/recipes/new" className="flex items-center gap-1.5 rounded-lg bg-caramel px-3 py-2 text-sm font-medium text-white hover:bg-maple">
+            <Plus className="h-4 w-4" /> Add<span className="hidden sm:inline"> Recipe</span>
           </Link>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-4 mb-6">
-        <div className="flex flex-col md:flex-row gap-4">
-          {/* Search */}
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search recipes..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent"
-            />
-          </div>
-
-          {/* Category Filter */}
-          <div className="flex items-center gap-2">
-            <Filter className="h-5 w-5 text-gray-400" />
-            <select
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-              className="px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent"
-            >
-              {categories.map(cat => (
-                <option key={cat} value={cat}>
-                  {cat.charAt(0).toUpperCase() + cat.slice(1)}
-                </option>
-              ))}
-            </select>
-          </div>
+      <div className="mb-4 flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search recipes…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 bg-paper py-2 pl-9 pr-3 text-sm text-caramel placeholder:text-gray-400 focus:border-caramel focus:outline-none focus:ring-1 focus:ring-caramel"
+          />
         </div>
+        <select
+          value={categoryFilter}
+          onChange={(e) => setCategoryFilter(e.target.value)}
+          className="shrink-0 rounded-lg border border-gray-300 bg-paper px-2 py-2 text-sm text-caramel focus:border-caramel focus:outline-none"
+        >
+          {categories.map(cat => (
+            <option key={cat} value={cat}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</option>
+          ))}
+        </select>
       </div>
 
-      {/* Recipes Table */}
-      <div className="bg-paper rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading recipes...</div>
-        ) : filteredRecipes.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
-            No recipes found. <Link href="/recipes/new" className="text-caramel hover:underline">Add your first recipe</Link>
+      {/* Recipes list */}
+      {loading ? (
+        <div className="rounded-xl border border-gray-200 bg-paper p-8 text-center text-gray-500">Loading recipes…</div>
+      ) : filteredRecipes.length === 0 ? (
+        <div className="rounded-xl border border-gray-200 bg-paper p-8 text-center text-gray-500">
+          No recipes found. <Link href="/recipes/new" className="text-caramel hover:underline">Add your first recipe</Link>
+        </div>
+      ) : (
+        <>
+          {/* Mobile cards */}
+          <div className="space-y-2.5 md:hidden">
+            {filteredRecipes.map((recipe) => (
+              <div key={recipe.id} className="flex gap-3 rounded-xl border border-gray-200 bg-paper p-3 shadow-sm">
+                {recipe.featured_image ? (
+                  <img src={recipe.featured_image} alt={recipe.title} className="h-14 w-14 shrink-0 rounded-lg object-cover" />
+                ) : (
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-cream text-2xl">🥞</div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="truncate font-semibold text-caramel">{recipe.title}</p>
+                    <span className="shrink-0 rounded-full bg-cream px-2 py-0.5 text-[10px] font-medium capitalize text-caramel">{recipe.category}</span>
+                  </div>
+                  <p className="mt-0.5 text-[11px] text-gray-500">{recipe.calories || '-'} cal · {recipe.protein || '-'}g protein · {(recipe.prep_time_minutes || 0) + (recipe.cook_time_minutes || 0)} min</p>
+                  <div className="mt-1.5 flex items-center gap-1.5">
+                    <button onClick={() => togglePublished(recipe)} className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${recipe.is_published ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>{recipe.is_published ? 'Published' : 'Draft'}</button>
+                    {recipe.shopify_article_id && <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-800">Linked</span>}
+                    {recipe.rating ? <span className="text-[11px] text-amber-500">★ {recipe.rating.toFixed(1)}</span> : null}
+                    <div className="ml-auto flex items-center gap-0.5">
+                      <Link href={`/recipes/${recipe.id}`} className="rounded p-1.5 text-gray-500 hover:bg-cream hover:text-caramel"><Eye className="h-4 w-4" /></Link>
+                      <Link href={`/recipes/${recipe.id}/edit`} className="rounded p-1.5 text-gray-500 hover:bg-cream hover:text-caramel"><Edit className="h-4 w-4" /></Link>
+                      <button onClick={() => deleteRecipe(recipe.id)} className="rounded p-1.5 text-gray-500 hover:bg-red-50 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
-        ) : (
+
+          {/* Desktop table */}
+          <div className="hidden overflow-hidden rounded-xl border border-gray-200 bg-paper shadow-sm md:block">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
@@ -358,8 +370,9 @@ export default function RecipesPage() {
               ))}
             </tbody>
           </table>
-        )}
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

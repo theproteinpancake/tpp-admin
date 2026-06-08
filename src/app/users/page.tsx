@@ -107,82 +107,81 @@ export default function UsersPage() {
   };
 
   return (
-    <div className="p-8">
+    <div className="px-4 py-5 sm:p-8">
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-3xl font-bold text-caramel">Users</h1>
-          <p className="text-gray-600 mt-1">View app users and analytics</p>
+      <div className="mb-5 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold text-caramel sm:text-3xl">Users</h1>
+          <p className="mt-0.5 text-xs text-gray-500 sm:text-sm">View app users and analytics</p>
         </div>
         <button
           onClick={exportUsers}
-          className="flex items-center gap-2 bg-paper border border-gray-300 text-caramel px-4 py-2.5 rounded-lg hover:bg-gray-50 transition-colors"
+          className="flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-300 bg-paper px-3 py-2 text-sm font-medium text-caramel hover:bg-cream"
         >
-          <Download className="h-5 w-5" />
-          Export CSV
+          <Download className="h-4 w-4" /> <span className="hidden sm:inline">Export </span>CSV
         </button>
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
+      <div className="mb-6 grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+        <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-3 sm:p-5">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">Total Users</p>
-              <p className="text-3xl font-bold text-caramel mt-1">
+              <p className="text-[11px] sm:text-sm font-medium text-gray-600">Total Users</p>
+              <p className="text-2xl sm:text-3xl font-bold text-caramel mt-1">
                 {loading ? '...' : stats.totalUsers.toLocaleString()}
               </p>
             </div>
-            <div className="bg-caramel p-3 rounded-lg">
-              <Users className="h-6 w-6 text-white" />
+            <div className="bg-caramel p-2 sm:p-3 rounded-lg">
+              <Users className="h-5 w-5 text-white" />
             </div>
           </div>
         </div>
 
-        <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-3 sm:p-5">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">New This Week</p>
-              <p className="text-3xl font-bold text-caramel mt-1">
+              <p className="text-[11px] sm:text-sm font-medium text-gray-600">New This Week</p>
+              <p className="text-2xl sm:text-3xl font-bold text-caramel mt-1">
                 {loading ? '...' : stats.activeThisWeek}
               </p>
             </div>
-            <div className="bg-green-500 p-3 rounded-lg">
-              <TrendingUp className="h-6 w-6 text-white" />
+            <div className="bg-green-500 p-2 sm:p-3 rounded-lg">
+              <TrendingUp className="h-5 w-5 text-white" />
             </div>
           </div>
         </div>
 
-        <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-3 sm:p-5">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">Completed Onboarding</p>
-              <p className="text-3xl font-bold text-caramel mt-1">
+              <p className="text-[11px] sm:text-sm font-medium text-gray-600">Completed Onboarding</p>
+              <p className="text-2xl sm:text-3xl font-bold text-caramel mt-1">
                 {loading ? '...' : `${stats.completedOnboarding}`}
               </p>
               <p className="text-xs text-gray-500 mt-1">
                 {stats.totalUsers > 0 ? `${Math.round(stats.completedOnboarding / stats.totalUsers * 100)}%` : '0%'}
               </p>
             </div>
-            <div className="bg-buttermilk-blue p-3 rounded-lg">
-              <Target className="h-6 w-6 text-white" />
+            <div className="bg-buttermilk-blue p-2 sm:p-3 rounded-lg">
+              <Target className="h-5 w-5 text-white" />
             </div>
           </div>
         </div>
 
-        <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-3 sm:p-5">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">Push Notifications</p>
-              <p className="text-3xl font-bold text-caramel mt-1">
+              <p className="text-[11px] sm:text-sm font-medium text-gray-600">Push Notifications</p>
+              <p className="text-2xl sm:text-3xl font-bold text-caramel mt-1">
                 {loading ? '...' : stats.withPushEnabled}
               </p>
               <p className="text-xs text-gray-500 mt-1">
                 {stats.totalUsers > 0 ? `${Math.round(stats.withPushEnabled / stats.totalUsers * 100)}% opted in` : '0%'}
               </p>
             </div>
-            <div className="bg-purple-500 p-3 rounded-lg">
-              <Flame className="h-6 w-6 text-white" />
+            <div className="bg-purple-500 p-2 sm:p-3 rounded-lg">
+              <Flame className="h-5 w-5 text-white" />
             </div>
           </div>
         </div>
@@ -190,7 +189,7 @@ export default function UsersPage() {
 
       {/* Goal Breakdown */}
       {Object.keys(stats.goalBreakdown).length > 0 && (
-        <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
+        <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-3 sm:p-5 mb-8">
           <h2 className="text-lg font-semibold text-caramel mb-4">User Goals</h2>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             {Object.entries(stats.goalBreakdown).map(([goal, count]) => (
@@ -204,28 +203,48 @@ export default function UsersPage() {
       )}
 
       {/* Search */}
-      <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-4 mb-6">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Search by email..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent"
-          />
-        </div>
+      <div className="relative mb-4">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+        <input
+          type="text"
+          placeholder="Search by email…"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full rounded-lg border border-gray-300 bg-paper py-2 pl-9 pr-3 text-sm text-caramel placeholder:text-gray-400 focus:border-caramel focus:outline-none focus:ring-1 focus:ring-caramel"
+        />
       </div>
 
-      {/* Users Table */}
-      <div className="bg-paper rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading users...</div>
-        ) : filteredUsers.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
-            {searchQuery ? 'No users found matching your search' : 'No users yet'}
+      {/* Users list */}
+      {loading ? (
+        <div className="rounded-xl border border-gray-200 bg-paper p-8 text-center text-gray-500">Loading users…</div>
+      ) : filteredUsers.length === 0 ? (
+        <div className="rounded-xl border border-gray-200 bg-paper p-8 text-center text-gray-500">
+          {searchQuery ? 'No users found matching your search' : 'No users yet'}
+        </div>
+      ) : (
+        <>
+          {/* Mobile cards */}
+          <div className="space-y-2 md:hidden">
+            {filteredUsers.map((user) => (
+              <div key={user.id} className="rounded-xl border border-gray-200 bg-paper p-3 shadow-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="truncate font-medium text-caramel">{user.email || 'Anonymous'}</p>
+                  <span className="shrink-0 text-[11px] text-gray-400">{new Date(user.created_at).toLocaleDateString()}</span>
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
+                  {user.goal && <span className="rounded-full bg-cream px-2 py-0.5 font-medium text-caramel">{goalLabels[user.goal] || user.goal}</span>}
+                  {user.daily_calorie_target && <span className="text-gray-500">{user.daily_calorie_target} cal · {user.daily_protein_target || '-'}g</span>}
+                  {user.has_completed_onboarding
+                    ? <span className="rounded-full bg-green-100 px-2 py-0.5 font-medium text-green-800">Onboarded</span>
+                    : <span className="rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-600">New</span>}
+                  {user.push_token && <span className="rounded-full bg-purple-100 px-2 py-0.5 font-medium text-purple-800">Push</span>}
+                </div>
+              </div>
+            ))}
           </div>
-        ) : (
+
+          {/* Desktop table */}
+          <div className="hidden overflow-hidden rounded-xl border border-gray-200 bg-paper shadow-sm md:block">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
@@ -311,8 +330,9 @@ export default function UsersPage() {
               ))}
             </tbody>
           </table>
-        )}
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
