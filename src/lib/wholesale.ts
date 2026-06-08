@@ -113,12 +113,28 @@ export async function getWholesaleDashboard() {
 
 export async function getWholesaleOrders(limit = 60) {
   const { data } = await supabaseLogistics.from('wholesale_orders')
-    .select('invoice_number, contact_name, status, order_date, total, currency, items:wholesale_order_items(item_code, qty)')
+    .select('xero_invoice_id, invoice_number, reference, contact_name, status, order_date, total, currency, items:wholesale_order_items(item_code, qty)')
     .order('order_date', { ascending: false }).limit(limit);
-  return (data ?? []).map((o: any) => ({
-    invoice_number: o.invoice_number, customer: o.contact_name, status: o.status,
-    order_date: o.order_date, total: o.total, currency: o.currency,
-    cartons: (o.items ?? []).reduce((s: number, i: any) => s + (Number(i.qty) || 0), 0),
-    items: (o.items ?? []).map((i: any) => `${i.item_code}×${i.qty}`).join(', '),
-  }));
+  const orders = (data ?? []) as any[];
+
+  // Map Xero invoice → ShipBob order id (only agent-created orders have this).
+  const xeroIds = orders.map((o) => o.xero_invoice_id).filter(Boolean);
+  const shipbobByXero = new Map<string, string>();
+  if (xeroIds.length) {
+    const { data: logs } = await supabaseLogistics.from('wholesale_po_log')
+      .select('xero_invoice_id, shipbob_order_id').in('xero_invoice_id', xeroIds).not('shipbob_order_id', 'is', null);
+    for (const l of (logs ?? []) as any[]) if (l.xero_invoice_id && l.shipbob_order_id) shipbobByXero.set(l.xero_invoice_id, String(l.shipbob_order_id));
+  }
+
+  return orders.map((o: any) => {
+    const shipbobId = shipbobByXero.get(o.xero_invoice_id) || null;
+    return {
+      invoice_number: o.invoice_number, customer: o.contact_name, status: o.status,
+      order_date: o.order_date, total: o.total, currency: o.currency, reference: o.reference || null,
+      cartons: (o.items ?? []).reduce((s: number, i: any) => s + (Number(i.qty) || 0), 0),
+      items: (o.items ?? []).map((i: any) => `${i.item_code}×${i.qty}`).join(', '),
+      xero_url: o.xero_invoice_id ? `https://go.xero.com/AccountsReceivable/View.aspx?InvoiceID=${o.xero_invoice_id}` : null,
+      shipbob_url: shipbobId ? `https://web.shipbob.com/app/merchant/#/orders/${shipbobId}` : null,
+    };
+  });
 }

@@ -6,7 +6,7 @@ import { xeroGet } from './xero';
 // Retail/marketplace aggregators that are NOT wholesale customers (excluded from cadence).
 const NON_WHOLESALE = /shopify|amazon|paypal|stripe|afterpay|\bzip\b|square|gift ?card|online sales|cash sale|opening balance|sumup|till|eftpos/i;
 
-interface XInv { InvoiceID: string; InvoiceNumber?: string; Contact?: any; Status?: string; Total?: number; CurrencyCode?: string; DateString?: string; Date?: string; DueDateString?: string; LineItems?: any[]; }
+interface XInv { InvoiceID: string; InvoiceNumber?: string; Reference?: string; Contact?: any; Status?: string; Total?: number; CurrencyCode?: string; DateString?: string; Date?: string; DueDateString?: string; LineItems?: any[]; }
 
 const isoDate = (s?: string) => (s ? String(s).slice(0, 10) : null);
 
@@ -69,6 +69,7 @@ export async function syncWholesale(sinceYear = 2025): Promise<{ ok: true; invoi
     // upsert orders
     const orderRows = invoices.map((inv) => ({
       xero_invoice_id: inv.InvoiceID, invoice_number: inv.InvoiceNumber || null,
+      reference: inv.Reference || null,
       customer_id: custIdByXero.get(inv.Contact?.ContactID) || null,
       contact_name: inv.Contact?.Name || null, status: inv.Status || null,
       order_date: isoDate(inv.DateString || inv.Date), due_date: isoDate(inv.DueDateString),

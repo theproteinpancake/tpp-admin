@@ -20,6 +20,7 @@ export default async function WholesaleOrders() {
       <OrdersTable rows={orders.map((o) => ({
         invoice_number: o.invoice_number, customer: o.customer, order_date: o.order_date,
         cartons: o.cartons, items: o.items, total: o.total, currency: o.currency, status: o.status,
+        reference: o.reference, xero_url: o.xero_url, shipbob_url: o.shipbob_url,
       }))} />
     </div>
   );

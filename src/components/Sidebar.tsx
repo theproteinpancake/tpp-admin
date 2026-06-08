@@ -94,11 +94,15 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     window.location.href = '/login';
   };
 
-  const isActive = (href: string) =>
-    pathname === href || (href !== '/' && pathname.startsWith(href));
-
   // Until /api/me resolves, show nothing extra; once we know the user, scope the nav.
   const visibleGroups = me ? groups.filter((g) => me.sections.includes(g.section)) : groups;
+
+  // Longest-matching href wins, so /wholesale/orders highlights only "Orders", not "Dashboard".
+  const allHrefs = visibleGroups.flatMap((g) => g.items.map((i) => i.href));
+  const activeHref = allHrefs
+    .filter((h) => pathname === h || pathname.startsWith(h + '/'))
+    .sort((a, b) => b.length - a.length)[0];
+  const isActive = (href: string) => href === activeHref;
 
   return (
     <div className="flex h-screen w-64 flex-col bg-white border-r border-gray-200">
