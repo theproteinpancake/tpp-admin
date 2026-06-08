@@ -127,3 +127,27 @@ export async function listWeeks(limit = 16) {
   const rows = (data ?? []) as any[];
   return { assumptions: a, weeks: rows.map((r) => ({ ...r, derived: derive(r, a) })) };
 }
+
+// Every Monday of a year (ascending), joined with data; missing/future weeks are blank.
+export async function getMasterYear(year: number) {
+  const a = await getAssumptions();
+  const start = `${year}-01-01`, end = `${year + 1}-01-01`;
+  const { data } = await supabaseLogistics.from('sales_week').select('*').gte('week_start', start).lt('week_start', end);
+  const byWk = new Map((data ?? []).map((r: any) => [r.week_start, r]));
+  // first Monday on/after Jan 1
+  const jan1 = new Date(`${year}-01-01T00:00:00`);
+  const dow = jan1.getDay(); // 0 Sun..6 Sat
+  const firstMon = new Date(jan1.getTime() + ((1 - dow + 7) % 7) * 86400_000);
+  const weeks: any[] = [];
+  for (let d = new Date(firstMon); d.getFullYear() === year; d = new Date(d.getTime() + 7 * 86400_000)) {
+    const ws = d.toISOString().slice(0, 10);
+    const r = byWk.get(ws);
+    weeks.push(r ? { ...r, derived: derive(r, a) } : { week_start: ws, derived: {} });
+  }
+  // available years for tabs
+  const { data: earliest } = await supabaseLogistics.from('sales_week').select('week_start').order('week_start', { ascending: true }).limit(1).maybeSingle();
+  const minYear = earliest ? Number((earliest.week_start as string).slice(0, 4)) : year;
+  const years: number[] = [];
+  for (let y = new Date().getFullYear(); y >= minYear; y--) years.push(y);
+  return { assumptions: a, weeks, year, years };
+}
