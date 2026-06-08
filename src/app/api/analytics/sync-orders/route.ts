@@ -10,9 +10,11 @@ async function handle(req: NextRequest) {
   if (given && secret && given !== secret) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   let body: any = {};
   try { body = await req.json(); } catch { /* empty */ }
-  const since = body.since || new URL(req.url).searchParams.get('since') || new Date(Date.now() - 120 * 86400_000).toISOString().slice(0, 10);
-  const res = await syncOrders(since);
-  return NextResponse.json({ ok: !res.error, ...res, since });
+  const sp = new URL(req.url).searchParams;
+  const since = body.since || sp.get('since') || new Date(Date.now() - 120 * 86400_000).toISOString().slice(0, 10);
+  const until = body.until || sp.get('until') || undefined;
+  const res = await syncOrders(since, until);
+  return NextResponse.json({ ok: !res.error, ...res, since, until });
 }
 
 export const POST = handle;

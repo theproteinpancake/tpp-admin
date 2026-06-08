@@ -38,10 +38,10 @@ const QUERY = `query($cursor: String, $q: String) {
   }
 }`;
 
-export async function syncOrders(sinceIso: string): Promise<{ synced: number; error?: string }> {
+export async function syncOrders(sinceIso: string, untilIso?: string): Promise<{ synced: number; error?: string }> {
   const token = await getShopifyToken();
   const url = `https://${SHOPIFY_SHOP}/admin/api/${API}/graphql.json`;
-  const q = `created_at:>=${sinceIso} financial_status:paid`;
+  const q = `created_at:>=${sinceIso}${untilIso ? ` created_at:<=${untilIso}` : ''} financial_status:paid`;
   let cursor: string | null = null;
   let total = 0;
   for (let page = 0; page < 200; page++) {
