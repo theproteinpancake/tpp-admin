@@ -60,6 +60,15 @@ const GROUPS: Group[] = [
 ];
 const ALL = GROUPS.flatMap((g) => g.metrics);
 
+// Colour-coded section headers (white/dark text chosen for contrast on each bg).
+const GROUP_STYLE: Record<string, { bg: string; fg: string }> = {
+  'Sales channels': { bg: '#bd6930', fg: '#ffffff' }, // caramel (brand)
+  'Meta': { bg: '#1877f2', fg: '#ffffff' },            // Meta blue
+  'Google': { bg: '#e8930c', fg: '#3a2400' },          // amber (dark text for contrast)
+  'Totals & profits': { bg: '#025c46', fg: '#ffffff' },// profit green
+};
+const HEAD_BLUE = '#2f5f8a'; // deeper brand blue — readable with white text
+
 const fmt = (v: number | null | undefined, f: Fmt) => {
   if (v == null) return '—';
   if (f === 'money') return '$' + Math.round(v).toLocaleString('en-AU');
@@ -107,17 +116,17 @@ export default function SalesMaster({ weeks, year }: { weeks: Week[]; year: numb
 
   return (
     <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
-      <table className="border-collapse text-[11px]">
+      <table className="border-collapse text-[12px]">
         <thead>
-          <tr className="bg-gray-50">
-            <th rowSpan={2} className="sticky left-0 z-10 border-b border-r border-gray-200 bg-gray-50 px-2 py-1.5 text-left font-semibold text-caramel">Week</th>
+          <tr>
+            <th rowSpan={2} className="sticky left-0 z-10 border-b border-r border-white/20 px-2 py-2 text-left text-[12px] font-bold text-white" style={{ background: HEAD_BLUE }}>Week</th>
             {GROUPS.map((g, gi) => (
-              <th key={g.label} colSpan={g.metrics.length} className={`border-b border-gray-200 px-2 py-1 text-center text-[10px] font-bold uppercase tracking-wide text-maple ${gi ? 'border-l-2 border-l-caramel/30' : ''}`}>{g.label}</th>
+              <th key={g.label} colSpan={g.metrics.length} className={`border-b border-white/20 px-2 py-1.5 text-center text-[12px] font-extrabold uppercase tracking-wide ${gi ? 'border-l-2 border-l-white/50' : ''}`} style={{ background: GROUP_STYLE[g.label]?.bg, color: GROUP_STYLE[g.label]?.fg }}>{g.label}</th>
             ))}
           </tr>
-          <tr className="bg-gray-50">
+          <tr>
             {GROUPS.map((g, gi) => g.metrics.map((m, mi) => (
-              <th key={m.key} className={`whitespace-nowrap border-b border-gray-200 px-2 py-1 text-right font-semibold text-gray-500 ${gi && mi === 0 ? 'border-l-2 border-l-caramel/30' : ''}`}>{m.label}</th>
+              <th key={m.key} className={`whitespace-nowrap border-b border-white/20 px-2 py-1.5 text-right text-[11px] font-bold text-white ${gi && mi === 0 ? 'border-l-2 border-l-white/40' : ''}`} style={{ background: HEAD_BLUE }}>{m.label}</th>
             )))}
           </tr>
         </thead>
