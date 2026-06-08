@@ -3,6 +3,7 @@
 // and computes the derived profit metrics. Ad-platform fields stay manual until Meta/Google
 // APIs are wired (Phase 2).
 import { supabaseLogistics } from './supabase-logistics';
+import { fetchMetaWeek, metaConfigured } from './meta';
 
 const SHOP = process.env.SHOPIFY_STORE_DOMAIN || 'theproteinpancake.myshopify.com';
 const SHOP_TOKEN = process.env.SHOPIFY_ADMIN_ACCESS_TOKEN || '';
@@ -71,10 +72,11 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 export async function autofillWeek(weekStart: string) {
   const { startIso, endIso } = weekRange(weekStart);
   const a = await getAssumptions();
-  const [shop, sb, wh, existing] = await Promise.all([
+  const [shop, sb, wh, meta, existing] = await Promise.all([
     shopifyOrders(startIso, endIso).catch((e) => ({ _err: String(e) } as any)),
     shipbobCharges(startIso, endIso, a.fx_gbp_aud).catch(() => null),
     wholesaleTotal(startIso, endIso).catch(() => null),
+    metaConfigured() ? fetchMetaWeek(startIso, endIso).catch((e) => ({ _err: String(e) } as any)) : Promise.resolve(null),
     supabaseLogistics.from('sales_week').select('locked').eq('week_start', weekStart).maybeSingle(),
   ]);
   const locked: string[] = (existing.data?.locked as string[]) || [];
@@ -88,8 +90,11 @@ export async function autofillWeek(weekStart: string) {
   }
   if (sb != null) set('shipbob_charges', sb);
   if (wh != null) set('wholesale_invoices', wh);
+  if (meta && !meta._err) {
+    set('meta_spend', meta.spend); set('meta_roas', meta.roas); set('meta_purchases', meta.purchases); set('meta_cpa', meta.cpa);
+  }
   await supabaseLogistics.from('sales_week').upsert(row, { onConflict: 'week_start' });
-  return { week_start: weekStart, shopify: shop?._err ? `error: ${shop._err}` : 'ok', shipbob: sb, wholesale: wh };
+  return { week_start: weekStart, shopify: shop?._err ? `error: ${shop._err}` : 'ok', shipbob: sb, wholesale: wh, meta: meta?._err ? `error: ${meta._err}` : (meta ? 'ok' : 'not configured') };
 }
 
 // Derived profit metrics for a stored row.
