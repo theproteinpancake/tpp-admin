@@ -45,11 +45,11 @@ export async function syncOrders(sinceIso: string): Promise<{ synced: number; er
   let cursor: string | null = null;
   let total = 0;
   for (let page = 0; page < 200; page++) {
-    const res = await fetch(url, {
+    const res: Response = await fetch(url, {
       method: 'POST', headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
       body: JSON.stringify({ query: QUERY, variables: { cursor, q } }),
     });
-    const j = await res.json();
+    const j: any = await res.json();
     if (j.errors) return { synced: total, error: JSON.stringify(j.errors).slice(0, 200) };
     const conn = j.data?.orders;
     const nodes = conn?.nodes || [];
@@ -74,6 +74,6 @@ export async function syncOrders(sinceIso: string): Promise<{ synced: number; er
     cursor = conn.pageInfo.endCursor;
   }
   // accurate new/returning: earliest order per customer = acquisition
-  await supabaseLogistics.rpc('recompute_new_customers').catch(() => {});
+  try { await supabaseLogistics.rpc('recompute_new_customers'); } catch { /* best-effort */ }
   return { synced: total };
 }
