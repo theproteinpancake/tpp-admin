@@ -92,6 +92,20 @@ export async function autofillWeek(weekStart: string) {
   if (wh != null) set('wholesale_invoices', wh);
   if (meta && !meta._err) {
     set('meta_spend', meta.spend); set('meta_roas', meta.roas); set('meta_purchases', meta.purchases); set('meta_cpa', meta.cpa);
+    // NC ROAS/CPA from our attribution engine (new-customer Meta revenue/orders ÷ spend)
+    if (meta.spend) {
+      try {
+        const fromTs = new Date(`${startIso}T00:00:00+10:00`).toISOString();
+        const toTs = new Date(`${endIso}T00:00:00+10:00`).toISOString();
+        const { data: roll } = await supabaseLogistics.rpc('attribution_rollup', { p_from: fromTs, p_to: toTs, p_model: 'last' });
+        const m = ((roll ?? []) as any[]).find((r) => r.source === 'meta');
+        if (m) {
+          const ncRev = Number(m.nc_revenue) || 0, ncOrd = Number(m.nc_orders) || 0;
+          set('meta_nc_roas', round2(ncRev / meta.spend));
+          set('meta_nc_cpa', ncOrd ? round2(meta.spend / ncOrd) : null);
+        }
+      } catch { /* attribution best-effort */ }
+    }
   }
   await supabaseLogistics.from('sales_week').upsert(row, { onConflict: 'week_start' });
   return { week_start: weekStart, shopify: shop?._err ? `error: ${shop._err}` : 'ok', shipbob: sb, wholesale: wh, meta: meta?._err ? `error: ${meta._err}` : (meta ? 'ok' : 'not configured') };

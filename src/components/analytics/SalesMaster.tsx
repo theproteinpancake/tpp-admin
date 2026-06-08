@@ -95,20 +95,23 @@ export default function SalesMaster({ weeks, year }: { weeks: Week[]; year: numb
     if (min === max) return undefined;
     let p = (v - min) / (max - min);
     if (m.dir === 'low') p = 1 - p;
-    return `hsl(${Math.round(p * 120)} 75% 90%)`;
+    const hue = Math.round(p * 120); // 0 red → 120 green
+    const dist = Math.abs(p - 0.5) * 2; // 0 mid … 1 extreme → outliers pop
+    const light = Math.round(95 - dist * 22); // extremes darker/more saturated
+    return `hsl(${hue} 72% ${light}%)`;
   };
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-gray-200 bg-paper shadow-sm">
+    <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
       <table className="border-collapse text-[11px]">
         <thead>
-          <tr className="bg-cream/70">
-            <th rowSpan={2} className="sticky left-0 z-10 border-b border-r border-gray-200 bg-cream/95 px-2 py-1.5 text-left font-semibold text-caramel">Week</th>
+          <tr className="bg-gray-50">
+            <th rowSpan={2} className="sticky left-0 z-10 border-b border-r border-gray-200 bg-gray-50 px-2 py-1.5 text-left font-semibold text-caramel">Week</th>
             {GROUPS.map((g, gi) => (
               <th key={g.label} colSpan={g.metrics.length} className={`border-b border-gray-200 px-2 py-1 text-center text-[10px] font-bold uppercase tracking-wide text-maple ${gi ? 'border-l-2 border-l-caramel/30' : ''}`}>{g.label}</th>
             ))}
           </tr>
-          <tr className="bg-cream/40">
+          <tr className="bg-gray-50">
             {GROUPS.map((g, gi) => g.metrics.map((m, mi) => (
               <th key={m.key} className={`whitespace-nowrap border-b border-gray-200 px-2 py-1 text-right font-semibold text-gray-500 ${gi && mi === 0 ? 'border-l-2 border-l-caramel/30' : ''}`}>{m.label}</th>
             )))}
@@ -117,7 +120,7 @@ export default function SalesMaster({ weeks, year }: { weeks: Week[]; year: numb
         <tbody>
           {weeks.map((w) => (
             <tr key={w.week_start} className="border-b border-gray-100 last:border-0">
-              <td className="sticky left-0 z-10 whitespace-nowrap border-r border-gray-200 bg-paper px-2 py-1.5 font-semibold text-caramel">{wk(w.week_start)}</td>
+              <td className="sticky left-0 z-10 whitespace-nowrap border-r border-gray-200 bg-white px-2 py-1.5 font-semibold text-caramel">{wk(w.week_start)}</td>
               {GROUPS.map((g, gi) => g.metrics.map((m, mi) => {
                 const v = valOf(w, m);
                 return (
@@ -131,8 +134,8 @@ export default function SalesMaster({ weeks, year }: { weeks: Week[]; year: numb
           ))}
         </tbody>
         <tfoot>
-          <tr className="border-t-2 border-caramel/40 bg-cream/70 font-semibold">
-            <td className="sticky left-0 z-10 whitespace-nowrap border-r border-gray-200 bg-cream/95 px-2 py-2 text-caramel">{year} Σ/avg</td>
+          <tr className="border-t-2 border-caramel/40 bg-gray-50 font-semibold">
+            <td className="sticky left-0 z-10 whitespace-nowrap border-r border-gray-200 bg-gray-50 px-2 py-2 text-caramel">{year} Σ/avg</td>
             {GROUPS.map((g, gi) => g.metrics.map((m, mi) => (
               <td key={m.key} className={`whitespace-nowrap px-2 py-2 text-right tabular-nums text-caramel ${gi && mi === 0 ? 'border-l-2 border-l-caramel/30' : ''}`}>{fmt(totals[m.key], m.fmt)}</td>
             )))}
