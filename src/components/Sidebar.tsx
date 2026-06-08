@@ -33,17 +33,6 @@ type Me = { name: string | null; email: string; role: string; sections: Section[
 
 const groups: NavGroup[] = [
   {
-    label: 'App',
-    section: 'app',
-    items: [
-      { name: 'App Dashboard', href: '/app', icon: LayoutDashboard },
-      { name: 'Recipes', href: '/recipes', icon: UtensilsCrossed },
-      { name: 'Creators', href: '/creators', icon: UserCircle },
-      { name: 'Users', href: '/users', icon: Users },
-      { name: 'Notifications', href: '/notifications', icon: Bell },
-    ],
-  },
-  {
     label: 'Logistics',
     section: 'logistics',
     items: [
@@ -70,6 +59,17 @@ const groups: NavGroup[] = [
     items: [
       { name: 'Influencers', href: '/marketing/influencers', icon: Megaphone },
       { name: 'Collabs', href: '/marketing/collabs', icon: Handshake },
+    ],
+  },
+  {
+    label: 'App',
+    section: 'app',
+    items: [
+      { name: 'App Dashboard', href: '/app', icon: LayoutDashboard },
+      { name: 'Recipes', href: '/recipes', icon: UtensilsCrossed },
+      { name: 'Creators', href: '/creators', icon: UserCircle },
+      { name: 'Users', href: '/users', icon: Users },
+      { name: 'Notifications', href: '/notifications', icon: Bell },
     ],
   },
 ];
