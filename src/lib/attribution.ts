@@ -7,21 +7,22 @@ import { getAssumptions, derive } from './analytics';
 export type Model = 'first' | 'last';
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const div = (a: number, b: number) => (b ? r2(a / b) : null);
+const utcTs = (date: string) => new Date(`${date}T00:00:00+10:00`).toISOString(); // AEST date → UTC instant
 
 export interface AttribRow {
   source: string; spend: number | null; orders: number; revenue: number; nc_orders: number; nc_revenue: number;
   roas: number | null; nc_roas: number | null; cpa: number | null; nc_cpa: number | null;
 }
 
-// from inclusive, to exclusive (ISO date or datetime)
-export async function getAttribution(fromIso: string, toIso: string, model: Model = 'last') {
-  const { data } = await supabaseLogistics.rpc('attribution_rollup', { p_from: fromIso, p_to: toIso, p_model: model });
+// fromDate inclusive, toDate exclusive — AEST date strings (YYYY-MM-DD)
+export async function getAttribution(fromDate: string, toDate: string, model: Model = 'last') {
+  const { data } = await supabaseLogistics.rpc('attribution_rollup', { p_from: utcTs(fromDate), p_to: utcTs(toDate), p_model: model });
   const rows = (data ?? []) as any[];
   const bySource = new Map<string, { orders: number; revenue: number; nc_orders: number; nc_revenue: number }>();
   for (const r of rows) bySource.set(r.source, { orders: Number(r.orders) || 0, revenue: Number(r.revenue) || 0, nc_orders: Number(r.nc_orders) || 0, nc_revenue: Number(r.nc_revenue) || 0 });
 
-  // ad spend per channel for the range
-  const meta = await fetchMetaWeek(fromIso.slice(0, 10), toIso.slice(0, 10)).catch(() => null);
+  // ad spend per channel for the range (AEST dates, matching the dashboard's Meta tile)
+  const meta = await fetchMetaWeek(fromDate, toDate).catch(() => null);
   const spendBy: Record<string, number | null> = { meta: meta?.spend ?? null, google: null }; // google dormant until creds
 
   const order = ['meta', 'google', 'email', 'organic', 'direct', 'other'];
@@ -61,7 +62,7 @@ export async function getAttribution(fromIso: string, toIso: string, model: Mode
 
 // High-level KPI summary for a range (online store via Shopify orders + ad spend + derived profit).
 export async function getRangeSummary(fromIso: string, toIso: string, model: Model = 'last') {
-  const attr = await getAttribution(fromIso, toIso, model);
+  const attr = await getAttribution(fromIso.slice(0, 10), toIso.slice(0, 10), model);
   const a = await getAssumptions();
   // wholesale + shipbob for the range (re-uses sales tables — sum across the date span)
   const [{ data: wh }, { data: sb }] = await Promise.all([

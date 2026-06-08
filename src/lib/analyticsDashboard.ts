@@ -7,8 +7,6 @@ import { getAssumptions } from './analytics';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const div = (a: number, b: number) => (b ? r2(a / b) : null);
-const AEST = '+10:00';
-const utc = (date: string) => new Date(`${date}T00:00:00${AEST}`).toISOString();
 
 export interface Period {
   online: number; orders: number; aov: number | null; new_pct: number | null;
@@ -23,7 +21,7 @@ export interface Period {
 async function computePeriod(fromDate: string, toDate: string): Promise<{ p: Period; attr: { rows: AttribRow[]; totals: any } }> {
   const a = await getAssumptions();
   const [attr, meta, wh, sb] = await Promise.all([
-    getAttribution(utc(fromDate), utc(toDate), 'last'),
+    getAttribution(fromDate, toDate, 'last'),
     fetchMetaWeek(fromDate, toDate).catch(() => null), // platform-reported spend/roas/purchases/cpa
     supabaseLogistics.from('wholesale_orders').select('total').gte('order_date', fromDate).lt('order_date', toDate),
     supabaseLogistics.from('shipment_costs').select('cost,currency').gte('ship_date', fromDate).lt('ship_date', toDate),

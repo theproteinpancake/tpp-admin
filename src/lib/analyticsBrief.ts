@@ -18,7 +18,6 @@ function aestDate(offsetDays = 0): string {
   return now.toISOString().slice(0, 10);
 }
 const dayBounds = (date: string) => ({ from: new Date(`${date}T00:00:00${AEST_OFFSET}`).toISOString(), to: new Date(`${date}T00:00:00${AEST_OFFSET}`).toISOString() });
-const utc = (date: string) => new Date(`${date}T00:00:00${AEST_OFFSET}`).toISOString();
 const niceDate = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' });
 
 async function shipbobFor(dateFrom: string, dateTo: string, fx: number) {
@@ -29,7 +28,7 @@ async function shipbobFor(dateFrom: string, dateTo: string, fx: number) {
 // Snapshot for a [fromDate, toDate) window (date strings, AEST).
 async function snapshot(fromDate: string, toDate: string) {
   const a = await getAssumptions();
-  const attr = await getAttribution(utc(fromDate), utc(toDate), 'last');
+  const attr = await getAttribution(fromDate, toDate, 'last');
   const shipbob = await shipbobFor(fromDate, toDate, a.fx_gbp_aud);
   const t = attr.totals;
   const meta = attr.rows.find((r) => r.source === 'Meta');
