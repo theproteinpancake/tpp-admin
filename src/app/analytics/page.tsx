@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { BarChart3, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { getDashboard, type Period } from '@/lib/analyticsDashboard';
 import DateRange from '@/components/analytics/DateRange';
@@ -45,13 +46,15 @@ function Section({ title, icon, children }: { title: string; icon?: string; chil
   );
 }
 
-export default async function AnalyticsPage({ searchParams }: { searchParams: Promise<{ from?: string; to?: string }> }) {
+export default async function AnalyticsPage({ searchParams }: { searchParams: Promise<{ from?: string; to?: string; model?: string }> }) {
   const sp = await searchParams;
   const t = aestToday();
   const from = sp.from || addDays(t, -6);
   const to = sp.to || addDays(t, 1); // exclusive
-  const { current: c, previous: p, attribution } = await getDashboard(from, to);
+  const model = sp.model === 'first' ? 'first' : 'last';
+  const { current: c, previous: p, attribution } = await getDashboard(from, to, model);
   const metaRow = attribution.find((r) => r.source === 'Meta');
+  const qs = (m: string) => `/analytics?from=${from}&to=${to}&model=${m}`;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-8">
@@ -60,7 +63,13 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
           <BarChart3 className="h-6 w-6 text-caramel" />
           <h1 className="text-xl font-bold text-caramel sm:text-2xl">Analytics</h1>
         </div>
-        <DateRange from={from} to={to} />
+        <div className="flex items-center gap-2">
+          <div className="flex overflow-hidden rounded-lg border border-gray-200 text-xs">
+            <Link href={qs('first')} className={`px-2.5 py-2 font-medium ${model === 'first' ? 'bg-caramel text-white' : 'bg-white text-caramel hover:bg-cream'}`}>First click</Link>
+            <Link href={qs('last')} className={`px-2.5 py-2 font-medium ${model === 'last' ? 'bg-caramel text-white' : 'bg-white text-caramel hover:bg-cream'}`}>Last click</Link>
+          </div>
+          <DateRange from={from} to={to} />
+        </div>
       </div>
 
       <div className="space-y-6">
@@ -128,7 +137,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
 
         {/* Attribution */}
         <section>
-          <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-caramel">↗ Attribution <span className="text-[10px] font-normal text-gray-400">(last-click)</span></h2>
+          <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-caramel">↗ Attribution <span className="text-[10px] font-normal text-gray-400">({model === 'first' ? 'first' : 'last'}-click)</span></h2>
           <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white p-2 shadow-sm">
             <table className="w-full border-collapse text-xs">
               <thead>

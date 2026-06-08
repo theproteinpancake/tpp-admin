@@ -1,7 +1,7 @@
 // Dashboard data for an arbitrary date range + automatic previous-period comparison.
 // Powers the Triple-Whale-style Analytics page (KPI tiles + channel sections + attribution).
 import { supabaseLogistics } from './supabase-logistics';
-import { getAttribution, type AttribRow } from './attribution';
+import { getAttribution, type AttribRow, type Model } from './attribution';
 import { fetchMetaWeek } from './meta';
 import { getAssumptions } from './analytics';
 
@@ -18,10 +18,10 @@ export interface Period {
   net_profit: number; npm: number | null;
 }
 
-async function computePeriod(fromDate: string, toDate: string): Promise<{ p: Period; attr: { rows: AttribRow[]; totals: any } }> {
+async function computePeriod(fromDate: string, toDate: string, model: Model = 'last'): Promise<{ p: Period; attr: { rows: AttribRow[]; totals: any } }> {
   const a = await getAssumptions();
   const [attr, meta, wh, sb] = await Promise.all([
-    getAttribution(fromDate, toDate, 'last'),
+    getAttribution(fromDate, toDate, model),
     fetchMetaWeek(fromDate, toDate).catch(() => null), // platform-reported spend/roas/purchases/cpa
     supabaseLogistics.from('wholesale_orders').select('total').gte('order_date', fromDate).lt('order_date', toDate),
     supabaseLogistics.from('shipment_costs').select('cost,currency').gte('ship_date', fromDate).lt('ship_date', toDate),
@@ -52,10 +52,10 @@ async function computePeriod(fromDate: string, toDate: string): Promise<{ p: Per
 }
 
 // from/to are AEST date strings (to exclusive). Returns current + previous-period + attribution.
-export async function getDashboard(fromDate: string, toDate: string) {
+export async function getDashboard(fromDate: string, toDate: string, model: Model = 'last') {
   const days = Math.max(1, Math.round((Date.parse(toDate) - Date.parse(fromDate)) / 86400_000));
   const prevTo = fromDate;
   const prevFrom = new Date(Date.parse(fromDate) - days * 86400_000).toISOString().slice(0, 10);
-  const [cur, prev] = await Promise.all([computePeriod(fromDate, toDate), computePeriod(prevFrom, prevTo)]);
+  const [cur, prev] = await Promise.all([computePeriod(fromDate, toDate, model), computePeriod(prevFrom, prevTo, model)]);
   return { current: cur.p, previous: prev.p, attribution: cur.attr.rows, attribTotals: cur.attr.totals, range: { from: fromDate, to: toDate, prevFrom, prevTo, days } };
 }

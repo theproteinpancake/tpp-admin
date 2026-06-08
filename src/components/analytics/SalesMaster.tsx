@@ -2,7 +2,7 @@
 // For-like replica of the Sales & Data master spreadsheet: weeks down the rows (ascending,
 // Jan at top), every metric across the columns (sticky Week column), colour-gradient heatmap,
 // the full year laid out (future weeks blank), and a year totals/average row at the bottom.
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 
 type Week = Record<string, any> & { week_start: string; derived: Record<string, number | null> };
 type Dir = 'high' | 'low' | 'none';
@@ -19,8 +19,10 @@ const GROUPS: Group[] = [
     { key: 'aov', label: 'AOV', fmt: 'money2', dir: 'high', agg: 'avg' },
     { key: 'shipping_charged', label: 'Ship charged', fmt: 'money', dir: 'none', agg: 'sum' },
     { key: 'orders_nz', label: 'NZ ord', fmt: 'num', dir: 'high', agg: 'sum' },
+    { key: 'nz_cr', label: 'NZ CR', fmt: 'pct', dir: 'high', agg: 'avg' },
     { key: 'nz_aov', label: 'NZ AOV', fmt: 'money2', dir: 'high', agg: 'avg' },
     { key: 'orders_uk', label: 'UK ord', fmt: 'num', dir: 'high', agg: 'sum' },
+    { key: 'uk_cr', label: 'UK CR', fmt: 'pct', dir: 'high', agg: 'avg' },
     { key: 'uk_aov', label: 'UK AOV', fmt: 'money2', dir: 'high', agg: 'avg' },
     { key: 'amazon_sales', label: 'Amazon', fmt: 'money', dir: 'high', agg: 'sum' },
     { key: 'wholesale_invoices', label: 'Wholesale', fmt: 'money', dir: 'high', agg: 'sum' },
@@ -101,6 +103,8 @@ export default function SalesMaster({ weeks, year }: { weeks: Week[]; year: numb
     return `hsl(${hue} 72% ${light}%)`;
   };
 
+  const [sel, setSel] = useState<string | null>(null);
+
   return (
     <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
       <table className="border-collapse text-[11px]">
@@ -118,20 +122,24 @@ export default function SalesMaster({ weeks, year }: { weeks: Week[]; year: numb
           </tr>
         </thead>
         <tbody>
-          {weeks.map((w) => (
-            <tr key={w.week_start} className="border-b border-gray-100 last:border-0">
-              <td className="sticky left-0 z-10 whitespace-nowrap border-r border-gray-200 bg-white px-2 py-1.5 font-semibold text-caramel">{wk(w.week_start)}</td>
+          {weeks.map((w) => {
+            const on = sel === w.week_start;
+            return (
+            <tr key={w.week_start} onClick={() => setSel(on ? null : w.week_start)}
+              className={`cursor-pointer border-b last:border-0 ${on ? 'border-y-2 border-caramel' : 'border-gray-100 hover:bg-cream/30'}`}>
+              <td className={`sticky left-0 z-10 whitespace-nowrap border-r border-gray-200 px-2 py-1.5 font-semibold ${on ? 'bg-caramel text-white' : 'bg-white text-caramel'}`}>{wk(w.week_start)}</td>
               {GROUPS.map((g, gi) => g.metrics.map((m, mi) => {
                 const v = valOf(w, m);
                 return (
-                  <td key={m.key} className={`whitespace-nowrap px-2 py-1.5 text-right tabular-nums text-gray-700 ${gi && mi === 0 ? 'border-l-2 border-l-caramel/20' : ''} ${m.key === 'net_profit' ? 'font-bold text-caramel' : ''}`}
+                  <td key={m.key} className={`whitespace-nowrap px-2 py-1.5 text-right tabular-nums text-gray-700 ${on ? 'border-y-2 border-caramel' : ''} ${gi && mi === 0 ? 'border-l-2 border-l-caramel/20' : ''} ${m.key === 'net_profit' ? 'font-bold text-caramel' : ''}`}
                     style={{ background: tint(v, m) }}>
                     {fmt(v, m.fmt)}
                   </td>
                 );
               }))}
             </tr>
-          ))}
+            );
+          })}
         </tbody>
         <tfoot>
           <tr className="border-t-2 border-caramel/40 bg-gray-50 font-semibold">

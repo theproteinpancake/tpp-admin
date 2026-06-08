@@ -97,7 +97,7 @@ export async function autofillWeek(weekStart: string) {
       try {
         const fromTs = new Date(`${startIso}T00:00:00+10:00`).toISOString();
         const toTs = new Date(`${endIso}T00:00:00+10:00`).toISOString();
-        const { data: roll } = await supabaseLogistics.rpc('attribution_rollup', { p_from: fromTs, p_to: toTs, p_model: 'last' });
+        const { data: roll } = await supabaseLogistics.rpc('attribution_rollup', { p_from: fromTs, p_to: toTs, p_model: 'first' });
         const m = ((roll ?? []) as any[]).find((r) => r.source === 'meta');
         if (m) {
           const ncRev = Number(m.nc_revenue) || 0, ncOrd = Number(m.nc_orders) || 0;
