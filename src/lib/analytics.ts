@@ -4,9 +4,9 @@
 // APIs are wired (Phase 2).
 import { supabaseLogistics } from './supabase-logistics';
 import { fetchMetaWeek, metaConfigured } from './meta';
+import { getShopifyToken, SHOPIFY_SHOP } from './shopifyToken';
 
-const SHOP = process.env.SHOPIFY_STORE_DOMAIN || 'theproteinpancake.myshopify.com';
-const SHOP_TOKEN = process.env.SHOPIFY_ADMIN_ACCESS_TOKEN || '';
+const SHOP = SHOPIFY_SHOP;
 const API = '2024-10';
 
 export interface Assumptions { wholesale_margin: number; online_cogs_pct: number; payment_fee_pct: number; fx_gbp_aud: number; weekly_target_sales: number; weekly_target_np: number; employees: number; }
@@ -25,12 +25,12 @@ export function weekRange(weekStart: string) { const s = new Date(weekStart + 'T
 
 // ---- Shopify: aggregate paid orders created in [start,end) ----
 async function shopifyOrders(startIso: string, endIso: string) {
-  if (!SHOP_TOKEN) return null;
+  const token = await getShopifyToken();
   const base = `https://${SHOP}/admin/api/${API}/orders.json`;
   let url = `${base}?status=any&financial_status=paid&created_at_min=${startIso}T00:00:00Z&created_at_max=${endIso}T00:00:00Z&limit=250&fields=id,total_price,subtotal_price,total_discounts,shipping_lines,shipping_address,created_at`;
   const orders: any[] = [];
   for (let i = 0; i < 20 && url; i++) {
-    const res = await fetch(url, { headers: { 'X-Shopify-Access-Token': SHOP_TOKEN } });
+    const res = await fetch(url, { headers: { 'X-Shopify-Access-Token': token } });
     if (!res.ok) throw new Error(`Shopify ${res.status}: ${(await res.text()).slice(0, 120)}`);
     const j = await res.json();
     orders.push(...(j.orders || []));
