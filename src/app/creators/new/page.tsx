@@ -104,7 +104,7 @@ export default function NewCreatorPage() {
           <ArrowLeft className="h-5 w-5" />
         </Link>
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Add Creator</h1>
+          <h1 className="text-3xl font-bold text-caramel">Add Creator</h1>
           <p className="text-gray-600 mt-1">Add a new recipe creator or influencer</p>
         </div>
       </div>
@@ -112,7 +112,7 @@ export default function NewCreatorPage() {
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Profile Image */}
         <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Profile</h2>
+          <h2 className="text-lg font-semibold text-caramel mb-4">Profile</h2>
 
           <div className="flex items-start gap-6">
             {/* Image Upload */}
@@ -152,7 +152,7 @@ export default function NewCreatorPage() {
             {/* Name and Bio */}
             <div className="flex-1 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-caramel mb-1">
                   Name *
                 </label>
                 <input
@@ -160,20 +160,20 @@ export default function NewCreatorPage() {
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   required
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900 placeholder-gray-400"
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel placeholder-gray-400"
                   placeholder="Creator's name"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-caramel mb-1">
                   Bio
                 </label>
                 <textarea
                   value={form.bio}
                   onChange={(e) => setForm({ ...form, bio: e.target.value })}
                   rows={3}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900 placeholder-gray-400"
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel placeholder-gray-400"
                   placeholder="A short bio about this creator..."
                 />
               </div>
@@ -183,11 +183,11 @@ export default function NewCreatorPage() {
 
         {/* Social Links */}
         <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Social Links</h2>
+          <h2 className="text-lg font-semibold text-caramel mb-4">Social Links</h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-caramel mb-1">
                 Instagram Handle
               </label>
               <div className="flex">
@@ -198,14 +198,14 @@ export default function NewCreatorPage() {
                   type="text"
                   value={form.instagram_handle}
                   onChange={(e) => setForm({ ...form, instagram_handle: e.target.value.replace('@', '') })}
-                  className="flex-1 px-4 py-2.5 border border-gray-300 rounded-r-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900 placeholder-gray-400"
+                  className="flex-1 px-4 py-2.5 border border-gray-300 rounded-r-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel placeholder-gray-400"
                   placeholder="username"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-caramel mb-1">
                 TikTok Handle
               </label>
               <div className="flex">
@@ -216,14 +216,14 @@ export default function NewCreatorPage() {
                   type="text"
                   value={form.tiktok_handle}
                   onChange={(e) => setForm({ ...form, tiktok_handle: e.target.value.replace('@', '') })}
-                  className="flex-1 px-4 py-2.5 border border-gray-300 rounded-r-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900 placeholder-gray-400"
+                  className="flex-1 px-4 py-2.5 border border-gray-300 rounded-r-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel placeholder-gray-400"
                   placeholder="username"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-caramel mb-1">
                 YouTube Handle
               </label>
               <div className="flex">
@@ -234,21 +234,21 @@ export default function NewCreatorPage() {
                   type="text"
                   value={form.youtube_handle}
                   onChange={(e) => setForm({ ...form, youtube_handle: e.target.value.replace('@', '') })}
-                  className="flex-1 px-4 py-2.5 border border-gray-300 rounded-r-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900 placeholder-gray-400"
+                  className="flex-1 px-4 py-2.5 border border-gray-300 rounded-r-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel placeholder-gray-400"
                   placeholder="username"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-caramel mb-1">
                 Website
               </label>
               <input
                 type="url"
                 value={form.website}
                 onChange={(e) => setForm({ ...form, website: e.target.value })}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900 placeholder-gray-400"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel placeholder-gray-400"
                 placeholder="https://..."
               />
             </div>
@@ -257,7 +257,7 @@ export default function NewCreatorPage() {
 
         {/* Settings */}
         <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Settings</h2>
+          <h2 className="text-lg font-semibold text-caramel mb-4">Settings</h2>
 
           <label className="flex items-center gap-3">
             <input
@@ -267,7 +267,7 @@ export default function NewCreatorPage() {
               className="w-5 h-5 text-caramel rounded focus:ring-caramel"
             />
             <div>
-              <span className="font-medium text-gray-900">Featured Creator</span>
+              <span className="font-medium text-caramel">Featured Creator</span>
               <p className="text-sm text-gray-500">Show this creator prominently in the app</p>
             </div>
           </label>
@@ -277,7 +277,7 @@ export default function NewCreatorPage() {
         <div className="flex items-center justify-end gap-4">
           <Link
             href="/creators"
-            className="px-6 py-2.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+            className="px-6 py-2.5 border border-gray-300 rounded-lg text-caramel hover:bg-gray-50"
           >
             Cancel
           </Link>

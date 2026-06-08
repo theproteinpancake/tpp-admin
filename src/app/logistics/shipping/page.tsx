@@ -32,15 +32,15 @@ export default async function ShippingPage() {
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Shipping &amp; Billing</h1>
+        <h1 className="text-2xl font-bold text-caramel">Shipping &amp; Billing</h1>
         <p className="mt-1 text-gray-500">ShipBob fulfilment cost trends &amp; outlier alerts — Altona (AU) &amp; Manchester (UK)</p>
       </div>
 
       <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {summary.map((s) => (
           <div key={s.site} className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
-            <p className="text-sm font-semibold text-gray-900">{s.site === 'ALTONA' ? 'Altona (AU)' : 'Manchester (UK)'}</p>
-            <div className="mt-2 text-2xl font-bold text-gray-900">{money(s.avg, s.ccy)}</div>
+            <p className="text-sm font-semibold text-caramel">{s.site === 'ALTONA' ? 'Altona (AU)' : 'Manchester (UK)'}</p>
+            <div className="mt-2 text-2xl font-bold text-caramel">{money(s.avg, s.ccy)}</div>
             <p className="text-xs text-gray-400">avg shipping / order (12-wk)</p>
             <div className="mt-2 flex items-center gap-3 text-xs">
               <span className="text-gray-500">this wk: {money(s.latestTotal, s.ccy)}</span>
@@ -53,7 +53,7 @@ export default async function ShippingPage() {
       <section className="mb-8 rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
         <div className="mb-3 flex items-center gap-2">
           <TrendingUp className="h-5 w-5 text-caramel" />
-          <h2 className="text-lg font-semibold text-gray-900">Avg shipping cost / order — weekly</h2>
+          <h2 className="text-lg font-semibold text-caramel">Avg shipping cost / order — weekly</h2>
         </div>
         <ShippingTrendChart weekly={weekly} />
       </section>
@@ -61,7 +61,7 @@ export default async function ShippingPage() {
       <section>
         <div className="mb-3 flex items-center gap-2">
           <AlertTriangle className="h-5 w-5 text-red-500" />
-          <h2 className="text-lg font-semibold text-gray-900">Cost outliers</h2>
+          <h2 className="text-lg font-semibold text-caramel">Cost outliers</h2>
           <span className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-700">take a closer look</span>
         </div>
         <OutliersTable rows={outliers.map((o) => ({
@@ -75,16 +75,16 @@ export default async function ShippingPage() {
       <section className="mt-10 mb-8">
         <div className="mb-3 flex items-center gap-2">
           <Receipt className="h-5 w-5 text-caramel" />
-          <h2 className="text-lg font-semibold text-gray-900">Monthly ShipBob spend</h2>
+          <h2 className="text-lg font-semibold text-caramel">Monthly ShipBob spend</h2>
         </div>
         <div className="mb-5 grid gap-4 sm:grid-cols-2">
           {highlights.map((h) => {
             const up = h.momPct != null && h.momPct > 0;
             return (
               <div key={h.site} className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
-                <p className="text-sm font-semibold text-gray-900">{SITE_LABEL[h.site]}</p>
+                <p className="text-sm font-semibold text-caramel">{SITE_LABEL[h.site]}</p>
                 <div className="mt-1 flex items-baseline gap-2">
-                  <span className="text-2xl font-bold text-gray-900">{money(h.thisMonth, h.currency)}</span>
+                  <span className="text-2xl font-bold text-caramel">{money(h.thisMonth, h.currency)}</span>
                   {h.momPct != null && (
                     <span className={`inline-flex items-center gap-0.5 text-xs font-medium ${up ? 'text-red-600' : 'text-emerald-600'}`}>
                       {up ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />}
@@ -116,11 +116,11 @@ export default async function ShippingPage() {
                 const uk = monthly.find((x) => x.month === m && x.site === 'MANCHESTER');
                 return (
                   <tr key={m} className="hover:bg-cream/30">
-                    <td className="px-4 py-3 text-sm font-medium text-gray-900">{fmtMonth(m)}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700">
+                    <td className="px-4 py-3 text-sm font-medium text-caramel">{fmtMonth(m)}</td>
+                    <td className="px-4 py-3 text-sm text-caramel">
                       {au ? <>{money(au.total, 'AUD')} <span className="text-xs text-gray-400">· {au.shipments} shp · {money(au.avg, 'AUD')}/o</span></> : '—'}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-700">
+                    <td className="px-4 py-3 text-sm text-caramel">
                       {uk ? <>{money(uk.total, 'GBP')} <span className="text-xs text-gray-400">· {uk.shipments} shp · {money(uk.avg, 'GBP')}/o</span></> : '—'}
                     </td>
                   </tr>
@@ -136,7 +136,7 @@ export default async function ShippingPage() {
         <div className="mb-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Receipt className="h-5 w-5 text-maple" />
-            <h2 className="text-lg font-semibold text-gray-900">Invoices</h2>
+            <h2 className="text-lg font-semibold text-caramel">Invoices</h2>
           </div>
           <InvoiceForm />
         </div>

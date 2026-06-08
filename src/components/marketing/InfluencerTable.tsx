@@ -41,10 +41,10 @@ function Cell({ id, field, value, options, colors }: { id: string; field: string
     await fetch('/api/marketing/influencer', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, field, value: v }) });
     router.refresh();
   };
-  const cls = colors?.[val] || 'bg-paper text-gray-700 border-gray-200';
+  const cls = colors?.[val] || 'bg-paper text-caramel border-gray-200';
   return (
     <select value={val} onChange={(e) => onChange(e.target.value)} className={`rounded-md border px-1.5 py-1 text-xs font-medium focus:outline-none ${cls}`}>
-      {options.map((o) => <option key={o.v} value={o.v} className="bg-paper text-gray-700">{o.label}</option>)}
+      {options.map((o) => <option key={o.v} value={o.v} className="bg-paper text-caramel">{o.label}</option>)}
     </select>
   );
 }
@@ -130,17 +130,17 @@ export default function InfluencerTable({ influencers }: { influencers: Inf[] })
         <div className="relative">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name / handle / flavour…"
-            className="w-56 rounded-lg border border-gray-200 py-1.5 pl-8 pr-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-caramel focus:outline-none focus:ring-1 focus:ring-caramel" />
+            className="w-56 rounded-lg border border-gray-200 py-1.5 pl-8 pr-2 text-sm text-caramel placeholder:text-gray-400 focus:border-caramel focus:outline-none focus:ring-1 focus:ring-caramel" />
         </div>
-        <select value={statusF} onChange={(e) => setStatusF(e.target.value)} className="rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-gray-700 focus:border-caramel focus:outline-none">
+        <select value={statusF} onChange={(e) => setStatusF(e.target.value)} className="rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-caramel focus:border-caramel focus:outline-none">
           <option value="">Delivery: All</option>
           {STATUS.map((s) => <option key={s.v} value={s.v}>{s.label}</option>)}
         </select>
-        <select value={postF} onChange={(e) => setPostF(e.target.value)} className="rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-gray-700 focus:border-caramel focus:outline-none">
+        <select value={postF} onChange={(e) => setPostF(e.target.value)} className="rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-caramel focus:border-caramel focus:outline-none">
           <option value="">Posted: All</option>
           {POST.map((p) => <option key={p} value={p}>{p}</option>)}
         </select>
-        <select value={sort} onChange={(e) => setSort(e.target.value)} className="rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-gray-700 focus:border-caramel focus:outline-none">
+        <select value={sort} onChange={(e) => setSort(e.target.value)} className="rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-caramel focus:border-caramel focus:outline-none">
           {SORTS.map((s) => <option key={s.v} value={s.v}>{s.label}</option>)}
         </select>
         {active && (
@@ -165,7 +165,7 @@ export default function InfluencerTable({ influencers }: { influencers: Inf[] })
             <tbody>
               {g.rows.map((i) => (
                 <tr key={i.id} className="border-b border-gray-50 align-top hover:bg-cream/20">
-                  <td className="px-3 py-2 font-medium text-gray-800">{i.name}{i.followers ? <span className="block text-[10px] text-gray-400">{i.followers.toLocaleString()} followers</span> : ''}</td>
+                  <td className="px-3 py-2 font-medium text-caramel">{i.name}{i.followers ? <span className="block text-[10px] text-gray-400">{i.followers.toLocaleString()} followers</span> : ''}</td>
                   <td className="px-3 py-2 text-gray-500">{i.handle ? <a className="text-blue-600 hover:underline" href={`https://instagram.com/${(i.handle || '').replace('@', '')}`} target="_blank">{i.handle}</a> : '—'}</td>
                   <td className="px-3 py-2 text-xs text-gray-600">{i.flavour_sent || '—'}</td>
                   <td className="px-3 py-2 text-gray-400">{fmtDate(i.date_initiated)}</td>

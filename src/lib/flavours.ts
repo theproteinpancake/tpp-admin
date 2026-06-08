@@ -9,7 +9,7 @@ export const FLAVOUR_COLOR: Record<string, string> = {
   'Cinnamon Churro': '#9D442B',     // Dark Brown
 };
 
-const DEFAULT = '#C4814A'; // caramel fallback (syrup, accessories)
+const DEFAULT = '#bd6930'; // caramel fallback (syrup, accessories)
 
 export function flavourColor(flavour: string | null | undefined): string {
   if (!flavour) return DEFAULT;

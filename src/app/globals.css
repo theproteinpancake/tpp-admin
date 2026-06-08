@@ -4,15 +4,16 @@
 
 :root {
   --background: #f7eddb; /* darker cream */
-  --foreground: #211b25; /* cookie (near-black, warm) */
+  --foreground: #bd6930; /* brand caramel — primary text */
 }
 
 body {
   color: var(--foreground);
   background: var(--background);
+  /* Recoleta everywhere; weights differentiate headings vs body */
+  font-family: var(--font-recoleta), Georgia, serif;
 }
 
-/* Headings use the branded Recoleta serif (loaded via next/font/local) */
 h1, h2, h3, h4, .font-display {
   font-family: var(--font-recoleta), Georgia, serif;
 }

@@ -93,27 +93,26 @@ export default function FilterableTable<T>({
   return (
     <div>
       {/* Toolbar */}
-      <div className="mb-3 flex flex-wrap items-center gap-2">
+      <div className="mb-3 flex flex-wrap items-center gap-1.5">
         {searchable && (
-          <div className="relative">
+          <div className="relative min-w-[7.5rem] flex-1 sm:max-w-xs">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder}
-              className="w-48 rounded-lg border border-gray-200 py-1.5 pl-8 pr-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-caramel focus:outline-none focus:ring-1 focus:ring-caramel" />
+              className="w-full rounded-lg border border-gray-200 py-1.5 pl-8 pr-2 text-xs text-caramel placeholder:text-gray-400 focus:border-caramel focus:outline-none focus:ring-1 focus:ring-caramel sm:text-sm" />
           </div>
         )}
         {selectCols.map((c) => (
           <select key={c.key} value={selects[c.key] || ''} onChange={(e) => setSelects((s) => ({ ...s, [c.key]: e.target.value }))}
-            className="rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-gray-700 focus:border-caramel focus:outline-none">
+            className="max-w-[9rem] rounded-lg border border-gray-200 px-2 py-1.5 text-xs text-caramel focus:border-caramel focus:outline-none sm:text-sm">
             <option value="">{c.header}: All</option>
             {distinct[c.key]?.map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
         ))}
         {dateCol && (
-          <div className="flex items-center gap-1 text-sm text-gray-500">
-            <span className="text-xs">{dateCol.header}:</span>
-            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-gray-700 focus:border-caramel focus:outline-none" />
-            <span className="text-xs">→</span>
-            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-gray-700 focus:border-caramel focus:outline-none" />
+          <div className="flex items-center gap-1 text-[11px] text-gray-500">
+            <input type="date" aria-label={`${dateCol.header} from`} value={from} onChange={(e) => setFrom(e.target.value)} className="rounded-lg border border-gray-200 px-1.5 py-1.5 text-xs text-caramel focus:border-caramel focus:outline-none" />
+            <span>→</span>
+            <input type="date" aria-label={`${dateCol.header} to`} value={to} onChange={(e) => setTo(e.target.value)} className="rounded-lg border border-gray-200 px-1.5 py-1.5 text-xs text-caramel focus:border-caramel focus:outline-none" />
           </div>
         )}
         {active && (
@@ -121,7 +120,7 @@ export default function FilterableTable<T>({
             <X className="h-3.5 w-3.5" /> Clear
           </button>
         )}
-        <span className="ml-auto text-xs text-gray-400">{filtered.length} of {rows.length}</span>
+        <span className="ml-auto whitespace-nowrap text-[11px] text-gray-400">{filtered.length}/{rows.length}</span>
       </div>
 
       {/* Table */}

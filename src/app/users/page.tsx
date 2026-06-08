@@ -111,12 +111,12 @@ export default function UsersPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Users</h1>
+          <h1 className="text-3xl font-bold text-caramel">Users</h1>
           <p className="text-gray-600 mt-1">View app users and analytics</p>
         </div>
         <button
           onClick={exportUsers}
-          className="flex items-center gap-2 bg-paper border border-gray-300 text-gray-700 px-4 py-2.5 rounded-lg hover:bg-gray-50 transition-colors"
+          className="flex items-center gap-2 bg-paper border border-gray-300 text-caramel px-4 py-2.5 rounded-lg hover:bg-gray-50 transition-colors"
         >
           <Download className="h-5 w-5" />
           Export CSV
@@ -129,7 +129,7 @@ export default function UsersPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-gray-600">Total Users</p>
-              <p className="text-3xl font-bold text-gray-900 mt-1">
+              <p className="text-3xl font-bold text-caramel mt-1">
                 {loading ? '...' : stats.totalUsers.toLocaleString()}
               </p>
             </div>
@@ -143,7 +143,7 @@ export default function UsersPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-gray-600">New This Week</p>
-              <p className="text-3xl font-bold text-gray-900 mt-1">
+              <p className="text-3xl font-bold text-caramel mt-1">
                 {loading ? '...' : stats.activeThisWeek}
               </p>
             </div>
@@ -157,7 +157,7 @@ export default function UsersPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-gray-600">Completed Onboarding</p>
-              <p className="text-3xl font-bold text-gray-900 mt-1">
+              <p className="text-3xl font-bold text-caramel mt-1">
                 {loading ? '...' : `${stats.completedOnboarding}`}
               </p>
               <p className="text-xs text-gray-500 mt-1">
@@ -174,7 +174,7 @@ export default function UsersPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-gray-600">Push Notifications</p>
-              <p className="text-3xl font-bold text-gray-900 mt-1">
+              <p className="text-3xl font-bold text-caramel mt-1">
                 {loading ? '...' : stats.withPushEnabled}
               </p>
               <p className="text-xs text-gray-500 mt-1">
@@ -191,7 +191,7 @@ export default function UsersPage() {
       {/* Goal Breakdown */}
       {Object.keys(stats.goalBreakdown).length > 0 && (
         <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">User Goals</h2>
+          <h2 className="text-lg font-semibold text-caramel mb-4">User Goals</h2>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             {Object.entries(stats.goalBreakdown).map(([goal, count]) => (
               <div key={goal} className="text-center p-4 bg-cream rounded-lg">
@@ -255,7 +255,7 @@ export default function UsersPage() {
                         <span className="text-lg">🥞</span>
                       </div>
                       <div>
-                        <p className="font-medium text-gray-900">{user.email || 'Anonymous'}</p>
+                        <p className="font-medium text-caramel">{user.email || 'Anonymous'}</p>
                         <p className="text-xs text-gray-500">{user.id.slice(0, 8)}...</p>
                       </div>
                     </div>
@@ -272,7 +272,7 @@ export default function UsersPage() {
                   <td className="px-6 py-4">
                     {user.daily_calorie_target ? (
                       <div className="text-sm">
-                        <span className="font-medium text-gray-900">{user.daily_calorie_target}</span>
+                        <span className="font-medium text-caramel">{user.daily_calorie_target}</span>
                         <span className="text-gray-500"> cal</span>
                         {user.daily_protein_target && (
                           <>

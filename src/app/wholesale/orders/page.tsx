@@ -12,7 +12,7 @@ export default async function WholesaleOrders() {
       <div className="mb-6 flex items-center gap-2.5">
         <ShoppingCart className="h-6 w-6 text-caramel" />
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Wholesale Orders</h1>
+          <h1 className="text-xl font-bold text-caramel">Wholesale Orders</h1>
           <p className="text-sm text-gray-500">Sales invoices synced from Xero</p>
         </div>
       </div>

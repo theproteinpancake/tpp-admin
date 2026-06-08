@@ -52,7 +52,7 @@ export default function CreatorsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Creators</h1>
+          <h1 className="text-3xl font-bold text-caramel">Creators</h1>
           <p className="text-gray-600 mt-1">Manage recipe creators and influencers</p>
         </div>
         <Link
@@ -112,7 +112,7 @@ export default function CreatorsPage() {
 
               {/* Content */}
               <div className="pt-12 pb-6 px-6 text-center">
-                <h3 className="text-lg font-semibold text-gray-900">{creator.name}</h3>
+                <h3 className="text-lg font-semibold text-caramel">{creator.name}</h3>
                 {creator.bio && (
                   <p className="text-sm text-gray-500 mt-1 line-clamp-2">{creator.bio}</p>
                 )}

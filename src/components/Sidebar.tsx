@@ -109,9 +109,9 @@ export default function Sidebar({ onNavigate, onClose }: { onNavigate?: () => vo
     <div className="flex h-screen w-64 flex-col bg-paper border-r border-gray-200">
       {/* Logo */}
       <div className="safe-top flex h-16 items-center gap-2.5 border-b border-gray-200 px-5">
-        <Image src="/tpp-smile.png" alt="The Protein Pancake" width={36} height={36} className="rounded-lg shadow-sm" />
+        <Image src="/smile.png" alt="The Protein Pancake" width={36} height={36} className="rounded-lg shadow-sm" />
         <div className="leading-tight">
-          <h1 className="text-[15px] font-bold text-gray-900">TPP Control</h1>
+          <h1 className="text-[15px] font-bold text-caramel">TPP Control</h1>
           <p className="text-[11px] text-gray-500">The Protein Pancake</p>
         </div>
         {onClose && (
@@ -139,7 +139,7 @@ export default function Sidebar({ onNavigate, onClose }: { onNavigate?: () => vo
                     className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
                       active
                         ? 'bg-caramel text-white shadow-sm'
-                        : 'text-gray-700 hover:bg-cream hover:text-maple'
+                        : 'text-caramel hover:bg-cream hover:text-maple'
                     }`}
                   >
                     <item.icon className="h-5 w-5 shrink-0" />
@@ -160,7 +160,7 @@ export default function Sidebar({ onNavigate, onClose }: { onNavigate?: () => vo
               {(me.name || me.email).trim().charAt(0).toUpperCase()}
             </div>
             <div className="min-w-0 leading-tight">
-              <p className="truncate text-[13px] font-semibold text-gray-900">{me.name || me.email}</p>
+              <p className="truncate text-[13px] font-semibold text-caramel">{me.name || me.email}</p>
               <p className="truncate text-[11px] text-gray-500">{ROLE_LABEL[me.role] || me.role}</p>
             </div>
           </div>
@@ -168,14 +168,14 @@ export default function Sidebar({ onNavigate, onClose }: { onNavigate?: () => vo
         <Link
           href="/settings"
           onClick={onNavigate}
-          className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-cream hover:text-maple transition-colors"
+          className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-caramel hover:bg-cream hover:text-maple transition-colors"
         >
           <Settings className="h-5 w-5" />
           Settings
         </Link>
         <button
           onClick={handleLogout}
-          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-red-50 hover:text-red-600 transition-colors"
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-caramel hover:bg-red-50 hover:text-red-600 transition-colors"
         >
           <LogOut className="h-5 w-5" />
           Sign Out

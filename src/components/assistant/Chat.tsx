@@ -39,7 +39,7 @@ export default function Chat() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="mb-3">
-        <h1 className="flex items-center gap-2 text-xl font-bold text-gray-900 sm:text-2xl"><Sparkles className="h-5 w-5 text-caramel sm:h-6 sm:w-6" /> Assistant</h1>
+        <h1 className="flex items-center gap-2 text-xl font-bold text-caramel sm:text-2xl"><Sparkles className="h-5 w-5 text-caramel sm:h-6 sm:w-6" /> Assistant</h1>
         <p className="mt-0.5 text-xs text-gray-500 sm:text-sm">Chat to your logistics hub — same brain as the WhatsApp agent.</p>
       </div>
 
@@ -53,7 +53,7 @@ export default function Chat() {
         )}
         {msgs.map((m, i) => (
           <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[80%] whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm ${m.role === 'user' ? 'bg-caramel text-white' : 'bg-gray-100 text-gray-800'}`}>
+            <div className={`max-w-[80%] whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm ${m.role === 'user' ? 'bg-caramel text-white' : 'bg-gray-100 text-caramel'}`}>
               {m.text}
               {m.media && (
                 <a href={m.media} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 rounded-lg bg-paper/90 px-2 py-1 text-xs font-medium text-maple">

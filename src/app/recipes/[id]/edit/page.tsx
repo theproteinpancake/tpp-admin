@@ -787,7 +787,7 @@ export default function EditRecipePage() {
           <ArrowLeft className="h-5 w-5" />
         </Link>
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Edit Recipe</h1>
+          <h1 className="text-3xl font-bold text-caramel">Edit Recipe</h1>
           <p className="text-gray-600 mt-1">Update recipe details</p>
         </div>
       </div>
@@ -795,11 +795,11 @@ export default function EditRecipePage() {
       <form onSubmit={handleSubmit} className="space-y-8">
         {/* Basic Info */}
         <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Basic Information</h2>
+          <h2 className="text-lg font-semibold text-caramel mb-4">Basic Information</h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-caramel mb-1">
                 Recipe Title *
               </label>
               <input
@@ -807,31 +807,31 @@ export default function EditRecipePage() {
                 value={form.title}
                 onChange={(e) => handleTitleChange(e.target.value)}
                 required
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900 placeholder-gray-400"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel placeholder-gray-400"
                 placeholder="e.g., Chocolate Protein Pancakes"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-caramel mb-1">
                 URL Slug
               </label>
               <input
                 type="text"
                 value={form.slug}
                 onChange={(e) => setForm({ ...form, slug: e.target.value })}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900 placeholder-gray-400"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel placeholder-gray-400"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-caramel mb-1">
                 Category *
               </label>
               <select
                 value={form.category}
                 onChange={(e) => setForm({ ...form, category: e.target.value })}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel"
               >
                 <option value="breakfast">Breakfast</option>
                 <option value="lunch">Lunch</option>
@@ -843,13 +843,13 @@ export default function EditRecipePage() {
             </div>
 
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-caramel mb-1">
                 Creator / Author
               </label>
               <select
                 value={form.creator_id}
                 onChange={(e) => setForm({ ...form, creator_id: e.target.value })}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel"
               >
                 <option value="">No creator assigned</option>
                 {creators.map((creator) => (
@@ -866,14 +866,14 @@ export default function EditRecipePage() {
             </div>
 
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-caramel mb-1">
                 Description
               </label>
               <textarea
                 value={form.description}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
                 rows={3}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900 placeholder-gray-400"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel placeholder-gray-400"
                 placeholder="A brief description of the recipe..."
               />
             </div>
@@ -882,12 +882,12 @@ export default function EditRecipePage() {
 
         {/* Media Upload */}
         <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Media</h2>
+          <h2 className="text-lg font-semibold text-caramel mb-4">Media</h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Image Upload */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-caramel mb-2">
                 Featured Image
               </label>
               {form.featured_image ? (
@@ -927,7 +927,7 @@ export default function EditRecipePage() {
 
             {/* Video Upload */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-caramel mb-2">
                 Recipe Video (Reels)
               </label>
               {form.video_url ? (
@@ -979,11 +979,11 @@ export default function EditRecipePage() {
 
         {/* Timing & Servings */}
         <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Time & Servings</h2>
+          <h2 className="text-lg font-semibold text-caramel mb-4">Time & Servings</h2>
 
           <div className="grid grid-cols-3 gap-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-caramel mb-1">
                 Prep Time (min)
               </label>
               <input
@@ -991,11 +991,11 @@ export default function EditRecipePage() {
                 value={form.prep_time_minutes}
                 onChange={(e) => setForm({ ...form, prep_time_minutes: parseInt(e.target.value) || 0 })}
                 min="0"
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-caramel mb-1">
                 Cook Time (min)
               </label>
               <input
@@ -1003,11 +1003,11 @@ export default function EditRecipePage() {
                 value={form.cook_time_minutes}
                 onChange={(e) => setForm({ ...form, cook_time_minutes: parseInt(e.target.value) || 0 })}
                 min="0"
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-caramel mb-1">
                 Servings
               </label>
               <input
@@ -1015,7 +1015,7 @@ export default function EditRecipePage() {
                 value={form.servings}
                 onChange={(e) => setForm({ ...form, servings: parseInt(e.target.value) || 1 })}
                 min="1"
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel"
               />
             </div>
           </div>
@@ -1024,7 +1024,7 @@ export default function EditRecipePage() {
         {/* Nutrition */}
         <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">Nutrition (per serving)</h2>
+            <h2 className="text-lg font-semibold text-caramel">Nutrition (per serving)</h2>
             <button
               type="button"
               onClick={handleGenerateNutrition}
@@ -1053,7 +1053,7 @@ export default function EditRecipePage() {
 
           <div className="grid grid-cols-4 gap-6 mb-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-caramel mb-1">
                 Calories
               </label>
               <input
@@ -1061,11 +1061,11 @@ export default function EditRecipePage() {
                 value={form.calories}
                 onChange={(e) => setForm({ ...form, calories: parseInt(e.target.value) || 0 })}
                 min="0"
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-caramel mb-1">
                 Protein (g)
               </label>
               <input
@@ -1074,11 +1074,11 @@ export default function EditRecipePage() {
                 onChange={(e) => setForm({ ...form, protein: parseFloat(e.target.value) || 0 })}
                 min="0"
                 step="0.1"
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-caramel mb-1">
                 Carbs (g)
               </label>
               <input
@@ -1087,11 +1087,11 @@ export default function EditRecipePage() {
                 onChange={(e) => setForm({ ...form, carbs: parseFloat(e.target.value) || 0 })}
                 min="0"
                 step="0.1"
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-caramel mb-1">
                 Fat (g)
               </label>
               <input
@@ -1100,14 +1100,14 @@ export default function EditRecipePage() {
                 onChange={(e) => setForm({ ...form, fat: parseFloat(e.target.value) || 0 })}
                 min="0"
                 step="0.1"
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel"
               />
             </div>
           </div>
 
           <div className="grid grid-cols-4 gap-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-caramel mb-1">
                 Saturated Fat (g)
               </label>
               <input
@@ -1116,11 +1116,11 @@ export default function EditRecipePage() {
                 onChange={(e) => setForm({ ...form, saturated_fat: parseFloat(e.target.value) || 0 })}
                 min="0"
                 step="0.1"
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-caramel mb-1">
                 Sugars (g)
               </label>
               <input
@@ -1129,11 +1129,11 @@ export default function EditRecipePage() {
                 onChange={(e) => setForm({ ...form, sugars: parseFloat(e.target.value) || 0 })}
                 min="0"
                 step="0.1"
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-caramel mb-1">
                 Fiber (g)
               </label>
               <input
@@ -1142,11 +1142,11 @@ export default function EditRecipePage() {
                 onChange={(e) => setForm({ ...form, fiber: parseFloat(e.target.value) || 0 })}
                 min="0"
                 step="0.1"
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-caramel mb-1">
                 Sodium (mg)
               </label>
               <input
@@ -1154,7 +1154,7 @@ export default function EditRecipePage() {
                 value={form.sodium}
                 onChange={(e) => setForm({ ...form, sodium: parseInt(e.target.value) || 0 })}
                 min="0"
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel"
               />
             </div>
           </div>
@@ -1162,14 +1162,14 @@ export default function EditRecipePage() {
 
         {/* Ratings */}
         <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Ratings (synced with Shopify)</h2>
+          <h2 className="text-lg font-semibold text-caramel mb-4">Ratings (synced with Shopify)</h2>
           <p className="text-sm text-gray-500 mb-4">
             Set the recipe rating (1-5 stars) and review count. These will display in the app and sync to Shopify blog posts.
           </p>
 
           <div className="grid grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-caramel mb-1">
                 Rating (1-5)
               </label>
               <input
@@ -1180,7 +1180,7 @@ export default function EditRecipePage() {
                 max="5"
                 step="0.1"
                 placeholder="e.g., 4.5"
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel"
               />
               {form.rating > 0 && (
                 <div className="mt-2 text-xl">
@@ -1189,7 +1189,7 @@ export default function EditRecipePage() {
               )}
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-caramel mb-1">
                 Review Count
               </label>
               <input
@@ -1198,7 +1198,7 @@ export default function EditRecipePage() {
                 onChange={(e) => setForm({ ...form, review_count: parseInt(e.target.value) || 0 })}
                 min="0"
                 placeholder="e.g., 42"
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel"
               />
             </div>
           </div>
@@ -1206,7 +1206,7 @@ export default function EditRecipePage() {
 
         {/* Ingredients */}
         <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Ingredients</h2>
+          <h2 className="text-lg font-semibold text-caramel mb-4">Ingredients</h2>
 
           <div className="space-y-3">
             {form.ingredients.map((ingredient, index) => (
@@ -1216,28 +1216,28 @@ export default function EditRecipePage() {
                   value={ingredient.amount}
                   onChange={(e) => updateIngredient(index, 'amount', e.target.value)}
                   placeholder="1"
-                  className="w-16 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900 placeholder-gray-400"
+                  className="w-16 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel placeholder-gray-400"
                 />
                 <input
                   type="text"
                   value={ingredient.unit}
                   onChange={(e) => updateIngredient(index, 'unit', e.target.value)}
                   placeholder="cup"
-                  className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900 placeholder-gray-400"
+                  className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel placeholder-gray-400"
                 />
                 <input
                   type="text"
                   value={ingredient.item}
                   onChange={(e) => updateIngredient(index, 'item', e.target.value)}
                   placeholder="TPP Buttermilk Mix"
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900 placeholder-gray-400"
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel placeholder-gray-400"
                 />
                 <input
                   type="text"
                   value={ingredient.notes}
                   onChange={(e) => updateIngredient(index, 'notes', e.target.value)}
                   placeholder="optional notes"
-                  className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900 placeholder-gray-400"
+                  className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel placeholder-gray-400"
                 />
                 <button
                   type="button"
@@ -1262,7 +1262,7 @@ export default function EditRecipePage() {
 
         {/* Instructions */}
         <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Instructions</h2>
+          <h2 className="text-lg font-semibold text-caramel mb-4">Instructions</h2>
 
           <div className="space-y-3">
             {form.instructions.map((instruction, index) => (
@@ -1275,7 +1275,7 @@ export default function EditRecipePage() {
                   onChange={(e) => updateInstruction(index, e.target.value)}
                   placeholder="Describe this step..."
                   rows={2}
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900 placeholder-gray-400"
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel placeholder-gray-400"
                 />
                 <button
                   type="button"
@@ -1300,7 +1300,7 @@ export default function EditRecipePage() {
 
         {/* Tags */}
         <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Tags</h2>
+          <h2 className="text-lg font-semibold text-caramel mb-4">Tags</h2>
 
           <div className="flex flex-wrap gap-2 mb-4">
             {form.tags.map((tag) => (
@@ -1323,7 +1323,7 @@ export default function EditRecipePage() {
               onChange={(e) => setNewTag(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
               placeholder="Add a tag..."
-              className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900 placeholder-gray-400"
+              className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel placeholder-gray-400"
             />
             <button
               type="button"
@@ -1337,13 +1337,13 @@ export default function EditRecipePage() {
 
         {/* Tips */}
         <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Tips & Notes</h2>
+          <h2 className="text-lg font-semibold text-caramel mb-4">Tips & Notes</h2>
           <textarea
             value={form.tips}
             onChange={(e) => setForm({ ...form, tips: e.target.value })}
             rows={3}
             placeholder="Any tips for making this recipe..."
-            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-gray-900 placeholder-gray-400"
+            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-caramel focus:border-transparent text-caramel placeholder-gray-400"
           />
         </div>
 
@@ -1351,7 +1351,7 @@ export default function EditRecipePage() {
         <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+              <h2 className="text-lg font-semibold text-caramel flex items-center gap-2">
                 <Search className="h-5 w-5 text-green-600" />
                 SEO
               </h2>
@@ -1376,7 +1376,7 @@ export default function EditRecipePage() {
 
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-caramel mb-1">
                 Meta Title
               </label>
               <input
@@ -1384,7 +1384,7 @@ export default function EditRecipePage() {
                 value={form.meta_title}
                 onChange={(e) => setForm({ ...form, meta_title: e.target.value })}
                 placeholder={form.title ? generateMetaTitle(form) : 'Auto-generated from recipe title...'}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900 placeholder-gray-400"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-caramel placeholder-gray-400"
               />
               <p className="text-xs text-gray-500 mt-1">
                 {form.meta_title.length}/60 characters (recommended: 50-60)
@@ -1392,7 +1392,7 @@ export default function EditRecipePage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-caramel mb-1">
                 Meta Description
               </label>
               <textarea
@@ -1400,7 +1400,7 @@ export default function EditRecipePage() {
                 onChange={(e) => setForm({ ...form, meta_description: e.target.value })}
                 placeholder={form.title ? generateMetaDescription(form) : 'Auto-generated from recipe data...'}
                 rows={2}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900 placeholder-gray-400"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-caramel placeholder-gray-400"
               />
               <p className={`text-xs mt-1 ${form.meta_description.length > 160 ? 'text-red-500' : 'text-gray-500'}`}>
                 {form.meta_description.length}/160 characters {form.meta_description.length > 160 ? '(too long!)' : '(recommended: 150-160)'}
@@ -1408,7 +1408,7 @@ export default function EditRecipePage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-caramel mb-1">
                 SEO Keywords
               </label>
               <textarea
@@ -1416,7 +1416,7 @@ export default function EditRecipePage() {
                 onChange={(e) => setForm({ ...form, seo_keywords: e.target.value })}
                 placeholder={form.title ? generateSeoKeywords(form) : 'Auto-generated keywords...'}
                 rows={2}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900 placeholder-gray-400"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-caramel placeholder-gray-400"
               />
               <p className="text-xs text-gray-500 mt-1">
                 Comma-separated keywords for Schema.org structured data
@@ -1427,7 +1427,7 @@ export default function EditRecipePage() {
 
         {/* Publishing Options */}
         <div className="bg-paper rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Publishing</h2>
+          <h2 className="text-lg font-semibold text-caramel mb-4">Publishing</h2>
 
           <div className="space-y-4">
             <label className="flex items-center gap-3">
@@ -1438,7 +1438,7 @@ export default function EditRecipePage() {
                 className="w-5 h-5 text-caramel rounded focus:ring-caramel"
               />
               <div>
-                <span className="font-medium text-gray-900">Publish to App</span>
+                <span className="font-medium text-caramel">Publish to App</span>
                 <p className="text-sm text-gray-500">Make this recipe visible in the TPP app</p>
               </div>
             </label>
@@ -1451,14 +1451,14 @@ export default function EditRecipePage() {
                 className="w-5 h-5 text-caramel rounded focus:ring-caramel"
               />
               <div>
-                <span className="font-medium text-gray-900">Featured Recipe</span>
+                <span className="font-medium text-caramel">Featured Recipe</span>
                 <p className="text-sm text-gray-500">Show in featured section on home screen</p>
               </div>
             </label>
 
             {/* Shopify Blog Sync */}
             <div className="border-t border-gray-200 pt-4 mt-4">
-              <h3 className="font-medium text-gray-900 mb-3">Shopify Blog</h3>
+              <h3 className="font-medium text-caramel mb-3">Shopify Blog</h3>
 
               {shopifyArticleId ? (
                 <div className="space-y-3">
@@ -1533,13 +1533,13 @@ export default function EditRecipePage() {
                       className="w-5 h-5 text-caramel rounded focus:ring-caramel"
                     />
                     <div>
-                      <span className="font-medium text-gray-900">Create New Blog Draft</span>
+                      <span className="font-medium text-caramel">Create New Blog Draft</span>
                       <p className="text-sm text-gray-500">Create a new draft post on Shopify blog</p>
                     </div>
                   </label>
 
                   <div className="border-t border-gray-100 pt-4">
-                    <p className="text-sm font-medium text-gray-700 mb-2">Or link an existing blog post:</p>
+                    <p className="text-sm font-medium text-caramel mb-2">Or link an existing blog post:</p>
                     <div className="flex gap-2">
                       <input
                         type="text"
@@ -1552,7 +1552,7 @@ export default function EditRecipePage() {
                         type="button"
                         onClick={handleLinkExistingBlog}
                         disabled={linkingBlog || !manualArticleId.trim()}
-                        className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50 text-sm"
+                        className="px-4 py-2 bg-gray-100 text-caramel rounded-lg hover:bg-gray-200 disabled:opacity-50 text-sm"
                       >
                         {linkingBlog ? 'Linking...' : 'Link'}
                       </button>
@@ -1567,7 +1567,7 @@ export default function EditRecipePage() {
 
             {/* YouTube Upload */}
             <div className="border-t border-gray-200 pt-4 mt-4">
-              <h3 className="font-medium text-gray-900 mb-3 flex items-center gap-2">
+              <h3 className="font-medium text-caramel mb-3 flex items-center gap-2">
                 <Youtube className="h-5 w-5 text-red-600" />
                 YouTube
               </h3>
@@ -1600,7 +1600,7 @@ export default function EditRecipePage() {
                 <div className="space-y-3">
                   {/* YouTube Video Upload */}
                   <div>
-                    <p className="text-sm font-medium text-gray-700 mb-2">YouTube Video (full quality)</p>
+                    <p className="text-sm font-medium text-caramel mb-2">YouTube Video (full quality)</p>
                     {form.original_video_url ? (
                       <div className="flex items-center justify-between bg-red-50 px-3 py-2 rounded-lg">
                         <div className="flex items-center gap-2 text-sm text-red-700">
@@ -1642,7 +1642,7 @@ export default function EditRecipePage() {
 
                   {/* Link existing YouTube video */}
                   <div className="border-t border-gray-100 pt-3">
-                    <p className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1.5">
+                    <p className="text-sm font-medium text-caramel mb-2 flex items-center gap-1.5">
                       <Link2 className="h-4 w-4" />
                       Link existing YouTube video
                     </p>
@@ -1678,7 +1678,7 @@ export default function EditRecipePage() {
                       className="w-5 h-5 text-red-600 rounded focus:ring-red-500"
                     />
                     <div>
-                      <span className="font-medium text-gray-900">Upload to YouTube on Save</span>
+                      <span className="font-medium text-caramel">Upload to YouTube on Save</span>
                       <p className="text-sm text-gray-500">
                         {!form.original_video_url
                           ? 'Upload a YouTube video above first'
@@ -1701,7 +1701,7 @@ export default function EditRecipePage() {
         <div className="flex items-center justify-end gap-4">
           <Link
             href="/recipes"
-            className="px-6 py-2.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+            className="px-6 py-2.5 border border-gray-300 rounded-lg text-caramel hover:bg-gray-50"
           >
             Cancel
           </Link>

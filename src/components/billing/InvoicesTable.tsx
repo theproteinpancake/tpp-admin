@@ -15,11 +15,11 @@ const fmtDate = (d: string | null) => (d ? new Date(d + 'T00:00:00').toLocaleDat
 
 export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
   const columns: Column<InvoiceRow>[] = [
-    { key: 'invoice_number', header: 'Invoice', sort: 'text', value: (r) => r.invoice_number || '', cell: (r) => <span className="font-medium text-gray-900">{r.invoice_number || '—'}</span> },
+    { key: 'invoice_number', header: 'Invoice', sort: 'text', value: (r) => r.invoice_number || '', cell: (r) => <span className="font-medium text-caramel">{r.invoice_number || '—'}</span> },
     { key: 'siteLabel', header: 'Site', filter: 'select', sort: 'text', cell: (r) => <span className="text-gray-600">{r.siteLabel || '—'}</span> },
     { key: 'invoice_date', header: 'Date', filter: 'date', sort: 'date', value: (r) => r.invoice_date, cell: (r) => <span className="whitespace-nowrap text-gray-600">{fmtDate(r.invoice_date)}</span> },
     { key: 'period', header: 'Period', cell: (r) => <span className="whitespace-nowrap text-xs text-gray-500">{r.period_start ? `${fmtDate(r.period_start)}–${fmtDate(r.period_end)}` : '—'}</span> },
-    { key: 'total_amount', header: 'Total', sort: 'num', align: 'right', value: (r) => r.total_amount ?? 0, cell: (r) => <span className="font-semibold text-gray-900">{r.total_amount != null ? money(r.total_amount, r.currency || 'AUD') : '—'}</span> },
+    { key: 'total_amount', header: 'Total', sort: 'num', align: 'right', value: (r) => r.total_amount ?? 0, cell: (r) => <span className="font-semibold text-caramel">{r.total_amount != null ? money(r.total_amount, r.currency || 'AUD') : '—'}</span> },
     { key: 'status', header: 'Status', filter: 'select', sort: 'text', cell: (r) => { const st = INV_STATUS[r.status] || INV_STATUS.unpaid; return <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold text-white" style={{ backgroundColor: st.bg }}>{st.label}</span>; } },
     { key: 'notes', header: 'Notes', cell: (r) => <span className="text-xs text-gray-500">{r.notes || '—'}</span> },
   ];

@@ -31,7 +31,7 @@ export default function XeroButtons({ connected, org }: { connected: boolean; or
         {connected ? `Xero: ${org || 'connected'} ✓` : 'Xero: not configured'}
       </span>
       <button onClick={sync} disabled={busy || !connected}
-        className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-paper px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-cream hover:text-maple disabled:opacity-60">
+        className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-paper px-3 py-2 text-sm font-medium text-caramel shadow-sm hover:bg-cream hover:text-maple disabled:opacity-60">
         <RefreshCw className={`h-4 w-4 ${busy ? 'animate-spin' : ''}`} />
         {busy ? 'Syncing…' : msg ?? 'Sync from Xero'}
       </button>

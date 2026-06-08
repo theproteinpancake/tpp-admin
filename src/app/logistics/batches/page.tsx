@@ -17,14 +17,14 @@ export default async function BatchesPage() {
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Batches</h1>
+        <h1 className="text-2xl font-bold text-caramel">Batches</h1>
         <p className="mt-1 text-gray-500">Lot tracking &amp; best-before dates across sites</p>
       </div>
 
       <div className="mb-8 grid gap-4 sm:grid-cols-3">
-        <Card icon={<AlertTriangle className="h-5 w-5 text-red-600" />} label="Expired (on hand)" value={String(expired.length)} tone={expired.length ? 'text-red-700' : 'text-gray-900'} />
-        <Card icon={<Clock className="h-5 w-5 text-red-500" />} label="Under 30 days" value={String(critical.length)} tone="text-gray-900" />
-        <Card icon={<Clock className="h-5 w-5 text-amber-500" />} label="Under 3 months" value={String(warning.length)} tone="text-gray-900" />
+        <Card icon={<AlertTriangle className="h-5 w-5 text-red-600" />} label="Expired (on hand)" value={String(expired.length)} tone={expired.length ? 'text-red-700' : 'text-caramel'} />
+        <Card icon={<Clock className="h-5 w-5 text-red-500" />} label="Under 30 days" value={String(critical.length)} tone="text-caramel" />
+        <Card icon={<Clock className="h-5 w-5 text-amber-500" />} label="Under 3 months" value={String(warning.length)} tone="text-caramel" />
       </div>
 
       <BatchesTable rows={lots.map((l) => {

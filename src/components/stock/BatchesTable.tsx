@@ -16,14 +16,14 @@ export default function BatchesTable({ rows }: { rows: BatchRow[] }) {
     { key: 'flavour', header: 'Product', sort: 'text', value: (r) => r.flavour ?? r.sku, cell: (r) => (
       <div className="flex items-center gap-2.5">
         <ProductThumb flavour={r.flavour} size={28} />
-        <div><div className="font-medium text-gray-900">{r.flavour ?? r.sku}</div><div className="text-[11px] text-gray-500">{r.sku} · {r.size}</div></div>
+        <div><div className="font-medium text-caramel">{r.flavour ?? r.sku}</div><div className="text-[11px] text-gray-500">{r.sku} · {r.size}</div></div>
       </div>
     ) },
     { key: 'site', header: 'Site', filter: 'select', sort: 'text', cell: (r) => <span className="text-gray-600">{r.site}</span> },
-    { key: 'lot_number', header: 'Lot', sort: 'text', cell: (r) => <span className="font-mono text-gray-700">{r.lot_number}</span> },
-    { key: 'expiry_date', header: 'Best before', sort: 'date', filter: 'date', value: (r) => r.expiry_date, cell: (r) => <span className="whitespace-nowrap text-gray-700">{fmtDate(r.expiry_date)}</span> },
-    { key: 'days_left', header: 'Days left', sort: 'num', align: 'right', value: (r) => r.days_left ?? 999999, cell: (r) => <span className="text-gray-700">{r.days_left == null ? '—' : `${r.days_left}d`}</span> },
-    { key: 'on_hand', header: 'On hand', sort: 'num', align: 'right', value: (r) => r.on_hand, cell: (r) => <span className="font-semibold text-gray-900">{fmtInt(r.on_hand)}</span> },
+    { key: 'lot_number', header: 'Lot', sort: 'text', cell: (r) => <span className="font-mono text-caramel">{r.lot_number}</span> },
+    { key: 'expiry_date', header: 'Best before', sort: 'date', filter: 'date', value: (r) => r.expiry_date, cell: (r) => <span className="whitespace-nowrap text-caramel">{fmtDate(r.expiry_date)}</span> },
+    { key: 'days_left', header: 'Days left', sort: 'num', align: 'right', value: (r) => r.days_left ?? 999999, cell: (r) => <span className="text-caramel">{r.days_left == null ? '—' : `${r.days_left}d`}</span> },
+    { key: 'on_hand', header: 'On hand', sort: 'num', align: 'right', value: (r) => r.on_hand, cell: (r) => <span className="font-semibold text-caramel">{fmtInt(r.on_hand)}</span> },
     { key: 'statusLabel', header: 'Status', filter: 'select', sort: 'text', cell: (r) => <span className="inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold text-white" style={{ backgroundColor: r.statusBg }}>{r.statusLabel}</span> },
   ];
   return (

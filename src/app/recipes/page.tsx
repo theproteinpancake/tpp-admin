@@ -138,7 +138,7 @@ export default function RecipesPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Recipes</h1>
+          <h1 className="text-3xl font-bold text-caramel">Recipes</h1>
           <p className="text-gray-600 mt-1">Manage your recipe library</p>
         </div>
         <div className="flex items-center gap-3">
@@ -259,7 +259,7 @@ export default function RecipesPage() {
                         </div>
                       )}
                       <div>
-                        <p className="font-medium text-gray-900">{recipe.title}</p>
+                        <p className="font-medium text-caramel">{recipe.title}</p>
                         <p className="text-sm text-gray-500">
                           {recipe.prep_time_minutes || 0} + {recipe.cook_time_minutes || 0} min
                         </p>
@@ -273,7 +273,7 @@ export default function RecipesPage() {
                   </td>
                   <td className="px-6 py-4">
                     <div className="text-sm">
-                      <span className="font-medium text-gray-900">{recipe.calories || '-'}</span>
+                      <span className="font-medium text-caramel">{recipe.calories || '-'}</span>
                       <span className="text-gray-500"> cal</span>
                       <span className="mx-1 text-gray-300">|</span>
                       <span className="font-medium text-maple">{recipe.protein || '-'}g</span>

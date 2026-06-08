@@ -13,7 +13,7 @@ export default async function NewPOPage() {
       <Link href="/logistics/purchase-orders" className="mb-4 inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-maple">
         <ArrowLeft className="h-4 w-4" /> Back to Purchase Orders
       </Link>
-      <h1 className="mb-6 text-2xl font-bold text-gray-900">New Purchase Order</h1>
+      <h1 className="mb-6 text-2xl font-bold text-caramel">New Purchase Order</h1>
       <div className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm sm:p-6">
         <NewPOForm
           suppliers={suppliers as never}

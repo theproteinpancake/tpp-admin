@@ -32,7 +32,7 @@ export default function ActionCenter({ actions }: { actions: ActionItem[] }) {
     <section className="mb-8">
       <div className="mb-3 flex items-center gap-2">
         <AlertTriangle className="h-5 w-5 text-caramel" />
-        <h2 className="text-lg font-semibold text-gray-900">Action Center</h2>
+        <h2 className="text-lg font-semibold text-caramel">Action Center</h2>
         <span className="rounded-full bg-cream px-2 py-0.5 text-[11px] font-medium text-maple">{items.length} to action</span>
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -44,7 +44,7 @@ export default function ActionCenter({ actions }: { actions: ActionItem[] }) {
             </button>
             <Link href={a.href} className="block pr-5">
               <div className="flex items-center justify-between">
-                <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-gray-900">
+                <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-caramel">
                   <span className="h-2 w-2 rounded-full" style={{ backgroundColor: SEV[a.severity] }} />
                   {a.title}
                 </span>

@@ -58,7 +58,7 @@ export default function StaffManager({ initial }: { initial: Staff[] }) {
         <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
           <p className="mb-1 text-xs font-medium text-emerald-700">Setup link — send this to the staff member (one-time):</p>
           <div className="flex items-center gap-2">
-            <input readOnly value={setupLink} className="flex-1 rounded border border-emerald-200 bg-paper px-2 py-1 text-xs text-gray-700" onFocus={(e) => e.target.select()} />
+            <input readOnly value={setupLink} className="flex-1 rounded border border-emerald-200 bg-paper px-2 py-1 text-xs text-caramel" onFocus={(e) => e.target.select()} />
             <button onClick={() => navigator.clipboard?.writeText(setupLink)} className="rounded bg-emerald-600 p-1.5 text-white"><Copy className="h-3.5 w-3.5" /></button>
           </div>
         </div>
@@ -71,7 +71,7 @@ export default function StaffManager({ initial }: { initial: Staff[] }) {
             <div key={u.id} className="py-2.5 text-sm">
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="truncate font-medium text-gray-800">{u.name || u.email}</p>
+                  <p className="truncate font-medium text-caramel">{u.name || u.email}</p>
                   <p className="truncate text-xs text-gray-400">{u.email}</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">

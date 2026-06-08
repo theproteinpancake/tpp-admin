@@ -49,8 +49,8 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-cream via-churro/40 to-cream">
       <div className="w-full max-w-md rounded-2xl border border-churro/60 bg-paper p-8 shadow-xl">
         <div className="mb-8 text-center">
-          <Image src="/tpp-smile.png" alt="The Protein Pancake" width={64} height={64} className="mx-auto mb-4 rounded-2xl shadow-sm" priority />
-          <h1 className="text-2xl font-bold text-gray-900">TPP Control</h1>
+          <Image src="/smile.png" alt="The Protein Pancake" width={64} height={64} className="mx-auto mb-4 rounded-2xl shadow-sm" priority />
+          <h1 className="text-2xl font-bold text-caramel">TPP Control</h1>
           <p className="mt-1 text-gray-500">Sign in to the dashboard</p>
         </div>
 
@@ -63,7 +63,7 @@ export default function LoginPage() {
               placeholder="Email"
               autoFocus
               autoComplete="username"
-              className="w-full rounded-xl border border-gray-200 px-4 py-3 text-gray-900 placeholder:text-gray-400 transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-caramel"
+              className="w-full rounded-xl border border-gray-200 px-4 py-3 text-caramel placeholder:text-gray-400 transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-caramel"
             />
           )}
 
@@ -74,7 +74,7 @@ export default function LoginPage() {
             placeholder="Password"
             autoComplete="current-password"
             readOnly={needCode}
-            className="w-full rounded-xl border border-gray-200 px-4 py-3 text-gray-900 placeholder:text-gray-400 transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-caramel disabled:bg-gray-50"
+            className="w-full rounded-xl border border-gray-200 px-4 py-3 text-caramel placeholder:text-gray-400 transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-caramel disabled:bg-gray-50"
           />
 
           {needCode && (
@@ -84,7 +84,7 @@ export default function LoginPage() {
               onChange={(e) => setToken(e.target.value.replace(/\D/g, '').slice(0, 6))}
               placeholder="6-digit authenticator code"
               autoFocus
-              className="w-full rounded-xl border border-gray-200 px-4 py-3 text-center text-gray-900 placeholder:text-gray-400 tracking-[0.3em] transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-caramel"
+              className="w-full rounded-xl border border-gray-200 px-4 py-3 text-center text-caramel placeholder:text-gray-400 tracking-[0.3em] transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-caramel"
             />
           )}
 

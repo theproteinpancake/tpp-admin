@@ -20,14 +20,14 @@ export default function OrdersTable({ rows }: { rows: OrderRow[] }) {
     { key: 'invoice_number', header: 'Invoice', sort: 'text', cell: (r) => (
       r.xero_url
         ? <a href={r.xero_url} target="_blank" rel="noreferrer" title="Open in Xero" className="inline-flex items-center gap-1 font-medium text-maple hover:underline">{r.invoice_number}<ExternalLink className="h-3 w-3 opacity-60" /></a>
-        : <span className="font-medium text-gray-700">{r.invoice_number}</span>
+        : <span className="font-medium text-caramel">{r.invoice_number}</span>
     ) },
     { key: 'reference', header: 'Reference', sort: 'text', value: (r) => r.reference || '', cell: (r) => <span className="text-xs text-gray-500">{r.reference || '—'}</span> },
-    { key: 'customer', header: 'Customer', sort: 'text', cell: (r) => <span className="text-gray-800">{r.customer}</span> },
+    { key: 'customer', header: 'Customer', sort: 'text', cell: (r) => <span className="text-caramel">{r.customer}</span> },
     { key: 'order_date', header: 'Date', sort: 'date', filter: 'date', value: (r) => r.order_date, cell: (r) => <span className="whitespace-nowrap text-gray-500">{fmtDate(r.order_date)}</span> },
-    { key: 'cartons', header: 'Cartons', sort: 'num', align: 'right', value: (r) => r.cartons ?? 0, cell: (r) => <span className="text-gray-700">{r.cartons || '—'}</span> },
+    { key: 'cartons', header: 'Cartons', sort: 'num', align: 'right', value: (r) => r.cartons ?? 0, cell: (r) => <span className="text-caramel">{r.cartons || '—'}</span> },
     { key: 'items', header: 'Items', cell: (r) => <span className="text-xs text-gray-400">{r.items || '—'}</span> },
-    { key: 'total', header: 'Total', sort: 'num', align: 'right', value: (r) => r.total, cell: (r) => <span className="font-medium text-gray-800">{money(r.total, r.currency)}</span> },
+    { key: 'total', header: 'Total', sort: 'num', align: 'right', value: (r) => r.total, cell: (r) => <span className="font-medium text-caramel">{money(r.total, r.currency)}</span> },
     { key: 'status', header: 'Status', filter: 'select', sort: 'text', value: (r) => r.status || '', cell: (r) => <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS[r.status || ''] || 'bg-gray-100 text-gray-600'}`}>{r.status}</span> },
     { key: 'shipbob', header: 'ShipBob', cell: (r) => (
       r.shipbob_url

@@ -48,7 +48,7 @@ function SetupInner() {
     <>
       <div className="mb-6 text-center">
         <Image src="/tpp-smile.png" alt="TPP" width={56} height={56} className="mx-auto mb-3 rounded-2xl shadow-sm" priority />
-        <h1 className="text-xl font-bold text-gray-900">Set up your account</h1>
+        <h1 className="text-xl font-bold text-caramel">Set up your account</h1>
         <p className="mt-1 text-sm text-gray-500">{email}</p>
       </div>
 
@@ -64,7 +64,7 @@ function SetupInner() {
       {step === 2 && (
         <div className="space-y-3">
           <p className="text-sm text-gray-600">Add this key to your authenticator app (Google Authenticator, 1Password…):</p>
-          <code className="block rounded-lg bg-gray-50 px-3 py-2 text-center text-sm font-mono tracking-wider text-gray-800">{secret}</code>
+          <code className="block rounded-lg bg-gray-50 px-3 py-2 text-center text-sm font-mono tracking-wider text-caramel">{secret}</code>
           <p className="break-all text-[11px] text-gray-400">{otpauth}</p>
           <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="Enter the 6-digit code" className="w-full rounded-xl border border-gray-200 px-4 py-3 text-center tracking-[0.3em] focus:outline-none focus:ring-2 focus:ring-caramel" />
           {error && <p className="text-center text-sm text-red-500">{error}</p>}
@@ -74,7 +74,7 @@ function SetupInner() {
 
       {step === 3 && (
         <div className="space-y-4 text-center">
-          <p className="text-sm text-gray-700">All set! 🎉 Your password and 2FA are ready.</p>
+          <p className="text-sm text-caramel">All set! 🎉 Your password and 2FA are ready.</p>
           <a href="/login" className="inline-block rounded-xl bg-caramel px-5 py-3 font-semibold text-white hover:bg-maple">Go to sign in</a>
         </div>
       )}

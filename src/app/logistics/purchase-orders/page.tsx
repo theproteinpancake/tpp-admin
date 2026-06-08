@@ -27,7 +27,7 @@ export default async function PurchaseOrdersPage() {
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Purchase Orders</h1>
+          <h1 className="text-2xl font-bold text-caramel">Purchase Orders</h1>
           <p className="mt-1 text-gray-500">Outstanding orders and pending (inbound) stock</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -50,7 +50,7 @@ export default async function PurchaseOrdersPage() {
       <section id="suggested" className="mb-8 scroll-mt-6">
         <div className="mb-3 flex items-center gap-2">
           <PackagePlus className="h-5 w-5 text-caramel" />
-          <h2 className="text-lg font-semibold text-gray-900">Suggested orders — next 3 months</h2>
+          <h2 className="text-lg font-semibold text-caramel">Suggested orders — next 3 months</h2>
           <span className="rounded-full bg-cream px-2 py-0.5 text-[11px] font-medium text-maple">live velocity · ABC 30-day lead</span>
         </div>
         {forecast.months.length === 0 ? (
@@ -64,17 +64,17 @@ export default async function PurchaseOrdersPage() {
               return (
                 <div key={m.key} className={`rounded-xl border bg-paper p-4 shadow-sm ${isNow ? 'border-caramel' : 'border-gray-200'}`}>
                   <div className="mb-2 flex items-center justify-between">
-                    <span className="text-sm font-semibold text-gray-900">{m.label}{isNow && <span className="ml-1.5 rounded-full bg-red-50 px-1.5 text-[10px] font-medium text-red-600">order now</span>}</span>
+                    <span className="text-sm font-semibold text-caramel">{m.label}{isNow && <span className="ml-1.5 rounded-full bg-red-50 px-1.5 text-[10px] font-medium text-red-600">order now</span>}</span>
                     <span className="text-xs text-gray-400">{m.units.toLocaleString()} units</span>
                   </div>
                   <div className="space-y-1.5">
                     {m.items.map((it) => (
                       <div key={it.product_id} className="flex items-center justify-between text-sm">
-                        <span className="flex items-center gap-1.5 text-gray-700">
+                        <span className="flex items-center gap-1.5 text-caramel">
                           <span className="h-3 w-1.5 rounded-full" style={{ backgroundColor: flavourColor(it.flavour) }} />
                           {it.flavour} {it.size}
                         </span>
-                        <span className="font-medium text-gray-900">×{it.units.toLocaleString()}{it.cartons ? <span className="text-[11px] font-normal text-gray-400"> ({it.cartons}ctn)</span> : null}</span>
+                        <span className="font-medium text-caramel">×{it.units.toLocaleString()}{it.cartons ? <span className="text-[11px] font-normal text-gray-400"> ({it.cartons}ctn)</span> : null}</span>
                       </div>
                     ))}
                   </div>
@@ -112,7 +112,7 @@ function Card({ icon, label, value }: { icon: React.ReactNode; label: string; va
   return (
     <div className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
       <div className="flex items-center gap-2 text-sm font-medium text-gray-500">{icon}{label}</div>
-      <div className="mt-2 text-2xl font-bold text-gray-900">{value}</div>
+      <div className="mt-2 text-2xl font-bold text-caramel">{value}</div>
     </div>
   );
 }

@@ -33,7 +33,7 @@ export default function POActions({ id, status }: { id: string; status: string }
         value={status}
         disabled={busy}
         onChange={(e) => patch({ status: e.target.value })}
-        className="rounded-md border border-gray-200 bg-paper px-2 py-1 text-xs text-gray-700"
+        className="rounded-md border border-gray-200 bg-paper px-2 py-1 text-xs text-caramel"
       >
         {PO_STATUSES.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
       </select>

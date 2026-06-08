@@ -79,7 +79,7 @@ export default function NewPOForm({ suppliers, locations, products }: { supplier
 
       <div>
         <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-gray-700">Line items</h3>
+          <h3 className="text-sm font-semibold text-caramel">Line items</h3>
           <span className="text-xs text-gray-400">Currency: {currency}</span>
         </div>
         <div className="space-y-2">
@@ -117,7 +117,7 @@ export default function NewPOForm({ suppliers, locations, products }: { supplier
       {error && <p className="text-sm text-red-500">{error}</p>}
 
       <div className="flex items-center justify-between border-t border-gray-200 pt-4">
-        <div className="text-sm text-gray-500">Total: <span className="font-semibold text-gray-900">{currency} {total.toFixed(2)}</span></div>
+        <div className="text-sm text-gray-500">Total: <span className="font-semibold text-caramel">{currency} {total.toFixed(2)}</span></div>
         <button onClick={submit} disabled={busy}
           className="rounded-lg bg-caramel px-4 py-2 text-sm font-semibold text-white hover:bg-maple disabled:opacity-50">
           {busy ? 'Saving…' : 'Create PO'}

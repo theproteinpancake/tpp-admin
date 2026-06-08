@@ -27,8 +27,9 @@ module.exports = {
         'maple-orange': '#fbb033',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        sans: ['var(--font-recoleta)', 'Georgia', 'serif'],
         display: ['var(--font-recoleta)', 'Georgia', 'serif'],
+        body: ['var(--font-inter)', 'system-ui', 'sans-serif'],
       },
     },
   },

@@ -19,7 +19,7 @@ export default async function CollabsPage() {
       <div className="mb-6 flex items-center gap-2.5">
         <Handshake className="h-6 w-6 text-caramel" />
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Collabs</h1>
+          <h1 className="text-xl font-bold text-caramel">Collabs</h1>
           <p className="text-sm text-gray-500">{collabs.length} partners &amp; collaborations</p>
         </div>
       </div>
@@ -27,7 +27,7 @@ export default async function CollabsPage() {
       {upcoming && (
         <div className="mb-6 rounded-xl border border-caramel/30 bg-cream/50 p-4 shadow-sm">
           <p className="flex items-center gap-2 text-sm font-semibold text-maple"><CalendarClock className="h-4 w-4" /> Next collab</p>
-          <p className="mt-1 text-base font-bold text-gray-900">{upcoming.partner_name} — {fmtDate(upcoming.due_date)}</p>
+          <p className="mt-1 text-base font-bold text-caramel">{upcoming.partner_name} — {fmtDate(upcoming.due_date)}</p>
           <p className="text-sm text-gray-600">{upcoming.title || upcoming.collab_type}</p>
           {upcoming.expecting_samples && (
             <p className={`mt-1 text-xs font-medium ${upcoming.samples_received ? 'text-emerald-600' : 'text-amber-600'}`}>

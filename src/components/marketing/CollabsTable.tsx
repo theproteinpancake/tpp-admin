@@ -20,7 +20,7 @@ const BADGE: Record<string, string> = {
 
 export default function CollabsTable({ rows }: { rows: CollabRow[] }) {
   const columns: Column<CollabRow>[] = [
-    { key: 'partner_name', header: 'Partner', sort: 'text', cell: (r) => <span className="font-medium text-gray-800">{r.partner_name}</span> },
+    { key: 'partner_name', header: 'Partner', sort: 'text', cell: (r) => <span className="font-medium text-caramel">{r.partner_name}</span> },
     { key: 'handle', header: 'Handle', sort: 'text', cell: (r) => <span className="text-gray-500">{r.handle || '—'}</span> },
     { key: 'collab_type', header: 'Type', filter: 'select', sort: 'text', value: (r) => r.collab_type || '', cell: (r) => <span className="text-gray-600">{r.collab_type || '—'}</span> },
     { key: 'due_date', header: 'Due', sort: 'date', filter: 'date', value: (r) => r.due_date, cell: (r) => <span className="whitespace-nowrap text-gray-500">{fmtDate(r.due_date)}</span> },

@@ -22,24 +22,24 @@ export default async function PackagingPage() {
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Packaging</h1>
+        <h1 className="text-2xl font-bold text-caramel">Packaging</h1>
         <p className="mt-1 text-gray-500">Empty pouches at ABC &amp; custom shipping packaging — tracked separately from product stock</p>
       </div>
 
       {/* Summary */}
       <div className="mb-8 grid gap-4 sm:grid-cols-3">
         <div className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
-          <p className="text-sm font-semibold text-gray-900">Pouch SKUs tracked</p>
-          <div className="mt-2 text-2xl font-bold text-gray-900">{pouchSet}<span className="text-sm font-normal text-gray-400"> / {pouches.length}</span></div>
+          <p className="text-sm font-semibold text-caramel">Pouch SKUs tracked</p>
+          <div className="mt-2 text-2xl font-bold text-caramel">{pouchSet}<span className="text-sm font-normal text-gray-400"> / {pouches.length}</span></div>
           <p className="text-xs text-gray-400">baselines entered</p>
         </div>
         <div className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
-          <p className="text-sm font-semibold text-gray-900">Pouches to reorder</p>
+          <p className="text-sm font-semibold text-caramel">Pouches to reorder</p>
           <div className={`mt-2 text-2xl font-bold ${pouchAlerts ? 'text-red-600' : 'text-emerald-600'}`}>{pouchAlerts}</div>
           <p className="text-xs text-gray-400">within lead time</p>
         </div>
         <div className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
-          <p className="text-sm font-semibold text-gray-900">Custom packaging to reorder</p>
+          <p className="text-sm font-semibold text-caramel">Custom packaging to reorder</p>
           <div className={`mt-2 text-2xl font-bold ${customAlerts ? 'text-red-600' : 'text-emerald-600'}`}>{customAlerts}</div>
           <p className="text-xs text-gray-400">boxes &amp; cards</p>
         </div>
@@ -49,7 +49,7 @@ export default async function PackagingPage() {
       <section className="mb-10">
         <div className="mb-3 flex items-center gap-2">
           <Package2 className="h-5 w-5 text-caramel" />
-          <h2 className="text-lg font-semibold text-gray-900">Empty pouches (ABC)</h2>
+          <h2 className="text-lg font-semibold text-caramel">Empty pouches (ABC)</h2>
         </div>
         <p className="mb-3 text-xs text-gray-500">Enter the stock-take baseline ABC provides. Every PO placed after that date auto-deducts, giving a live remaining count and a reorder flag at lead time (default 60 days).</p>
         <div className="overflow-x-auto rounded-xl border border-gray-200 bg-paper shadow-sm">
@@ -67,13 +67,13 @@ export default async function PackagingPage() {
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <span className="h-3 w-1.5 rounded-full" style={{ backgroundColor: flavourColor(p.flavour) }} />
-                      <span className="text-sm font-medium text-gray-900">{p.flavour} {p.size}</span>
+                      <span className="text-sm font-medium text-caramel">{p.flavour} {p.size}</span>
                       <span className="text-[11px] text-gray-400">{p.sku}</span>
                     </div>
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-600">{fmt(p.baseline_qty)}{p.baseline_date && <span className="block text-[11px] text-gray-400">from {p.baseline_date}</span>}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{p.baseline_qty != null ? `−${fmt(p.consumed)}` : '—'}</td>
-                  <td className="px-4 py-3 text-sm font-semibold text-gray-900">{fmt(p.remaining)}</td>
+                  <td className="px-4 py-3 text-sm font-semibold text-caramel">{fmt(p.remaining)}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{p.days_cover != null ? `${p.days_cover}d` : '—'}</td>
                   <td className="px-4 py-3"><Pill status={p.status} /></td>
                   <td className="px-4 py-3">
@@ -98,7 +98,7 @@ export default async function PackagingPage() {
         <div className="mb-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Boxes className="h-5 w-5 text-maple" />
-            <h2 className="text-lg font-semibold text-gray-900">Custom shipping packaging</h2>
+            <h2 className="text-lg font-semibold text-caramel">Custom shipping packaging</h2>
           </div>
           <CustomPackagingForm />
         </div>
@@ -119,14 +119,14 @@ export default async function PackagingPage() {
               <tbody className="divide-y divide-gray-100">
                 {custom.map((c) => (
                   <tr key={c.id} className="hover:bg-cream/30">
-                    <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                    <td className="px-4 py-3 text-sm font-medium text-caramel">
                       <span className="inline-flex items-center gap-1.5">{c.kind === 'card' ? <Mail className="h-3.5 w-3.5 text-gray-400" /> : <Boxes className="h-3.5 w-3.5 text-gray-400" />}{c.name}</span>
                       {c.sku && <span className="ml-1 text-[11px] text-gray-400">{c.sku}</span>}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600">{c.kind}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">{c.supplier || '—'}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">{c.site || '—'}</td>
-                    <td className="px-4 py-3 text-sm font-semibold text-gray-900">{fmt(c.on_hand)}</td>
+                    <td className="px-4 py-3 text-sm font-semibold text-caramel">{fmt(c.on_hand)}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">{c.lead_days}d</td>
                     <td className="px-4 py-3 text-sm text-gray-600">{fmt(c.reorder_point)}</td>
                     <td className="px-4 py-3"><Pill status={c.status} /></td>

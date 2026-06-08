@@ -165,7 +165,7 @@ export default function NotificationsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Notifications</h1>
+          <h1 className="text-3xl font-bold text-caramel">Notifications</h1>
           <p className="text-gray-600 mt-1">Manage push notifications and scheduled messages</p>
         </div>
         <button
@@ -202,7 +202,7 @@ export default function NotificationsPage() {
       {/* Scheduled Notifications */}
       <div className="bg-paper rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+          <h2 className="text-lg font-semibold text-caramel flex items-center gap-2">
             <Clock className="h-5 w-5 text-caramel" />
             Scheduled Notifications
           </h2>
@@ -219,7 +219,7 @@ export default function NotificationsPage() {
               <div key={day} className="px-6 py-4">
                 <div className="flex items-center gap-3 mb-3">
                   <Calendar className="h-4 w-4 text-gray-400" />
-                  <span className={`text-sm font-medium ${index === 0 ? 'text-caramel' : 'text-gray-700'}`}>
+                  <span className={`text-sm font-medium ${index === 0 ? 'text-caramel' : 'text-caramel'}`}>
                     {day}
                     {index === 0 && ' 🥞'}
                   </span>
@@ -238,7 +238,7 @@ export default function NotificationsPage() {
                       >
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
-                            <span className={`font-medium ${notification.is_active ? 'text-gray-900' : 'text-gray-400'}`}>
+                            <span className={`font-medium ${notification.is_active ? 'text-caramel' : 'text-gray-400'}`}>
                               {notification.title}
                             </span>
                             <span className="text-xs text-gray-500">{notification.time}</span>
@@ -291,14 +291,14 @@ export default function NotificationsPage() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-paper rounded-xl shadow-xl w-full max-w-lg mx-4">
             <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900">
+              <h3 className="text-lg font-semibold text-caramel">
                 {editingNotification ? 'Edit Notification' : 'New Notification'}
               </h3>
             </div>
 
             <div className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-caramel mb-1">
                   Title *
                 </label>
                 <input
@@ -311,7 +311,7 @@ export default function NotificationsPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-caramel mb-1">
                   Message *
                 </label>
                 <textarea
@@ -331,14 +331,14 @@ export default function NotificationsPage() {
                     onChange={(e) => setFormIsOneTime(e.target.checked)}
                     className="w-4 h-4 text-caramel rounded focus:ring-caramel"
                   />
-                  <span className="text-sm text-gray-700">Send immediately (one-time)</span>
+                  <span className="text-sm text-caramel">Send immediately (one-time)</span>
                 </label>
               </div>
 
               {!formIsOneTime && (
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-caramel mb-1">
                       Day of Week
                     </label>
                     <select
@@ -353,7 +353,7 @@ export default function NotificationsPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-caramel mb-1">
                       Time
                     </label>
                     <input
@@ -370,7 +370,7 @@ export default function NotificationsPage() {
             <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
               <button
                 onClick={closeModal}
-                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                className="px-4 py-2 text-caramel hover:bg-gray-100 rounded-lg transition-colors"
               >
                 Cancel
               </button>

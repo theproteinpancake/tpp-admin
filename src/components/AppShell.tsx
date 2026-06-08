@@ -43,13 +43,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <button
             onClick={() => setOpen(true)}
             aria-label="Open menu"
-            className="-ml-0.5 rounded-lg p-2 text-gray-700 hover:bg-cream active:bg-cream"
+            className="-ml-0.5 rounded-lg p-2 text-caramel hover:bg-cream active:bg-cream"
           >
             <Menu className="h-6 w-6" />
           </button>
           <div className="flex items-center gap-2">
-            <Image src="/tpp-smile.png" alt="" width={26} height={26} className="rounded-md shadow-sm" />
-            <span className="text-[15px] font-bold text-gray-900">TPP Control</span>
+            <Image src="/smile.png" alt="" width={26} height={26} className="rounded-md shadow-sm" />
+            <span className="text-[15px] font-bold text-caramel">TPP Control</span>
           </div>
         </header>
 

@@ -26,7 +26,7 @@ export default function CustomPackagingForm() {
       className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm"
     >
       <div className="mb-4 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-gray-900">Add custom packaging</h3>
+        <h3 className="text-sm font-semibold text-caramel">Add custom packaging</h3>
         <button type="button" onClick={() => setOpen(false)} className="text-gray-400 hover:text-gray-600"><X className="h-4 w-4" /></button>
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

@@ -42,7 +42,7 @@ export default function TwoFA({ enabled }: { enabled: boolean }) {
       ) : (
         <div className="space-y-3">
           <p className="text-sm text-gray-600">In your authenticator app (Google Authenticator, 1Password, etc.) add a new account with this key:</p>
-          <code className="block rounded-lg bg-gray-50 px-3 py-2 text-sm font-mono tracking-wider text-gray-800">{secret}</code>
+          <code className="block rounded-lg bg-gray-50 px-3 py-2 text-sm font-mono tracking-wider text-caramel">{secret}</code>
           <p className="break-all text-xs text-gray-400">{otpauth}</p>
           <div className="flex items-center gap-2">
             <input value={token} onChange={(e) => setToken(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="Enter the 6-digit code" className="w-48 rounded-lg border border-gray-200 px-3 py-2 text-sm" />
