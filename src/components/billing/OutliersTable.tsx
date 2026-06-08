@@ -1,6 +1,7 @@
 'use client';
 import { ExternalLink } from 'lucide-react';
 import FilterableTable, { type Column } from '@/components/ui/FilterableTable';
+import { siteShort } from '@/lib/site';
 
 export type OutlierRow = {
   id: string | number; shipment_id: string; order_number: string | null; site: string;
@@ -15,7 +16,7 @@ export default function OutliersTable({ rows }: { rows: OutlierRow[] }) {
     { key: 'shipment_id', header: 'Shipment', value: (r) => `${r.shipment_id} ${r.order_number || ''}`, cell: (r) => (
       <div><div className="font-medium text-caramel">{r.shipment_id}</div>{r.order_number && <div className="text-[11px] text-gray-400">order {r.order_number}</div>}</div>
     ) },
-    { key: 'site', header: 'Site', filter: 'select', sort: 'text', cell: (r) => <span className="text-gray-600">{r.site}</span> },
+    { key: 'site', header: 'Site', filter: 'select', sort: 'text', value: (r) => siteShort(r.site), cell: (r) => <span className="text-gray-600">{siteShort(r.site)}</span> },
     { key: 'ship_date', header: 'Date', filter: 'date', sort: 'date', value: (r) => r.ship_date, cell: (r) => <span className="whitespace-nowrap text-gray-600">{fmtDate(r.ship_date)}</span> },
     { key: 'cost', header: 'Ship cost', sort: 'num', align: 'right', value: (r) => r.cost, cell: (r) => <span className="font-semibold text-caramel">{money(r.cost, r.currency)}</span> },
     { key: 'x_median', header: 'vs median', sort: 'num', value: (r) => r.x_median, cell: (r) => <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-800">{r.x_median}× median</span> },

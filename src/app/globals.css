@@ -41,4 +41,12 @@ h1, h2, h3, h4, .font-display {
 /* Respect iOS safe areas for the app shell */
 @supports (padding: max(0px)) {
   .safe-top { padding-top: max(0.5rem, env(safe-area-inset-top)); }
+  .safe-bottom { padding-bottom: max(0.75rem, env(safe-area-inset-bottom)); }
 }
+
+/* Smooth momentum scrolling on iOS */
+.overflow-y-auto { -webkit-overflow-scrolling: touch; }
+
+/* Hidden-scrollbar horizontal strips (filter toolbars) */
+.hide-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.hide-scrollbar::-webkit-scrollbar { display: none; }

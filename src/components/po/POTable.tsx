@@ -1,6 +1,7 @@
 'use client';
 import FilterableTable, { type Column } from '@/components/ui/FilterableTable';
 import POActions from '@/components/po/POActions';
+import { siteShort } from '@/lib/site';
 
 export type PORow = {
   id: string; supplier_name: string; po_ref: string; dest: string; status: string;
@@ -14,7 +15,7 @@ export default function POTable({ rows }: { rows: PORow[] }) {
     { key: 'supplier_name', header: 'PO / Supplier', sort: 'text', value: (r) => `${r.supplier_name} ${r.po_ref}`, cell: (r) => (
       <div><div className="font-medium text-caramel">{r.supplier_name}</div><div className="text-[11px] text-gray-400">{r.po_ref}</div></div>
     ) },
-    { key: 'dest', header: 'Dest', filter: 'select', sort: 'text', cell: (r) => <span className="text-gray-600">{r.dest}</span> },
+    { key: 'dest', header: 'Dest', filter: 'select', sort: 'text', value: (r) => siteShort(r.dest), cell: (r) => <span className="text-gray-600">{siteShort(r.dest)}</span> },
     { key: 'statusLabel', header: 'Status', filter: 'select', sort: 'text', cell: (r) => (
       <div><span className={`mb-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${r.statusChip}`}>{r.statusLabel}</span><POActions id={r.id} status={r.status} /></div>
     ) },

@@ -92,44 +92,46 @@ export default function FilterableTable<T>({
 
   return (
     <div>
-      {/* Toolbar */}
-      <div className="mb-3 flex flex-wrap items-center gap-1.5">
-        {searchable && (
-          <div className="relative min-w-[7.5rem] flex-1 sm:max-w-xs">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder}
-              className="w-full rounded-lg border border-gray-200 py-1.5 pl-8 pr-2 text-xs text-caramel placeholder:text-gray-400 focus:border-caramel focus:outline-none focus:ring-1 focus:ring-caramel sm:text-sm" />
-          </div>
-        )}
-        {selectCols.map((c) => (
-          <select key={c.key} value={selects[c.key] || ''} onChange={(e) => setSelects((s) => ({ ...s, [c.key]: e.target.value }))}
-            className="max-w-[9rem] rounded-lg border border-gray-200 px-2 py-1.5 text-xs text-caramel focus:border-caramel focus:outline-none sm:text-sm">
-            <option value="">{c.header}: All</option>
-            {distinct[c.key]?.map((v) => <option key={v} value={v}>{v}</option>)}
-          </select>
-        ))}
-        {dateCol && (
-          <div className="flex items-center gap-1 text-[11px] text-gray-500">
-            <input type="date" aria-label={`${dateCol.header} from`} value={from} onChange={(e) => setFrom(e.target.value)} className="rounded-lg border border-gray-200 px-1.5 py-1.5 text-xs text-caramel focus:border-caramel focus:outline-none" />
-            <span>→</span>
-            <input type="date" aria-label={`${dateCol.header} to`} value={to} onChange={(e) => setTo(e.target.value)} className="rounded-lg border border-gray-200 px-1.5 py-1.5 text-xs text-caramel focus:border-caramel focus:outline-none" />
-          </div>
-        )}
-        {active && (
-          <button onClick={clearAll} className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-100">
-            <X className="h-3.5 w-3.5" /> Clear
-          </button>
-        )}
-        <span className="ml-auto whitespace-nowrap text-[11px] text-gray-400">{filtered.length}/{rows.length}</span>
+      {/* Toolbar — single compact line: scrollable filters + fixed count */}
+      <div className="mb-2 flex items-center gap-1.5">
+        <div className="hide-scrollbar flex flex-1 items-center gap-1.5 overflow-x-auto whitespace-nowrap py-0.5">
+          {searchable && (
+            <div className="relative shrink-0">
+              <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-gray-400" />
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder}
+                className="w-36 rounded-md border border-gray-200 py-1 pl-7 pr-2 text-xs text-caramel placeholder:text-gray-400 focus:border-caramel focus:outline-none focus:ring-1 focus:ring-caramel" />
+            </div>
+          )}
+          {selectCols.map((c) => (
+            <select key={c.key} value={selects[c.key] || ''} onChange={(e) => setSelects((s) => ({ ...s, [c.key]: e.target.value }))}
+              className="shrink-0 rounded-md border border-gray-200 px-1.5 py-1 text-xs text-caramel focus:border-caramel focus:outline-none">
+              <option value="">{c.header}: All</option>
+              {distinct[c.key]?.map((v) => <option key={v} value={v}>{v}</option>)}
+            </select>
+          ))}
+          {dateCol && (
+            <div className="flex shrink-0 items-center gap-1 text-[11px] text-gray-500">
+              <input type="date" aria-label={`${dateCol.header} from`} value={from} onChange={(e) => setFrom(e.target.value)} className="rounded-md border border-gray-200 px-1 py-1 text-xs text-caramel focus:border-caramel focus:outline-none" />
+              <span>→</span>
+              <input type="date" aria-label={`${dateCol.header} to`} value={to} onChange={(e) => setTo(e.target.value)} className="rounded-md border border-gray-200 px-1 py-1 text-xs text-caramel focus:border-caramel focus:outline-none" />
+            </div>
+          )}
+          {active && (
+            <button onClick={clearAll} className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-gray-500 hover:bg-gray-100">
+              <X className="h-3.5 w-3.5" /> Clear
+            </button>
+          )}
+        </div>
+        <span className="shrink-0 whitespace-nowrap text-[10px] text-gray-400">{filtered.length}/{rows.length}</span>
       </div>
 
       {/* Table */}
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-sm">
+        <table className="w-full border-collapse text-xs">
           <thead>
-            <tr className="border-b border-gray-200 text-left text-[11px] uppercase tracking-wide text-gray-400">
+            <tr className="border-b border-gray-200 text-left text-[10px] uppercase tracking-wide text-gray-400">
               {columns.map((c) => (
-                <th key={c.key} className={`whitespace-nowrap px-3 py-2 font-semibold ${c.align === 'right' ? 'text-right' : c.align === 'center' ? 'text-center' : ''} ${c.sort ? 'cursor-pointer select-none hover:text-gray-600' : ''} ${c.th || ''}`}
+                <th key={c.key} className={`whitespace-nowrap px-2 py-1.5 font-semibold ${c.align === 'right' ? 'text-right' : c.align === 'center' ? 'text-center' : ''} ${c.sort ? 'cursor-pointer select-none hover:text-gray-600' : ''} ${c.th || ''}`}
                   onClick={() => toggleSort(c)}>
                   <span className={`inline-flex items-center gap-1 ${c.align === 'right' ? 'flex-row-reverse' : ''}`}>
                     {c.header}
@@ -143,7 +145,7 @@ export default function FilterableTable<T>({
             {filtered.map((r, i) => (
               <tr key={getKey(r, i)} className="border-b border-gray-100 last:border-0 hover:bg-cream/40">
                 {columns.map((c) => (
-                  <td key={c.key} className={`px-3 py-2.5 align-middle ${c.align === 'right' ? 'text-right' : c.align === 'center' ? 'text-center' : ''} ${c.td || ''}`}>
+                  <td key={c.key} className={`px-2 py-2 align-middle ${c.align === 'right' ? 'text-right' : c.align === 'center' ? 'text-center' : ''} ${c.td || ''}`}>
                     {c.cell(r)}
                   </td>
                 ))}

@@ -106,7 +106,7 @@ export default function Sidebar({ onNavigate, onClose }: { onNavigate?: () => vo
   const isActive = (href: string) => href === activeHref;
 
   return (
-    <div className="flex h-screen w-64 flex-col bg-paper border-r border-gray-200">
+    <div className="flex h-[100dvh] w-64 flex-col bg-paper border-r border-gray-200">
       {/* Logo */}
       <div className="safe-top flex h-16 items-center gap-2.5 border-b border-gray-200 px-5">
         <Image src="/smile.png" alt="The Protein Pancake" width={36} height={36} className="rounded-lg shadow-sm" />
@@ -153,7 +153,7 @@ export default function Sidebar({ onNavigate, onClose }: { onNavigate?: () => vo
       </nav>
 
       {/* Bottom Section */}
-      <div className="border-t border-gray-200 p-3">
+      <div className="safe-bottom border-t border-gray-200 p-3">
         {me && (
           <div className="mb-2 flex items-center gap-2.5 rounded-lg bg-cream/60 px-3 py-2">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-caramel text-[13px] font-semibold text-white">

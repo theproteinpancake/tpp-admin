@@ -1,6 +1,7 @@
 'use client';
 import FilterableTable, { type Column } from '@/components/ui/FilterableTable';
 import ProductThumb from '@/components/ProductThumb';
+import { siteShort } from '@/lib/site';
 
 export type BatchRow = {
   id: string | number; flavour: string | null; sku: string; size: string; site: string;
@@ -19,7 +20,7 @@ export default function BatchesTable({ rows }: { rows: BatchRow[] }) {
         <div><div className="font-medium text-caramel">{r.flavour ?? r.sku}</div><div className="text-[11px] text-gray-500">{r.sku} · {r.size}</div></div>
       </div>
     ) },
-    { key: 'site', header: 'Site', filter: 'select', sort: 'text', cell: (r) => <span className="text-gray-600">{r.site}</span> },
+    { key: 'site', header: 'Site', filter: 'select', sort: 'text', value: (r) => siteShort(r.site), cell: (r) => <span className="text-gray-600">{siteShort(r.site)}</span> },
     { key: 'lot_number', header: 'Lot', sort: 'text', cell: (r) => <span className="font-mono text-caramel">{r.lot_number}</span> },
     { key: 'expiry_date', header: 'Best before', sort: 'date', filter: 'date', value: (r) => r.expiry_date, cell: (r) => <span className="whitespace-nowrap text-caramel">{fmtDate(r.expiry_date)}</span> },
     { key: 'days_left', header: 'Days left', sort: 'num', align: 'right', value: (r) => r.days_left ?? 999999, cell: (r) => <span className="text-caramel">{r.days_left == null ? '—' : `${r.days_left}d`}</span> },

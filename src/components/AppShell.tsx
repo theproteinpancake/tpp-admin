@@ -17,7 +17,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   if (pathname === '/login') return <>{children}</>;
 
   return (
-    <div className="flex h-screen bg-cream">
+    <div className="flex h-[100dvh] bg-cream">
       {/* Mobile overlay */}
       {open && (
         <div
@@ -39,7 +39,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       {/* Main column */}
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Mobile top bar */}
-        <header className="safe-top sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-black/5 bg-paper/95 px-3 backdrop-blur md:hidden">
+        <header className="safe-top sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-black/5 bg-paper px-3 md:hidden">
           <button
             onClick={() => setOpen(true)}
             aria-label="Open menu"
@@ -53,7 +53,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <main className="flex-1 overflow-auto">{children}</main>
+        <main className="flex-1 overflow-y-auto overscroll-contain">{children}</main>
       </div>
     </div>
   );
