@@ -72,6 +72,27 @@ export async function fetchTwilioMedia(url: string): Promise<{ base64: string; m
   } catch { return null; }
 }
 
+// Send a pre-approved WhatsApp **template** (Twilio Content API). Unlike sendWhatsApp,
+// a template delivers OUTSIDE the 24-hour customer-service window — so proactive alerts
+// (e.g. a PO detected at 4am) actually reach Kate. `variables` maps "1","2",… → value;
+// each value must be a single line (WhatsApp rejects newlines/tabs inside variables).
+export async function sendWhatsAppTemplate(to: string, contentSid: string, variables: Record<string, string>): Promise<boolean> {
+  const sid = SID(), from = FROM();
+  const auth = twilioAuthHeader();
+  const msgService = process.env.TWILIO_MESSAGING_SERVICE_SID || '';
+  if (!sid || !auth || !contentSid || (!from && !msgService)) { console.error('Twilio template send: missing config'); return false; }
+  const params = new URLSearchParams({ To: waAddr(to), ContentSid: contentSid, ContentVariables: JSON.stringify(variables) });
+  if (msgService) params.set('MessagingServiceSid', msgService);
+  else params.set('From', waAddr(from));
+  const res = await fetch(`${TWILIO_API_BASE}/2010-04-01/Accounts/${sid}/Messages.json`, {
+    method: 'POST',
+    headers: { Authorization: auth, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params,
+  });
+  if (!res.ok) { console.error('Twilio template send failed', res.status, await res.text()); return false; }
+  return true;
+}
+
 export async function sendWhatsApp(to: string, body: string, mediaUrl?: string): Promise<boolean> {
   const sid = SID(), from = FROM();
   const auth = twilioAuthHeader();

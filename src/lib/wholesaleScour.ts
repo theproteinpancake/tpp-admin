@@ -8,7 +8,8 @@ import { gmailSearch, gmailGetBody, gmailGetAllAttachments, gmailGetThreadLatest
 import { processWholesalePOMulti } from './wholesalePO';
 import { getRestockPhrase } from './restock';
 import { xlsxToText } from './xlsx';
-import { sendWhatsApp, KATE_NUMBER } from './whatsapp';
+import { sendWhatsApp, sendWhatsAppTemplate, KATE_NUMBER } from './whatsapp';
+import { getConfig } from './settings';
 
 const INBOXES: { acc: string | undefined; tag: string }[] = [{ acc: 'kate', tag: 'kate' }, { acc: undefined, tag: 'luke' }];
 // candidate POs: order-ish subject OR an attachment, recent, not our own sends
@@ -18,14 +19,17 @@ const parseAddr = (from: string) => { const m = /<([^>]+)>/.exec(from || ''); re
 const isUs = (from: string) => /theproteinpancake\.co/i.test(from || '');
 
 // Build the OOS reply-draft body (swap / partial), folding in any restock ETA.
-async function oosDraftBody(custName: string | null, oos: { flavour: string }[]): Promise<string> {
+// Greeting is a neutral time-of-day line (no name) — parsed customer names are too
+// unreliable to address directly (e.g. "Highland Evolution Dance & Fitness" → "Hi Highland").
+async function oosDraftBody(_custName: string | null, oos: { flavour: string }[]): Promise<string> {
   const parts: string[] = [];
   for (const o of oos) {
     const eta = await getRestockPhrase(o.flavour).catch(() => null);
     parts.push(eta ? `${o.flavour} (${eta})` : o.flavour);
   }
   const list = parts.join(', ');
-  const hi = custName ? `Hi ${custName.split(/\s|,/)[0]},` : 'Hi there,';
+  const aestHour = new Date(Date.now() + 10 * 3600_000).getUTCHours(); // AEST (UTC+10)
+  const hi = aestHour < 12 ? 'Good morning,' : 'Good afternoon,';
   return [
     hi,
     '',
@@ -101,22 +105,37 @@ export async function runWholesalePoScour(): Promise<{ scanned: number; new_pos:
     newPos++;
     if (handled) continue; // don't re-ping for handled POs
 
-    // build Kate's WhatsApp ping
+    // build Kate's WhatsApp ping — `action` is a single-line version for the template variable.
     const cust = a!.customer_name || 'a customer';
     const lineStr = a!.lines.map((l) => `• ${l.flavour} ×${l.cartons}`).join('\n');
-    let msg: string;
+    const lineInline = a!.lines.map((l) => `${l.flavour} ×${l.cartons}`).join(', ') || '—';
+    let msg: string, action: string;
     if (!a!.customer_on_file) {
-      msg = `🛒 *New PO* from ${cust}${a!.po_number ? ` (#${a!.po_number})` : ''}\n${lineStr}\n\n🆕 They're NOT on file in Xero yet — add them first (name, ship-to, email, ABN), then reply and I'll process it.\nShip to: ${a!.ship_to || '—'}`;
+      action = `🆕 Not in Xero yet — add them (name, ship-to, email, ABN), then reply and I'll process it.`;
+      msg = `🛒 *New PO* from ${cust}${a!.po_number ? ` (#${a!.po_number})` : ''}\n${lineStr}\n\n${action}\nShip to: ${a!.ship_to || '—'}`;
     } else if (a!.fulfillable) {
-      msg = `🛒 *New PO* from ${cust}${a!.po_number ? ` (#${a!.po_number})` : ''}\n${lineStr}\n📦 ${a!.boxes.join(' + ')} · ${a!.free_shipping ? 'free shipping' : '+$15 freight'}\n\n✅ Stock's good. Reply "*process ${cust}*" and I'll create the ShipBob order + draft the Xero invoice.`;
+      action = `✅ Stock's good — reply "process ${cust}" and I'll create the ShipBob order + draft the Xero invoice.`;
+      msg = `🛒 *New PO* from ${cust}${a!.po_number ? ` (#${a!.po_number})` : ''}\n${lineStr}\n📦 ${a!.boxes.join(' + ')} · ${a!.free_shipping ? 'free shipping' : '+$15 freight'}\n\n${action}`;
     } else {
       const oos = a!.oos.map((o) => o.flavour).join(', ');
-      const draftLine = draftId
-        ? `\n\n✍️ I've *drafted a reply* to them in your inbox (swap or send-the-rest) — review & send, or reply here and I'll tweak it.`
-        : `\n\nReply and I'll draft a note asking them to swap or send the rest without it.`;
-      msg = `🛒 *New PO* from ${cust}${a!.po_number ? ` (#${a!.po_number})` : ''}\n${lineStr}\n\n⚠️ We're *OOS ${oos}*.${draftLine}`;
+      action = draftId
+        ? `⚠️ OOS ${oos}. I've drafted a reply in your inbox (swap or send-the-rest) — review & send, or reply here to tweak.`
+        : `⚠️ OOS ${oos}. Reply and I'll draft a note to swap or send the rest.`;
+      msg = `🛒 *New PO* from ${cust}${a!.po_number ? ` (#${a!.po_number})` : ''}\n${lineStr}\n\n${action}`;
     }
-    const ok = await sendWhatsApp(KATE_NUMBER, msg);
+    // Fire via the approved template so it lands instantly even outside the 24h window;
+    // fall back to the free-form message (works when Kate's window is open) until the
+    // template SID is configured + approved.
+    const poTemplate = process.env.TWILIO_WHOLESALE_PO_TEMPLATE_SID || (await getConfig('wholesale_po_template_sid')) || '';
+    let ok = false;
+    if (poTemplate) {
+      ok = await sendWhatsAppTemplate(KATE_NUMBER, poTemplate, {
+        '1': `${cust}${a!.po_number ? ` (#${a!.po_number})` : ''}`.slice(0, 120),
+        '2': lineInline.slice(0, 600),
+        '3': action.slice(0, 600),
+      });
+    }
+    if (!ok) ok = await sendWhatsApp(KATE_NUMBER, msg);
     if (ok) notified++;
   }
 

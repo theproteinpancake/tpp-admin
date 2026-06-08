@@ -80,8 +80,24 @@ async function buildWholesaleBriefing(): Promise<string> {
   const w = await getWholesaleDashboard().catch(() => null);
   const lines: string[] = [`🛒 *Wholesale brief* — ${today}`, `Morning Kate! ☀️`];
 
+  // Last COMPLETED Mon–Sun week, computed off the AEST calendar date and queried by an
+  // explicit [Mon, next-Mon) range so the window is exact (no running week-to-date, no
+  // UTC drift). Dates are shown so the bucket is always legible.
+  const DAY = 86400_000;
+  const todayD = new Date(today + 'T00:00:00Z');               // midnight UTC of the AEST date
+  const dow = (todayD.getUTCDay() + 6) % 7;                     // Mon=0
+  const thisMon = new Date(todayD.getTime() - dow * DAY);       // this week's Monday
+  const lastMon = new Date(thisMon.getTime() - 7 * DAY);        // last week's Monday
+  const lastMonStr = lastMon.toISOString().slice(0, 10);
+  const thisMonStr = thisMon.toISOString().slice(0, 10);
+  const lastSunStr = new Date(thisMon.getTime() - DAY).toISOString().slice(0, 10);
+  const { data: lwOrders } = await supabaseLogistics.from('wholesale_orders')
+    .select('total').gte('order_date', lastMonStr).lt('order_date', thisMonStr);
+  const lwSum = (lwOrders ?? []).reduce((s: number, o: any) => s + (Number(o.total) || 0), 0);
+  const fmtD = (s: string) => new Date(s + 'T00:00:00Z').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+
   lines.push(`\n*Yesterday:* ${money(ySum)} across ${(yOrders ?? []).length} order${(yOrders ?? []).length === 1 ? '' : 's'}`);
-  if (w) lines.push(`*This week:* ${money(w.totals.week)} · *This month:* ${money(w.totals.month)}`);
+  lines.push(`*Last week (${fmtD(lastMonStr)}–${fmtD(lastSunStr)}):* ${money(lwSum)}${w ? ` · *This month:* ${money(w.totals.month)}` : ''}`);
 
   if (w?.due?.length) {
     lines.push(`\n*📞 Expect / chase a PO from:*`);
@@ -123,10 +139,13 @@ async function handle(req: NextRequest) {
   const given = req.headers.get('x-cron-secret') || new URL(req.url).searchParams.get('secret');
   if (secret && given !== secret) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
+  // dry=1 renders the briefs and returns them WITHOUT sending — safe to preview anytime.
+  const dry = new URL(req.url).searchParams.get('dry');
   const recipients = allowedNumbers();
   const logistics = await buildBriefing();
-  const hasWholesale = recipients.some((to) => senderRole(to) === 'wholesale');
+  const hasWholesale = dry ? true : recipients.some((to) => senderRole(to) === 'wholesale');
   const wholesale = hasWholesale ? await buildWholesaleBriefing() : '';
+  if (dry) return NextResponse.json({ ok: true, dry: true, wholesale_preview: wholesale || undefined, preview: logistics });
   const results = await Promise.all(recipients.map((to) =>
     sendWhatsApp(to, senderRole(to) === 'wholesale' ? wholesale : logistics)));
   return NextResponse.json({ ok: true, sent: results.filter(Boolean).length, recipients: recipients.length, wholesale_preview: wholesale || undefined, preview: logistics });
