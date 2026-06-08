@@ -16,13 +16,14 @@ async function handle(req: NextRequest) {
   const weekParam = body.week || url.searchParams.get('week');
   const n = Number(body.weeks || url.searchParams.get('weeks') || 4);
 
+  const offset = Number(body.offset || url.searchParams.get('offset') || 0);
   const iso = (d: Date) => d.toISOString().slice(0, 10);
   const weeks: string[] = [];
   if (weekParam) {
     weeks.push(iso(mondayOf(new Date(weekParam + 'T00:00:00'))));
   } else {
     const thisMon = mondayOf(new Date());
-    for (let i = 0; i < Math.min(Math.max(n, 1), 12); i++) weeks.push(iso(new Date(thisMon.getTime() - i * 7 * 86400_000)));
+    for (let i = 0; i < Math.min(Math.max(n, 1), 12); i++) weeks.push(iso(new Date(thisMon.getTime() - (i + offset) * 7 * 86400_000)));
   }
   const results = [];
   for (const w of weeks) results.push(await autofillWeek(w).catch((e) => ({ week_start: w, error: String(e).slice(0, 160) })));
