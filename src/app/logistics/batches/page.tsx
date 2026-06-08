@@ -16,15 +16,15 @@ export default async function BatchesPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-caramel">Batches</h1>
-        <p className="mt-1 text-gray-500">Lot tracking &amp; best-before dates across sites</p>
+      <div className="mb-5">
+        <h1 className="text-xl font-bold text-caramel sm:text-2xl">Batches</h1>
+        <p className="mt-0.5 text-xs text-gray-500 sm:text-sm">Lot tracking &amp; best-before dates across sites</p>
       </div>
 
-      <div className="mb-8 grid gap-4 sm:grid-cols-3">
-        <Card icon={<AlertTriangle className="h-5 w-5 text-red-600" />} label="Expired (on hand)" value={String(expired.length)} tone={expired.length ? 'text-red-700' : 'text-caramel'} />
-        <Card icon={<Clock className="h-5 w-5 text-red-500" />} label="Under 30 days" value={String(critical.length)} tone="text-caramel" />
-        <Card icon={<Clock className="h-5 w-5 text-amber-500" />} label="Under 3 months" value={String(warning.length)} tone="text-caramel" />
+      <div className="mb-6 grid grid-cols-3 gap-2">
+        <Card icon={<AlertTriangle className="h-4 w-4 shrink-0 text-red-600" />} label="Expired" value={String(expired.length)} tone={expired.length ? 'text-red-700' : 'text-caramel'} />
+        <Card icon={<Clock className="h-4 w-4 shrink-0 text-red-500" />} label="Under 30d" value={String(critical.length)} tone="text-caramel" />
+        <Card icon={<Clock className="h-4 w-4 shrink-0 text-amber-500" />} label="Under 3mo" value={String(warning.length)} tone="text-caramel" />
       </div>
 
       <BatchesTable rows={lots.map((l) => {
@@ -41,9 +41,9 @@ export default async function BatchesPage() {
 
 function Card({ icon, label, value, tone }: { icon: React.ReactNode; label: string; value: string; tone: string }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
-      <div className="flex items-center gap-2 text-sm font-medium text-gray-500">{icon}{label}</div>
-      <div className={`mt-2 text-2xl font-bold ${tone}`}>{value}</div>
+    <div className="rounded-xl border border-gray-200 bg-paper p-3 shadow-sm sm:p-4">
+      <div className="flex items-center gap-1 text-[11px] font-medium text-gray-500 sm:text-xs">{icon}{label}</div>
+      <div className={`mt-1.5 text-lg font-bold sm:text-2xl ${tone}`}>{value}</div>
     </div>
   );
 }

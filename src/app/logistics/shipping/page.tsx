@@ -31,20 +31,20 @@ export default async function ShippingPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-caramel">Shipping &amp; Billing</h1>
-        <p className="mt-1 text-gray-500">ShipBob fulfilment cost trends &amp; outlier alerts — Altona (AU) &amp; Manchester (UK)</p>
+      <div className="mb-5">
+        <h1 className="text-xl font-bold text-caramel sm:text-2xl">Shipping &amp; Billing</h1>
+        <p className="mt-0.5 text-xs text-gray-500 sm:text-sm">ShipBob fulfilment cost trends &amp; outlier alerts</p>
       </div>
 
-      <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-6 grid grid-cols-2 gap-2.5 lg:grid-cols-4">
         {summary.map((s) => (
-          <div key={s.site} className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
-            <p className="text-sm font-semibold text-caramel">{s.site === 'ALTONA' ? 'Altona (AU)' : 'Manchester (UK)'}</p>
-            <div className="mt-2 text-2xl font-bold text-caramel">{money(s.avg, s.ccy)}</div>
-            <p className="text-xs text-gray-400">avg shipping / order (12-wk)</p>
-            <div className="mt-2 flex items-center gap-3 text-xs">
-              <span className="text-gray-500">this wk: {money(s.latestTotal, s.ccy)}</span>
-              {s.outliers > 0 && <span className="font-medium text-red-600">⚠ {s.outliers} outliers</span>}
+          <div key={s.site} className="rounded-xl border border-gray-200 bg-paper p-3 shadow-sm sm:p-4">
+            <p className="truncate text-xs font-semibold text-caramel sm:text-sm">{s.site === 'ALTONA' ? 'Altona (AU)' : 'Manchester (UK)'}</p>
+            <div className="mt-1 text-lg font-bold text-caramel sm:text-2xl">{money(s.avg, s.ccy)}</div>
+            <p className="text-[11px] text-gray-400">avg / order (12-wk)</p>
+            <div className="mt-1.5 text-[11px] leading-tight">
+              <span className="text-gray-500">wk: {money(s.latestTotal, s.ccy)}</span>
+              {s.outliers > 0 && <span className="font-medium text-red-600"> · ⚠ {s.outliers}</span>}
             </div>
           </div>
         ))}

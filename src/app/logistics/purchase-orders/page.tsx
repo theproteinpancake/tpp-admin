@@ -25,25 +25,24 @@ export default async function PurchaseOrdersPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-caramel">Purchase Orders</h1>
-          <p className="mt-1 text-gray-500">Outstanding orders and pending (inbound) stock</p>
+      <div className="mb-5 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold text-caramel sm:text-2xl">Purchase Orders</h1>
+          <p className="mt-0.5 text-xs text-gray-500 sm:text-sm">Outstanding orders &amp; pending stock</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           <XeroButtons connected={!!conn} org={conn?.tenant_name} />
           <Link href="/logistics/purchase-orders/new"
-            className="inline-flex items-center gap-2 rounded-lg bg-caramel px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-maple">
+            className="inline-flex items-center gap-1.5 rounded-lg bg-caramel px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-maple">
             <Plus className="h-4 w-4" /> New PO
           </Link>
         </div>
       </div>
 
-
-      <div className="mb-8 grid gap-4 sm:grid-cols-3">
-        <Card icon={<ClipboardList className="h-5 w-5 text-caramel" />} label="Open POs" value={String(open.length)} />
-        <Card icon={<PackagePlus className="h-5 w-5 text-caramel" />} label="Pending (inbound) units" value={inboundUnits.toLocaleString('en-AU')} />
-        <Card icon={<Truck className="h-5 w-5 text-caramel" />} label="Open PO value" value={money(openValue, 'AUD')} />
+      <div className="mb-6 grid grid-cols-3 gap-2">
+        <Card icon={<ClipboardList className="h-4 w-4 shrink-0 text-caramel" />} label="Open POs" value={String(open.length)} />
+        <Card icon={<PackagePlus className="h-4 w-4 shrink-0 text-caramel" />} label="Inbound units" value={inboundUnits.toLocaleString('en-AU')} />
+        <Card icon={<Truck className="h-4 w-4 shrink-0 text-caramel" />} label="Open value" value={money(openValue, 'AUD')} />
       </div>
 
       {/* Suggested POs — 3-month rolling schedule */}
@@ -110,9 +109,9 @@ export default async function PurchaseOrdersPage() {
 
 function Card({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
-      <div className="flex items-center gap-2 text-sm font-medium text-gray-500">{icon}{label}</div>
-      <div className="mt-2 text-2xl font-bold text-caramel">{value}</div>
+    <div className="rounded-xl border border-gray-200 bg-paper p-3 shadow-sm sm:p-4">
+      <div className="flex items-center gap-1 text-[11px] font-medium leading-tight text-gray-500 sm:text-xs">{icon}<span className="min-w-0">{label}</span></div>
+      <div className="mt-1.5 text-lg font-bold text-caramel sm:text-2xl">{value}</div>
     </div>
   );
 }

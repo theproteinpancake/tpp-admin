@@ -167,7 +167,7 @@ export default async function StockOverviewPage() {
   const urgentFor = (site: string) => rows
     .filter((r) => r.active && r.category === 'mix' && r.location_code === site && r.days_of_cover != null)
     .sort((a, b) => (a.days_of_cover ?? 1e9) - (b.days_of_cover ?? 1e9))
-    .slice(0, 5);
+    .slice(0, 6);
   const urgentAU = urgentFor('ALTONA');
   const urgentUK = urgentFor('MANCHESTER');
 
@@ -189,41 +189,31 @@ export default async function StockOverviewPage() {
       <PriorityRow label="Altona" rows={urgentAU} />
       <PriorityRow label="Manchester" rows={urgentUK} />
 
-      {/* Site summary cards */}
-      <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* Site summary cards — 2-up on mobile */}
+      <div className="mb-6 grid grid-cols-2 gap-2.5 lg:grid-cols-4">
         {sites.map((s) => {
           const sum = summariseSite(rows, s.code);
           return (
-            <div key={s.id} className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
+            <div key={s.id} className="rounded-xl border border-gray-200 bg-paper p-3 shadow-sm sm:p-4">
               <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold text-caramel">{s.name.replace(' ShipBob', '')}</p>
-                <span className="rounded-full bg-cream px-2 py-0.5 text-[11px] font-medium text-maple">{s.country}</span>
+                <p className="truncate text-xs font-semibold text-caramel sm:text-sm">{s.name.replace(' ShipBob', '')}</p>
+                <span className="rounded-full bg-cream px-1.5 py-0.5 text-[10px] font-medium text-maple">{s.country}</span>
               </div>
-              <div className="mt-3 flex items-baseline gap-1">
-                <span className="text-2xl font-bold text-caramel">{fmtInt(sum.units)}</span>
-                <span className="text-sm text-gray-400">units on hand</span>
+              <div className="mt-2 flex items-baseline gap-1">
+                <span className="text-xl font-bold text-caramel sm:text-2xl">{fmtInt(sum.units)}</span>
+                <span className="text-[11px] text-gray-400">units</span>
               </div>
-              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                <div className="rounded-lg bg-gray-50 px-2.5 py-1.5">
-                  <div className="text-gray-400">Stock value</div>
-                  <div className="font-semibold text-caramel">{fmtMoney(sum.value, s.currency)}</div>
-                </div>
-                <div className="rounded-lg bg-gray-50 px-2.5 py-1.5">
-                  <div className="text-gray-400">SKUs tracked</div>
-                  <div className="font-semibold text-caramel">{sum.skuCount}</div>
-                </div>
+              <div className="mt-2 space-y-1 text-[11px]">
+                <div className="flex justify-between"><span className="text-gray-400">Value</span><span className="font-semibold text-caramel">{fmtMoney(sum.value, s.currency)}</span></div>
+                <div className="flex justify-between"><span className="text-gray-400">SKUs</span><span className="font-semibold text-caramel">{sum.skuCount}</span></div>
               </div>
-              <div className="mt-2 flex items-center gap-3 text-xs">
+              <div className="mt-2 text-[11px] leading-tight">
                 {sum.oos > 0 ? (
-                  <span className="inline-flex items-center gap-1 font-medium text-red-600">
-                    <AlertTriangle className="h-3.5 w-3.5" /> {sum.oos} out of stock
-                  </span>
+                  <span className="inline-flex items-center gap-1 font-medium text-red-600"><AlertTriangle className="h-3 w-3" /> {sum.oos} OOS</span>
                 ) : (
                   <span className="font-medium text-emerald-600">All in stock</span>
                 )}
-                {sum.primaryOos > 0 && (
-                  <span className="font-medium text-red-700">· {sum.primaryOos} primary OOS</span>
-                )}
+                {sum.primaryOos > 0 && <span className="font-medium text-red-700"> · {sum.primaryOos} primary</span>}
               </div>
             </div>
           );
@@ -242,34 +232,26 @@ export default async function StockOverviewPage() {
           </div>
           <Link href="/logistics/shipping" className="text-xs font-medium text-maple hover:underline">View all →</Link>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-2 gap-2.5">
           {billing.map((h) => {
             const up = h.momPct != null && h.momPct > 0;
             return (
-              <div key={h.site} className="rounded-xl border border-gray-200 bg-paper p-4 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-caramel">{SITE_LABEL[h.site]}</p>
+              <div key={h.site} className="rounded-xl border border-gray-200 bg-paper p-3 shadow-sm sm:p-4">
+                <div className="flex items-center justify-between gap-1">
+                  <p className="truncate text-xs font-semibold text-caramel sm:text-sm">{SITE_LABEL[h.site]}</p>
                   {h.momPct != null && (
-                    <span className={`inline-flex items-center gap-0.5 text-xs font-medium ${up ? 'text-red-600' : 'text-emerald-600'}`}>
-                      {up ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />}
+                    <span className={`inline-flex shrink-0 items-center gap-0.5 text-[11px] font-medium ${up ? 'text-red-600' : 'text-emerald-600'}`}>
+                      {up ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
                       {Math.abs(h.momPct)}%
                     </span>
                   )}
                 </div>
-                <div className="mt-1 flex items-baseline gap-1">
-                  <span className="text-xl font-bold text-caramel">{fmtMoney(h.thisMonth, h.currency)}</span>
-                  <span className="text-xs text-gray-400">shipping · last mo {fmtMoney(h.lastMonth, h.currency)}</span>
-                </div>
-                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                  {h.outlierExposure > 0 && (
-                    <span className="font-medium text-red-600">⚠ {fmtMoney(h.outlierExposure, h.currency)} over-median ({h.outlierCount})</span>
-                  )}
-                  {h.unpaidCount > 0 && (
-                    <span className="font-medium text-amber-600">{h.unpaidCount} unpaid {fmtMoney(h.unpaidTotal, h.currency)}</span>
-                  )}
-                  {h.outlierExposure === 0 && h.unpaidCount === 0 && (
-                    <span className="text-emerald-600">No flags</span>
-                  )}
+                <div className="mt-1 text-lg font-bold text-caramel sm:text-xl">{fmtMoney(h.thisMonth, h.currency)}</div>
+                <div className="text-[11px] text-gray-400">shipping · last mo {fmtMoney(h.lastMonth, h.currency)}</div>
+                <div className="mt-1.5 text-[11px] leading-tight">
+                  {h.outlierExposure > 0 && <span className="font-medium text-red-600">⚠ {fmtMoney(h.outlierExposure, h.currency)} over ({h.outlierCount})</span>}
+                  {h.unpaidCount > 0 && <span className="font-medium text-amber-600"> {h.unpaidCount} unpaid</span>}
+                  {h.outlierExposure === 0 && h.unpaidCount === 0 && <span className="text-emerald-600">No flags</span>}
                 </div>
               </div>
             );
