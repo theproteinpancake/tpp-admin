@@ -57,7 +57,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
   const qs = (m: string) => `/analytics?from=${from}&to=${to}&model=${m}`;
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-8">
+    <div className="mx-auto max-w-7xl overflow-x-hidden px-4 py-5 sm:px-6 sm:py-8">
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <BarChart3 className="h-6 w-6 text-caramel" />
@@ -122,8 +122,9 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
         {/* Expenses */}
         <Section title="Expenses" icon="🧾">
           <Tile label="COGS (est.)" value={money(c.cogs)} cur={c.cogs} prev={p.cogs} invert />
-          <Tile label="Shipping (ShipBob)" value={money(c.shipbob)} cur={c.shipbob} prev={p.shipbob} invert />
+          <Tile label={c.shipbob_estimated ? 'Shipping (incl. est.)' : 'Shipping (ShipBob)'} value={money(c.shipbob)} cur={c.shipbob} prev={p.shipbob} invert />
           <Tile label="Payment fees" value={money(c.payment_fees)} cur={c.payment_fees} prev={p.payment_fees} invert />
+          <Tile label="Wages" value={money(c.wages)} cur={c.wages} prev={p.wages} invert />
           <Tile label="Ad spend" value={money(c.ad_spend)} cur={c.ad_spend} prev={p.ad_spend} invert />
         </Section>
 

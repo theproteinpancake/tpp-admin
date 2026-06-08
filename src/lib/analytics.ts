@@ -9,8 +9,8 @@ import { getShopifyToken, SHOPIFY_SHOP } from './shopifyToken';
 const SHOP = SHOPIFY_SHOP;
 const API = '2024-10';
 
-export interface Assumptions { wholesale_margin: number; online_cogs_pct: number; payment_fee_pct: number; fx_gbp_aud: number; weekly_target_sales: number; weekly_target_np: number; employees: number; }
-const DEFAULT_ASSUMPTIONS: Assumptions = { wholesale_margin: 0.38, online_cogs_pct: 0.40, payment_fee_pct: 0.03, fx_gbp_aud: 1.95, weekly_target_sales: 40000, weekly_target_np: 4000, employees: 4 };
+export interface Assumptions { wholesale_margin: number; online_cogs_pct: number; payment_fee_pct: number; fx_gbp_aud: number; weekly_target_sales: number; weekly_target_np: number; employees: number; wages_per_day: number; shipbob_per_order: number; }
+const DEFAULT_ASSUMPTIONS: Assumptions = { wholesale_margin: 0.38, online_cogs_pct: 0.40, payment_fee_pct: 0.03, fx_gbp_aud: 1.95, weekly_target_sales: 40000, weekly_target_np: 4000, employees: 4, wages_per_day: 371, shipbob_per_order: 22 };
 
 export async function getAssumptions(): Promise<Assumptions> {
   const { data } = await supabaseLogistics.from('app_config').select('value').eq('key', 'analytics_assumptions').maybeSingle();

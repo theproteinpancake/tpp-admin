@@ -13,13 +13,14 @@ export interface Period {
   wholesale: number; sales_total: number;
   meta_spend: number | null; meta_roas: number | null; meta_purchases: number; meta_cpa: number | null;
   ad_spend: number; blended_roas: number | null; nc_roas: number | null; mer: number | null;
-  cogs: number; payment_fees: number; gross_profit: number; gpm: number | null;
-  shipbob: number; shipbob_orders: number;
+  cogs: number; payment_fees: number; wages: number; gross_profit: number; gpm: number | null;
+  shipbob: number; shipbob_orders: number; shipbob_estimated: boolean;
   net_profit: number; npm: number | null;
 }
 
 async function computePeriod(fromDate: string, toDate: string, model: Model = 'last'): Promise<{ p: Period; attr: { rows: AttribRow[]; totals: any } }> {
   const a = await getAssumptions();
+  const days = Math.max(1, Math.round((Date.parse(toDate) - Date.parse(fromDate)) / 86400_000));
   const [attr, meta, wh, sb] = await Promise.all([
     getAttribution(fromDate, toDate, model),
     fetchMetaWeek(fromDate, toDate).catch(() => null), // platform-reported spend/roas/purchases/cpa
@@ -28,14 +29,20 @@ async function computePeriod(fromDate: string, toDate: string, model: Model = 'l
   ]);
   const wholesale = (wh.data ?? []).reduce((s: number, o: any) => s + (Number(o.total) || 0), 0);
   const sbRows = (sb.data ?? []) as any[];
-  const shipbob = sbRows.reduce((s, o) => s + (/gbp/i.test(o.currency || '') ? (Number(o.cost) || 0) * a.fx_gbp_aud : Number(o.cost) || 0), 0);
+  const shipbobActual = sbRows.reduce((s, o) => s + (/gbp/i.test(o.currency || '') ? (Number(o.cost) || 0) * a.fx_gbp_aud : Number(o.cost) || 0), 0);
   const online = attr.totals.revenue;
   const orders = attr.totals.orders;
+  // ShipBob bills per-shipment a day or two late — estimate cost for orders not yet costed
+  // so recent ranges don't understate shipping (and inflate profit).
+  const uncosted = Math.max(0, orders - sbRows.length);
+  const shipbobEst = uncosted * (a.shipbob_per_order || 22);
+  const shipbob = shipbobActual + shipbobEst;
   const ad_spend = (meta?.spend || 0); // + google when live
   const cogs = online * a.online_cogs_pct;
   const payment_fees = online * a.payment_fee_pct;
+  const wages = (a.wages_per_day || 0) * days;
   const gross_profit = online - cogs;
-  const net_profit = gross_profit - ad_spend - shipbob - payment_fees;
+  const net_profit = gross_profit - ad_spend - shipbob - payment_fees - wages;
   const sales_total = online + wholesale;
   return {
     attr,
@@ -44,8 +51,8 @@ async function computePeriod(fromDate: string, toDate: string, model: Model = 'l
       wholesale: r2(wholesale), sales_total: r2(sales_total),
       meta_spend: meta?.spend ?? null, meta_roas: meta?.roas ?? null, meta_purchases: meta?.purchases || 0, meta_cpa: meta?.cpa ?? null,
       ad_spend: r2(ad_spend), blended_roas: div(online, ad_spend), nc_roas: attr.totals.nc_roas, mer: div(ad_spend, online),
-      cogs: r2(cogs), payment_fees: r2(payment_fees), gross_profit: r2(gross_profit), gpm: div(gross_profit, online),
-      shipbob: r2(shipbob), shipbob_orders: sbRows.length,
+      cogs: r2(cogs), payment_fees: r2(payment_fees), wages: r2(wages), gross_profit: r2(gross_profit), gpm: div(gross_profit, online),
+      shipbob: r2(shipbob), shipbob_orders: sbRows.length, shipbob_estimated: uncosted > 0,
       net_profit: r2(net_profit), npm: div(net_profit, online),
     },
   };

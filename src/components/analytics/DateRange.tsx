@@ -38,7 +38,7 @@ export default function DateRange({ from, to }: { from: string; to: string }) {
       {open && (
         <>
           <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 z-30 mt-1 w-72 rounded-xl border border-gray-200 bg-white p-3 shadow-xl">
+          <div className="absolute right-0 z-30 mt-1 w-[min(18rem,calc(100vw-2rem))] rounded-xl border border-gray-200 bg-white p-3 shadow-xl">
             <div className="grid grid-cols-2 gap-1.5">
               {presets().map((p) => (
                 <button key={p.k} onClick={() => go(p.from, p.to)} className="rounded-md px-2 py-1.5 text-left text-xs font-medium text-gray-700 hover:bg-cream">{p.k}</button>
