@@ -42,15 +42,26 @@ export async function syncOrders(sinceIso: string, untilIso?: string): Promise<{
   const token = await getShopifyToken();
   const url = `https://${SHOPIFY_SHOP}/admin/api/${API}/graphql.json`;
   const q = `created_at:>=${sinceIso}${untilIso ? ` created_at:<=${untilIso}` : ''} financial_status:paid`;
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   let cursor: string | null = null;
   let total = 0;
-  for (let page = 0; page < 200; page++) {
-    const res: Response = await fetch(url, {
-      method: 'POST', headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: QUERY, variables: { cursor, q } }),
-    });
-    const j: any = await res.json();
+  for (let page = 0; page < 400; page++) {
+    // request with throttle-aware retry
+    let j: any = null;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const res: Response = await fetch(url, {
+        method: 'POST', headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: QUERY, variables: { cursor, q } }),
+      });
+      j = await res.json();
+      const throttled = Array.isArray(j.errors) && j.errors.some((e: any) => e.extensions?.code === 'THROTTLED');
+      if (!throttled) break;
+      await sleep(2500 * (attempt + 1)); // back off and retry same cursor
+    }
     if (j.errors) return { synced: total, error: JSON.stringify(j.errors).slice(0, 200) };
+    // pace against the leaky bucket so we don't get throttled
+    const ts = j.extensions?.cost?.throttleStatus;
+    if (ts && ts.currentlyAvailable < 400) await sleep(Math.min(3000, ((400 - ts.currentlyAvailable) / (ts.restoreRate || 100)) * 1000));
     const conn = j.data?.orders;
     const nodes = conn?.nodes || [];
     if (nodes.length) {
