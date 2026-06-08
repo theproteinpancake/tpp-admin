@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 // Domain API prefixes → the section a user must have to call them. Anything not listed
 // (auth, me, google, mux, shopify, crons, webhooks) is not section-gated here.
 const API_SECTION: { prefix: string; section: string }[] = [
+  { prefix: '/api/analytics', section: 'analytics' },
   { prefix: '/api/marketing', section: 'marketing' },
   { prefix: '/api/wholesale/customer', section: 'wholesale' },
   { prefix: '/api/xero/sync-wholesale', section: 'wholesale' },

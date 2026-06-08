@@ -23,16 +23,24 @@ import {
   ShoppingCart,
   Megaphone,
   Handshake,
+  BarChart3,
   X,
   type LucideIcon,
 } from 'lucide-react';
 
-type Section = 'app' | 'logistics' | 'wholesale' | 'marketing';
+type Section = 'analytics' | 'app' | 'logistics' | 'wholesale' | 'marketing';
 type NavItem = { name: string; href: string; icon: LucideIcon };
 type NavGroup = { label: string; section: Section; items: NavItem[] };
 type Me = { name: string | null; email: string; role: string; sections: Section[]; isOwner: boolean };
 
 const groups: NavGroup[] = [
+  {
+    label: 'Analytics',
+    section: 'analytics',
+    items: [
+      { name: 'Sales & Data', href: '/analytics', icon: BarChart3 },
+    ],
+  },
   {
     label: 'Logistics',
     section: 'logistics',

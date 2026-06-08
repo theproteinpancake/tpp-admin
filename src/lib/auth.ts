@@ -70,7 +70,7 @@ export function readRemember(cookie?: string | null): string | null {
 
 // ---------- Roles & section access ----------
 // Top-level dashboard sections, matched against URL prefixes by the nav + page guards.
-export const ALL_SECTIONS = ['app', 'logistics', 'wholesale', 'marketing'] as const;
+export const ALL_SECTIONS = ['analytics', 'logistics', 'wholesale', 'marketing', 'app'] as const;
 export type Section = (typeof ALL_SECTIONS)[number];
 
 export const ROLES: { value: string; label: string; sections: Section[] }[] = [
