@@ -1,17 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyTotp } from '@/lib/totp';
-import { getUserByEmail, verifyPassword, signSession, allowedSections } from '@/lib/auth';
+import { getUserByEmail, verifyPassword, signSession, allowedSections, signRemember, readRemember, REMEMBER_DAYS } from '@/lib/auth';
 import { getConfig, twoFAEnabled, twoFASecret } from '@/lib/settings';
 
-const setCookies = (res: NextResponse, user: { id: string; email: string; role: string; sections?: string[] | null }) => {
-  const opts = { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax' as const, maxAge: 60 * 60 * 24 * 7, path: '/' };
-  res.cookies.set('tpp-admin-auth', 'authenticated', opts);            // gate (unchanged)
-  res.cookies.set('tpp-user', signSession({ uid: user.id, email: user.email, role: user.role, sections: allowedSections(user) }), opts); // identity
+const WEEK = 60 * 60 * 24 * 7;
+const setCookies = (res: NextResponse, user: { id: string; email: string; role: string; sections?: string[] | null }, remember?: boolean) => {
+  const base = { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax' as const, path: '/' };
+  res.cookies.set('tpp-admin-auth', 'authenticated', { ...base, maxAge: WEEK });          // gate (unchanged)
+  res.cookies.set('tpp-user', signSession({ uid: user.id, email: user.email, role: user.role, sections: allowedSections(user) }), { ...base, maxAge: WEEK }); // identity
+  // Trust this device for 2FA for 30 days (skips the code on future logins).
+  if (remember && user.id !== 'admin') res.cookies.set('tpp-2fa', signRemember(user.id), { ...base, maxAge: REMEMBER_DAYS * 24 * 60 * 60 });
   return res;
 };
 
 export async function POST(request: NextRequest) {
-  const { email, password, token } = await request.json();
+  const { email, password, token, remember } = await request.json();
   const adminPassword = process.env.ADMIN_PASSWORD;
   if (!adminPassword) return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
 
@@ -34,11 +37,18 @@ export async function POST(request: NextRequest) {
   let needSecret: string | null = null;
   if (user?.totp_enabled && user.totp_secret) needSecret = user.totp_secret;
   else if (okFallback && await twoFAEnabled().catch(() => false)) needSecret = await twoFASecret();
-  if (needSecret) {
+
+  // Skip the code if THIS device was remembered for this user within the last 30 days.
+  const rememberedUid = readRemember(request.cookies.get('tpp-2fa')?.value);
+  const deviceTrusted = !!needSecret && !!user && rememberedUid === user.id;
+
+  if (needSecret && !deviceTrusted) {
     if (!token) return NextResponse.json({ error: '2fa_required', twofa: true }, { status: 401 });
     if (!verifyTotp(needSecret, String(token))) return NextResponse.json({ error: 'Invalid code', twofa: true }, { status: 401 });
   }
 
   const acct = user || { id: 'admin', email: adminEmail, role: 'admin' };
-  return setCookies(NextResponse.json({ success: true, must_set_password: !user?.password_hash }), acct);
+  // Remember this device when 2FA was actually used this login (or already trusted) and the user opted in (default on).
+  const setRemember = !!needSecret && remember !== false;
+  return setCookies(NextResponse.json({ success: true, must_set_password: !user?.password_hash }), acct, setRemember);
 }

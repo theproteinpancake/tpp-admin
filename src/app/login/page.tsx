@@ -8,6 +8,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [token, setToken] = useState('');
   const [needCode, setNeedCode] = useState(false);
+  const [remember, setRemember] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -21,7 +22,7 @@ export default function LoginPage() {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, token }),
+        body: JSON.stringify({ email, password, token, remember }),
       });
 
       if (res.ok) {
@@ -86,6 +87,13 @@ export default function LoginPage() {
               autoFocus
               className="w-full rounded-xl border border-gray-200 px-4 py-3 text-center text-caramel placeholder:text-gray-400 tracking-[0.3em] transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-caramel"
             />
+          )}
+
+          {needCode && (
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-600">
+              <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="h-4 w-4 rounded border-gray-300 accent-caramel" />
+              Remember this device for 30 days
+            </label>
           )}
 
           {error && <p className="text-center text-sm text-red-500">{error}</p>}

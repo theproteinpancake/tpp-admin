@@ -51,6 +51,23 @@ export function newSetupToken(): string {
   return crypto.randomBytes(18).toString('base64url');
 }
 
+// "Remember this device" for 2FA — a signed cookie binding a device to a user for N days,
+// so the TOTP code is only asked once per device per period.
+export const REMEMBER_DAYS = 30;
+export function signRemember(uid: string): string {
+  const exp = Date.now() + REMEMBER_DAYS * 86400_000;
+  const data = Buffer.from(JSON.stringify({ uid, exp })).toString('base64url');
+  const sig = crypto.createHmac('sha256', sessionSecret()).update(data).digest('base64url');
+  return `${data}.${sig}`;
+}
+export function readRemember(cookie?: string | null): string | null {
+  if (!cookie || !cookie.includes('.')) return null;
+  const [data, sig] = cookie.split('.');
+  const exp = crypto.createHmac('sha256', sessionSecret()).update(data).digest('base64url');
+  if (exp.length !== sig.length || !crypto.timingSafeEqual(Buffer.from(exp), Buffer.from(sig))) return null;
+  try { const p = JSON.parse(Buffer.from(data, 'base64url').toString()); return p.exp && p.exp > Date.now() ? p.uid : null; } catch { return null; }
+}
+
 // ---------- Roles & section access ----------
 // Top-level dashboard sections, matched against URL prefixes by the nav + page guards.
 export const ALL_SECTIONS = ['app', 'logistics', 'wholesale', 'marketing'] as const;
