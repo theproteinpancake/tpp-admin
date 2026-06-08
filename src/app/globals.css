@@ -3,20 +3,18 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --background: #f7eddb; /* darker cream */
+  --foreground: #211b25; /* cookie (near-black, warm) */
 }
 
 body {
   color: var(--foreground);
   background: var(--background);
+}
+
+/* Headings use the branded Recoleta serif (loaded via next/font/local) */
+h1, h2, h3, h4, .font-display {
+  font-family: var(--font-recoleta), Georgia, serif;
 }
 
 /* Custom scrollbar */
@@ -26,15 +24,20 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: transparent;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #C4814A;
+  background: #bd6930;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #B5651D;
+  background: #9a4f24;
+}
+
+/* Respect iOS safe areas for the app shell */
+@supports (padding: max(0px)) {
+  .safe-top { padding-top: max(0.5rem, env(safe-area-inset-top)); }
 }

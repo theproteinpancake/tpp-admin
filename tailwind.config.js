@@ -9,15 +9,26 @@ module.exports = {
     extend: {
       colors: {
         // TPP Brand Colors
-        caramel: '#C4814A',
-        maple: '#B5651D',
-        cream: '#FFF8E7',
-        churro: '#F5DEB3',
-        'maple-bacon': '#8B4513',
-        'buttermilk-blue': '#4A90A4',
+        caramel: '#bd6930',          // contrast caramel (primary accent)
+        maple: '#9a4f24',            // darker caramel — hover/active text
+        cream: '#f7eddb',            // app background (darker cream)
+        paper: '#faf4e8',            // cards / highlighted segments (lighter cream)
+        churro: '#efdcc0',           // soft tan accent
+        // Flavour / brand palette
+        tppblue: '#7dadd4',          // branded blue
+        'buttermilk-blue': '#7EAFD3',
+        'green-dark': '#025c46',
+        'green-light': '#c4dd8c',
+        chocolate: '#692e00',
+        pink: '#fcc9bd',
+        cookie: '#211b25',
+        'maple-bacon': '#DB5B42',
+        cinnamon: '#9D442B',
+        'maple-orange': '#fbb033',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
+        display: ['var(--font-recoleta)', 'Georgia', 'serif'],
       },
     },
   },
