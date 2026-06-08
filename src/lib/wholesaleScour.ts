@@ -12,7 +12,7 @@ import { sendWhatsApp, KATE_NUMBER } from './whatsapp';
 
 const INBOXES: { acc: string | undefined; tag: string }[] = [{ acc: 'kate', tag: 'kate' }, { acc: undefined, tag: 'luke' }];
 // candidate POs: order-ish subject OR an attachment, recent, not our own sends
-const QUERY = 'newer_than:2d -in:sent -from:theproteinpancake.co (subject:order OR subject:"purchase order" OR subject:PO OR "purchase order" OR "please order" OR has:attachment)';
+const QUERY = 'newer_than:2d -in:sent -from:theproteinpancake.co (subject:order OR subject:"purchase order" OR subject:PO OR "purchase order" OR "please order" OR "order the following" OR "can i order" OR "like to order" OR "place an order" OR "i order" OR "can i please order" OR "can i get" OR has:attachment)';
 
 const parseAddr = (from: string) => { const m = /<([^>]+)>/.exec(from || ''); return (m ? m[1] : (from || '')).trim(); };
 const isUs = (from: string) => /theproteinpancake\.co/i.test(from || '');

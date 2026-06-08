@@ -210,7 +210,7 @@ const tools: Anthropic.Tool[] = [
         lines: { type: 'array', items: { type: 'object', properties: { sku: { type: 'string' }, cartons: { type: 'number' } } } },
         box: { type: 'string', enum: ['PANOUTERSMALL', 'PANOUTER', 'PANXLARGE'] },
         free_shipping: { type: 'boolean', description: 'true = no freight (4+ cartons, the MOQ); false = add the $15 GST-free FREIGHT line (1-3 cartons, OR when Kate explicitly says to add freight).' },
-        reference: { type: 'string', description: 'customer PO number' },
+        reference: { type: 'string', description: 'Xero invoice Reference. Use the customer\'s PO number if they gave one. If there is NO PO number (e.g. a casual email order), use "{Contact first name} Email {DD/MM/YYYY}" with today\'s date — e.g. "Rebekah Email 08/06/2026".' },
       },
       required: ['customer_name', 'recipient', 'lines', 'box', 'free_shipping'],
     },
@@ -788,6 +788,8 @@ INBOX ACCESS: you can read the wholesale inbox(es) — Kate's (kate@) AND Luke's
 WHOLESALE:
 - get_wholesale_overview for sales, due-to-reorder, lapsed, top customers, 320g stock + ABC reorder timing.
 - parse_wholesale_po / process_po_email map flavours→320g SKUs, check Altona stock, pick the ShipBob box, apply free shipping (4+ cartons free; 1–3 add $15 freight).
+- CASUAL/TEXT ORDERS: many POs are just a plain email ("Can I please order: Buttermilk x6, Salted Caramel x3, GF Buttermilk x1…"). Parse these the same way — "x6 boxes"/"x6" = 6 cartons. The customer is usually the business in their signature (e.g. "Highland Evolution Dance & Fitness"); match that to the Xero contact. "boxes"/"cartons" = cartons.
+- REFERENCE: pass the customer's PO number as the reference if they gave one. If there is NO PO number, set reference to "{contact first name} Email {DD/MM/YYYY}" using TODAY'S DATE (e.g. "Rebekah Email 08/06/2026") — first name is the person who sent it (e.g. Bex/Rebekah), not the business.
 - FREIGHT: 4+ cartons (the MOQ) = free → free_shipping:true. 1-3 cartons = add the $15 GST-free FREIGHT item → free_shipping:false. If Kate explicitly says "add freight"/"charge freight" (even on a 4+ order) set free_shipping:false; if she says "waive/remove freight" set free_shipping:true. (The FREIGHT line is a Xero item priced at $15.)
 - Box rules: 2 cartons → PANXLARGE; ≤4 → PANOUTERSMALL; ≤8 → PANOUTER; larger = multiples. >24 cartons = B2B/courier (out of standard B2C scope).
 - UNITS vs CARTONS: some stores (Nutrition Warehouse) order individual 320g BAGS (qty "4" = 4 bags = 1 carton); the parser converts + flags non-clean conversions — surface them.
@@ -820,9 +822,11 @@ WHOLESALE & MARKETING — you can ALSO run ALL of Kate's wholesale + marketing t
 `;
 
 function systemFor(role: 'wholesale' | 'owner'): string {
-  return role === 'wholesale'
+  const today = new Date().toLocaleDateString('en-AU', { day: '2-digit', month: '2-digit', year: 'numeric' }); // DD/MM/YYYY
+  const dateLine = `TODAY'S DATE is ${today} (DD/MM/YYYY). Use it for any date-based reference or note.\n`;
+  return dateLine + (role === 'wholesale'
     ? KATE_PREFACE + SHARED_OPS + SYSTEM
-    : SYSTEM + OWNER_OPS_PREFACE + SHARED_OPS;
+    : SYSTEM + OWNER_OPS_PREFACE + SHARED_OPS);
 }
 
 // Recent conversation history (last 6h) so multi-step flows (confirm / SEND / yes) work.
