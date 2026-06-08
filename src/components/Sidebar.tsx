@@ -24,6 +24,7 @@ import {
   Megaphone,
   Handshake,
   BarChart3,
+  Table2,
   X,
   type LucideIcon,
 } from 'lucide-react';
@@ -38,7 +39,8 @@ const groups: NavGroup[] = [
     label: 'Analytics',
     section: 'analytics',
     items: [
-      { name: 'Sales & Data', href: '/analytics', icon: BarChart3 },
+      { name: 'Analytics', href: '/analytics', icon: BarChart3 },
+      { name: 'Sales & Data', href: '/analytics/master', icon: Table2 },
     ],
   },
   {
