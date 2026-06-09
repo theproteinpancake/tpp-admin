@@ -856,6 +856,21 @@ async function saveTurn(phone: string, userText: string, assistantText: string) 
   ]);
 }
 
+// Record a PROACTIVE message we sent (PO alert, reply-ping, brief) into the conversation so the
+// agent has context when the person replies ("remove salted caramel and proceed", "process it").
+// Stored as a user-framed context note + assistant ack so it survives the user-first history filter.
+// `phone` must match the inbound webhook's `From` format (whatsapp:+E164).
+export async function recordProactiveContext(phone: string, summary: string) {
+  const note = (summary || '').trim();
+  if (!phone || !note) return;
+  try {
+    await supabaseLogistics.from('wa_conversation').insert([
+      { phone, role: 'user', content: `[CONTEXT — you (the assistant) just proactively messaged this person. If their next message says "that order", "this", "it", "process it", "remove X", etc., it refers to THIS:]\n${note}` },
+      { phone, role: 'assistant', content: 'Noted — I sent that and I\'m ready to action their response.' },
+    ]);
+  } catch { /* best-effort */ }
+}
+
 export interface AgentImage { base64: string; mediaType: string }
 
 export async function askStockAgent(question: string, phone?: string, images?: AgentImage[], quotedText?: string): Promise<{ text: string; media?: string }> {

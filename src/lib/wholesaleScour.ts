@@ -8,9 +8,10 @@ import { gmailSearch, gmailGetBody, gmailGetAllAttachments, gmailGetThreadLatest
 import { processWholesalePOMulti } from './wholesalePO';
 import { getRestockPhrase } from './restock';
 import { xlsxToText } from './xlsx';
-import { sendWhatsApp, sendWhatsAppTemplate, KATE_NUMBER } from './whatsapp';
+import { sendWhatsApp, sendWhatsAppTemplate, waAddr, KATE_NUMBER } from './whatsapp';
 import { getConfig } from './settings';
 import { getTemplateSid } from './waTemplates';
+import { recordProactiveContext } from './stockAgent';
 
 const INBOXES: { acc: string | undefined; tag: string }[] = [{ acc: 'kate', tag: 'kate' }, { acc: undefined, tag: 'luke' }];
 // candidate POs: order-ish subject OR an attachment, recent, not our own sends
@@ -137,7 +138,15 @@ export async function runWholesalePoScour(): Promise<{ scanned: number; new_pos:
       });
     }
     if (!ok) ok = await sendWhatsApp(KATE_NUMBER, msg);
-    if (ok) notified++;
+    if (ok) {
+      notified++;
+      // give the agent memory of this alert so Kate's reply ("process it", "remove X and proceed") has context
+      const state = !a!.customer_on_file ? 'Customer is NOT on file in Xero yet.'
+        : a!.fulfillable ? `In stock — ready to create the ShipBob order + draft Xero invoice on confirmation. Box: ${a!.boxes.join(' + ')}, ${a!.free_shipping ? 'free shipping' : '+$15 freight'}.`
+        : `OOS: ${a!.oos.map((o) => o.flavour).join(', ')} — drafted a swap/send-the-rest reply, awaiting their decision.`;
+      const ctx = `Wholesale PO from ${cust}${a!.po_number ? ` (PO ${a!.po_number})` : ''}.\nLines: ${lineInline}.\n${state}\nShip to: ${a!.ship_to || '—'}.`;
+      await recordProactiveContext(waAddr(KATE_NUMBER), ctx).catch(() => {});
+    }
   }
 
   // ---------- PASS 2: watch OOS threads for stockist replies ----------
@@ -160,7 +169,11 @@ export async function runWholesalePoScour(): Promise<{ scanned: number; new_pos:
       let ok = false;
       if (tpl) ok = await sendWhatsAppTemplate(KATE_NUMBER, tpl, { '1': cust, '2': snippet || '(see the thread)', '3': `Reply "process ${cust}" to action the swap / send-the-rest, or tell me what they chose.` });
       if (!ok) ok = await sendWhatsApp(KATE_NUMBER, `↩️ *${cust} replied* about their OOS order:\n"${snippet}"\n\nReply "*process ${cust}*" or tell me what they chose.`);
-      if (ok) { replyPings++; await supabaseLogistics.from('wholesale_po_log').update({ reply_notified_at: new Date().toISOString() }).eq('id', w.id); }
+      if (ok) {
+        replyPings++;
+        await supabaseLogistics.from('wholesale_po_log').update({ reply_notified_at: new Date().toISOString() }).eq('id', w.id);
+        await recordProactiveContext(waAddr(KATE_NUMBER), `${cust} replied about their out-of-stock order with: "${snippet}". Awaiting Kate's instruction to process the swap / send-the-rest for ${cust}.`).catch(() => {});
+      }
     }
   } catch { /* reply-watch is best-effort */ }
 
