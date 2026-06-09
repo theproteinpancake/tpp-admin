@@ -26,7 +26,7 @@ const iso = (d: Date) => d.toISOString().slice(0, 10);
 export function weekRange(weekStart: string) { const s = new Date(weekStart + 'T00:00:00'); const e = new Date(s.getTime() + 7 * 86400_000); return { start: s, end: e, startIso: iso(s), endIso: iso(e) }; }
 
 // ---- Shopify: aggregate paid orders created in [start,end) ----
-async function shopifyOrders(startIso: string, endIso: string) {
+export async function shopifyOrders(startIso: string, endIso: string) {
   const token = await getShopifyToken();
   const base = `https://${SHOP}/admin/api/${API}/orders.json`;
   let url = `${base}?status=any&financial_status=paid&created_at_min=${startIso}T00:00:00Z&created_at_max=${endIso}T00:00:00Z&limit=250&fields=id,total_price,subtotal_price,total_discounts,shipping_lines,shipping_address,created_at`;

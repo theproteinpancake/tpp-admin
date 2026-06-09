@@ -3,8 +3,10 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { supabaseLogistics } from './supabase-logistics';
 import { getAttribution } from './attribution';
-import { getAssumptions } from './analytics';
-import { sendWhatsApp, allowedNumbers, senderRole } from './whatsapp';
+import { getAssumptions, shopifyOrders, shopifyWeekCOGS } from './analytics';
+import { fetchMetaWeek } from './meta';
+import { sendWhatsApp, sendWhatsAppTemplate, allowedNumbers, senderRole } from './whatsapp';
+import { getTemplateSid } from './waTemplates';
 
 const AEST_OFFSET = '+10:00';
 const money = (n: number | null | undefined) => n == null ? '—' : 'A$' + Math.round(n).toLocaleString('en-AU');
@@ -104,52 +106,141 @@ export async function buildWeeklyBrief(): Promise<string> {
   ].filter(Boolean).join('\n');
 }
 
-// Copy-paste-ready "week in review" for the team chat. Reads ONLY from the sales_week
-// master row (the verified source) so it can never drift from the Analytics master/dashboard.
-// Net profit uses ONE complete formula: online gross + wholesale margin − ad spend
-// − ShipBob − payment fees − wages.
-export async function buildWeekInReview(weekStart: string): Promise<string> {
+// ---- Sales review (daily + weekly) — ONE metric set, ONE net-profit formula, ONE format ----
+// Weekly reads the verified sales_week master row; daily computes the same metrics fresh from
+// the same real sources (Shopify orders + COGS, Meta, attribution, ShipBob, wholesale). Net
+// profit = online gross + wholesale margin − ad spend − ShipBob − payment fees − wages.
+export interface ReviewMetrics {
+  kind: 'day' | 'week'; period: string;
+  online: number; orders: number; aov: number; cr: number | null;
+  wholesale: number; amazon: number; total: number;
+  roas: number | null; cpa: number | null; nc_roas: number | null; nc_cpa: number | null;
+  net: number;
+}
+const nn = (v: any) => Number(v) || 0;
+const d0 = (v: number | null) => v == null ? '—' : (v < 0 ? '−$' : '$') + Math.abs(Math.round(v)).toLocaleString('en-AU');
+const d2 = (v: number | null) => v == null ? '—' : '$' + Number(v).toFixed(2);
+const xx = (v: number | null) => v == null ? '—' : `${Number(v).toFixed(2)}×`;
+const pc = (v: number | null) => v == null ? '—' : `${(Number(v) * 100).toFixed(1)}%`;
+const fmtLong = (s: string) => new Date(s + 'T00:00:00Z').toLocaleDateString('en-AU', { day: 'numeric', month: 'long', timeZone: 'UTC' });
+const fmtDow = (s: string) => new Date(s + 'T00:00:00Z').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'long', timeZone: 'UTC' });
+
+// The team-chat freeform layout (Luke's format). Used in-window + as the template fallback.
+export function reviewText(m: ReviewMetrics): string {
+  return [
+    m.kind === 'week' ? `Here's TPP's week in review 🥞` : `Here's TPP's day in review 🥞`,
+    m.period,
+    ``,
+    `${d0(m.online)} online`,
+    `AOV ${d2(m.aov)}`,
+    ...(m.cr != null ? [`CR ${pc(m.cr)}`] : []),
+    `${m.orders} orders`,
+    `${d0(m.wholesale)} wholesale`,
+    `${d0(m.amazon)} amazon`,
+    `Total sales ${d0(m.total)}`,
+    ``,
+    `ROAS ${xx(m.roas)}`,
+    `CPA ${d2(m.cpa)}`,
+    `NC ROAS ${xx(m.nc_roas)}`,
+    `NC CPA ${d2(m.nc_cpa)}`,
+    ``,
+    `Net profit ${d0(m.net)}`,
+  ].join('\n');
+}
+
+// Single-line variables for the tpp_sales_review WhatsApp template (no newlines allowed in vars).
+export function reviewVars(m: ReviewMetrics): Record<string, string> {
+  return {
+    '1': `${m.kind === 'week' ? 'Week' : 'Daily'} · ${m.period}`,
+    '2': `${d0(m.online)} · ${m.orders} orders · AOV ${d2(m.aov)}${m.cr != null ? ` · CR ${pc(m.cr)}` : ''}`,
+    '3': `${d0(m.wholesale)} wholesale · ${d0(m.total)} total`,
+    '4': `ROAS ${xx(m.roas)} · CPA ${d2(m.cpa)} · NC ROAS ${xx(m.nc_roas)} · NC CPA ${d2(m.nc_cpa)}`,
+    '5': d0(m.net),
+  };
+}
+
+// Weekly metrics from the verified master row.
+export async function weekMetrics(weekStart: string): Promise<ReviewMetrics | null> {
   const a = await getAssumptions();
   const { data: r } = await supabaseLogistics.from('sales_week').select('*').eq('week_start', weekStart).maybeSingle();
-  if (!r) return `No data for the week of ${weekStart} yet.`;
-  const n = (v: any) => Number(v) || 0;
-
-  const online = n(r.online_sales), wholesale = n(r.wholesale_invoices), amazon = n(r.amazon_sales);
-  const totalSales = online + wholesale + amazon;
-  const grossProfit = n(r.gross_profit);                       // online × (1 − COGS%)
-  const wholesaleNp = wholesale * a.wholesale_margin;
-  const adSpend = n(r.meta_spend) + n(r.google_spend) + n(r.amazon_spend);
-  const paymentFees = online * a.payment_fee_pct;
-  const wages = (a.wages_per_day || 0) * 7;
-  const shipbob = n(r.shipbob_charges);
-  const netProfit = grossProfit + wholesaleNp - adSpend - shipbob - paymentFees - wages;
-
-  const d0 = (v: number) => (v < 0 ? '−$' : '$') + Math.abs(Math.round(v)).toLocaleString('en-AU');
-  const d2 = (v: number) => '$' + v.toFixed(2);
-  const xx = (v: any) => v == null ? '—' : `${Number(v).toFixed(2)}×`;
-  const pc = (v: any) => v == null ? '—' : `${(Number(v) * 100).toFixed(1)}%`;
+  if (!r) return null;
+  const online = nn(r.online_sales), wholesale = nn(r.wholesale_invoices), amazon = nn(r.amazon_sales);
+  const adSpend = nn(r.meta_spend) + nn(r.google_spend) + nn(r.amazon_spend);
+  const net = nn(r.gross_profit) + wholesale * a.wholesale_margin - adSpend - nn(r.shipbob_charges) - online * a.payment_fee_pct - (a.wages_per_day || 0) * 7;
   const end = new Date(Date.parse(weekStart + 'T00:00:00Z') + 6 * 86400_000).toISOString().slice(0, 10);
-  const fmtD = (s: string) => new Date(s + 'T00:00:00Z').toLocaleDateString('en-AU', { day: 'numeric', month: 'long', timeZone: 'UTC' });
+  return {
+    kind: 'week', period: `${fmtLong(weekStart)} – ${fmtLong(end)}`,
+    online, orders: nn(r.orders), aov: nn(r.aov), cr: r.cr != null ? nn(r.cr) : null,
+    wholesale, amazon, total: online + wholesale + amazon,
+    roas: r.meta_roas != null ? nn(r.meta_roas) : null, cpa: r.meta_cpa != null ? nn(r.meta_cpa) : null,
+    nc_roas: r.meta_nc_roas != null ? nn(r.meta_nc_roas) : null, nc_cpa: r.meta_nc_cpa != null ? nn(r.meta_nc_cpa) : null,
+    net,
+  };
+}
 
-  return [
-    `Here's TPP's week in review 🥞`,
-    `${fmtD(weekStart)} – ${fmtD(end)}`,
-    ``,
-    `${d0(online)} online`,
-    `AOV ${d2(n(r.aov))}`,
-    `CR ${pc(r.cr)}`,
-    `${n(r.orders)} orders`,
-    `${d0(wholesale)} wholesale`,
-    `${d0(amazon)} amazon`,
-    `Total sales ${d0(totalSales)}`,
-    ``,
-    `ROAS ${xx(r.meta_roas)}`,
-    `CPA ${d2(n(r.meta_cpa))}`,
-    `NC ROAS ${xx(r.meta_nc_roas)}`,
-    `NC CPA ${d2(n(r.meta_nc_cpa))}`,
-    ``,
-    `Net profit ${d0(netProfit)}`,
-  ].join('\n');
+// Daily metrics computed fresh from the same real sources (CR omitted — no daily sessions source).
+export async function dayMetrics(date: string): Promise<ReviewMetrics> {
+  const a = await getAssumptions();
+  const next = new Date(Date.parse(date + 'T00:00:00Z') + 86400_000).toISOString().slice(0, 10);
+  const fromTs = new Date(`${date}T00:00:00+10:00`).toISOString();
+  const toTs = new Date(`${next}T00:00:00+10:00`).toISOString();
+  const [shop, cogsRes, meta, sb, wh, roll] = await Promise.all([
+    shopifyOrders(date, next).catch(() => null),
+    shopifyWeekCOGS(date, next).catch(() => null),
+    fetchMetaWeek(date, next).catch(() => null),
+    supabaseLogistics.from('shipment_costs').select('cost,currency').gte('ship_date', date).lt('ship_date', next),
+    supabaseLogistics.from('wholesale_orders').select('total').gte('order_date', date).lt('order_date', next),
+    Promise.resolve(supabaseLogistics.rpc('attribution_rollup', { p_from: fromTs, p_to: toTs, p_model: 'last' })).then((r: any) => r.data).catch(() => null),
+  ]);
+  const online = nn(shop?.online_sales);
+  const cogs = cogsRes?.cogs != null ? cogsRes.cogs : online * a.online_cogs_pct;
+  const wholesale = (wh.data ?? []).reduce((s: number, o: any) => s + nn(o.total), 0);
+  const shipbob = (sb.data ?? []).reduce((s: number, o: any) => s + (/gbp/i.test(o.currency || '') ? nn(o.cost) * a.fx_gbp_aud : nn(o.cost)), 0);
+  const m = ((roll ?? []) as any[]).find((x) => x.source === 'meta');
+  const ncRev = m ? nn(m.nc_revenue) : 0, ncOrd = m ? nn(m.nc_orders) : 0;
+  const adSpend = nn(meta?.spend);
+  const net = (online - cogs) + wholesale * a.wholesale_margin - adSpend - shipbob - online * a.payment_fee_pct - (a.wages_per_day || 0);
+  return {
+    kind: 'day', period: fmtDow(date),
+    online, orders: nn(shop?.orders), aov: nn(shop?.aov), cr: null,
+    wholesale, amazon: 0, total: online + wholesale,
+    roas: meta?.roas ?? null, cpa: meta?.cpa ?? null,
+    nc_roas: adSpend ? r2(ncRev / adSpend) : null, nc_cpa: ncOrd ? r2(adSpend / ncOrd) : null,
+    net,
+  };
+}
+
+// Back-compat: the copy-paste week-in-review (used by /api/whatsapp/week-in-review).
+export async function buildWeekInReview(weekStart: string): Promise<string> {
+  const m = await weekMetrics(weekStart);
+  return m ? reviewText(m) : `No data for the week of ${weekStart} yet.`;
+}
+
+// Send the daily (yesterday) or weekly (last completed Mon–Sun) sales review to the owner(s),
+// via the approved template (delivers any time) with a free-form fallback when in-window.
+export async function sendSalesReview(kind: 'daily' | 'weekly'): Promise<{ sent: number; kind: string; text: string }> {
+  let m: ReviewMetrics | null;
+  if (kind === 'weekly') {
+    const todayAest = aestDate(0);
+    const dow = (new Date(todayAest + 'T00:00:00Z').getUTCDay() + 6) % 7;
+    const lastMon = aestDate(-dow - 7);
+    m = await weekMetrics(lastMon);
+  } else {
+    m = await dayMetrics(aestDate(-1));
+  }
+  if (!m) return { sent: 0, kind, text: 'no data' };
+  const text = reviewText(m);
+  const vars = reviewVars(m);
+  const sid = await getTemplateSid('tpp_sales_review');
+  const owners = allowedNumbers().filter((to) => senderRole(to) === 'owner');
+  let sent = 0;
+  for (const to of owners) {
+    let ok = false;
+    if (sid) ok = await sendWhatsAppTemplate(to, sid, vars);
+    if (!ok) ok = await sendWhatsApp(to, text);
+    if (ok) sent++;
+  }
+  return { sent, kind, text };
 }
 
 export async function sendAnalyticsBrief(kind: 'daily' | 'weekly'): Promise<{ sent: number }> {
