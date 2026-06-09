@@ -4,6 +4,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { supabaseLogistics } from './supabase-logistics';
 import { gmailSearch } from './google';
+import { getTemplateSid } from './waTemplates';
+import { sendWhatsAppTemplate, allowedNumbers, senderRole } from './whatsapp';
 
 const MODEL = 'claude-sonnet-4-6';
 
@@ -22,7 +24,7 @@ export interface GmailInsight {
 
 const normKey = (subject: string) => subject.replace(/^(re|fw|fwd):\s*/gi, '').replace(/\s+/g, ' ').trim().slice(0, 120).toLowerCase();
 
-export async function runScour(): Promise<{ scanned: number; insights: number; error?: string }> {
+export async function runScour(): Promise<{ scanned: number; insights: number; events_fired?: number; error?: string }> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return { scanned: 0, insights: 0, error: 'no api key' };
 
@@ -63,13 +65,18 @@ Rules: ignore auto-replies, out-of-office, marketing, and anything not logistics
 IMPORTANT — ShipBob receiving: if a ShipBob email says goods / a WRO / an inbound shipment have been RECEIVED or receiving is COMPLETE at a fulfilment centre, set needs_action=true and make the action "Mark the matching transfer/PO as received" (name the shipment/WRO if shown) — this is how we confirm stock has actually landed.
 IMPORTANT — sent mail = already handled: some emails are marked [sent] (from Luke). If Luke has already REPLIED to or RESOLVED a thread (e.g. sent the paperwork/labels, paid the invoice, made a decision, answered the request), set that job's needs_action=false — do NOT keep flagging it as waiting on Luke. Never create a job whose only message is a [sent] email; use sent mail only as evidence a thread is resolved. Only flag needs_action=true for things STILL genuinely waiting on Luke with no reply from him.
 IMPORTANT — reconcile against ops state: you are given the CURRENT OPS STATE (POs + transfers with live status). If an email implies something is still pending but the ops state shows it's DONE — e.g. the matching PO is status=received or xero=BILLED or wro=Completed, or the transfer is received — then the job is COMPLETE: set needs_action=false and say so in the summary (e.g. "GF Cinnamon — received at ShipBob ✓"). Match by flavour/PO number/reference. Trust the ops state over stale email wording.
-For each job include "email_index": the number (from the list) of the PRIMARY email this job is about — so we can key the job to its email thread.
-Return ONLY a JSON array, no prose: [{"email_index": <number>, "source_key": "<short topic>", "category": "maersk|abc|shipbob", "summary": "<=140 char status", "needs_action": true|false, "action": "<=90 char next step or empty"}]`,
+For each job include "email_index": the number (from the list) of the PRIMARY email this job is about.
+ALSO detect concrete STATE CHANGES as "events" (may be empty) — ONLY when an email shows the change has happened NOW (never an ETA/forecast):
+ • transfer_update — a Maersk email shows a pallet/transfer changed status: {"type":"transfer_update","reference":"INTERNAL2","new_status":"in_transit|customs|arrived|received","detail":"<=120 char what changed e.g. cleared customs, requesting booking slot"}
+ • wro_received — a ShipBob email confirms a WRO / inbound shipment was RECEIVED into inventory at a fulfilment centre: {"type":"wro_received","po_ref":"<PO reference or flavour named in the email>","location":"Altona|Manchester","detail":"<=120 char"}
+Return ONLY a JSON object, no prose: {"jobs":[{"email_index":<n>,"source_key":"<topic>","category":"maersk|abc|shipbob","summary":"<=140 char","needs_action":true|false,"action":"<=90 char or empty"}],"events":[ ... ]}`,
     messages: [{ role: 'user', content: `Recent logistics emails:\n\n${list}${stateBlock}` }],
   });
   const text = resp.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('');
-  let parsed: any[] = [];
-  try { parsed = JSON.parse(text.slice(text.indexOf('['), text.lastIndexOf(']') + 1)); } catch { return { scanned: emails.length, insights: 0, error: 'parse failed' }; }
+  let obj: any = {};
+  try { obj = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)); } catch { return { scanned: emails.length, insights: 0, error: 'parse failed' }; }
+  const parsed: any[] = Array.isArray(obj.jobs) ? obj.jobs : [];
+  const events: any[] = Array.isArray(obj.events) ? obj.events : [];
 
   const rows = parsed.filter((p) => p && p.summary).map((p) => {
     // Stable key = the email's thread id. Fall back to a normalised topic only if the index is missing.
@@ -98,7 +105,58 @@ Return ONLY a JSON array, no prose: [{"email_index": <number>, "source_key": "<s
     // Drop legacy topic-keyed rows (pre thread-id) so they don't double up with the stable ones.
     try { await supabaseLogistics.from('gmail_insights').delete().not('source_key', 'like', 'thread:%'); } catch { /* best-effort */ }
   }
-  return { scanned: emails.length, insights: rows.length };
+
+  // Real-time event pings: apply the detected state change to the DB and notify the owner —
+  // deduped by DB state (we only ping when the change is genuinely new).
+  const eventsFired = await applyEvents(events).catch(() => 0);
+  return { scanned: emails.length, insights: rows.length, events_fired: eventsFired };
+}
+
+const TRANSFER_STATES = ['in_transit', 'customs', 'arrived', 'received'];
+function transferNext(status: string): string {
+  return status === 'customs' ? 'Confirm any customs paperwork, then watch for the delivery slot.'
+    : status === 'arrived' ? 'Awaiting ShipBob receiving into inventory.'
+    : status === 'received' ? 'Counted into inventory — now sellable.'
+    : 'In transit — tracking to the next milestone.';
+}
+
+// Apply detected state-changes + fire the templated owner ping. DB state is the dedup: a
+// transfer only pings when its status actually changes; a WRO only when the PO isn't already received.
+async function applyEvents(events: any[]): Promise<number> {
+  if (!events.length) return 0;
+  const owners = allowedNumbers().filter((to) => senderRole(to) === 'owner');
+  if (!owners.length) return 0;
+  let fired = 0;
+  const ping = async (tplKey: string, vars: Record<string, string>) => {
+    const sid = await getTemplateSid(tplKey);
+    if (!sid) return false;
+    let ok = false;
+    for (const to of owners) { if (await sendWhatsAppTemplate(to, sid, vars)) ok = true; }
+    if (ok) fired++;
+    return ok;
+  };
+  for (const ev of events) {
+    try {
+      if (ev?.type === 'transfer_update' && ev.reference && TRANSFER_STATES.includes(ev.new_status)) {
+        const ref = String(ev.reference).trim();
+        const { data: t } = await supabaseLogistics.from('internal_transfers').select('reference,status').ilike('reference', ref).maybeSingle();
+        if (t && t.status !== ev.new_status) {
+          await supabaseLogistics.from('internal_transfers').update({ status: ev.new_status, updated_at: new Date().toISOString() }).ilike('reference', ref);
+          await ping('tpp_transfer_update', { '1': t.reference, '2': String(ev.detail || `Status moved to ${ev.new_status}.`).replace(/\s+/g, ' ').slice(0, 280), '3': transferNext(ev.new_status) });
+        }
+      } else if (ev?.type === 'wro_received' && ev.po_ref) {
+        const like = `%${String(ev.po_ref).trim()}%`;
+        const { data: pos } = await supabaseLogistics.from('purchase_orders')
+          .select('id,po_number,reference,status').or(`reference.ilike.${like},po_number.ilike.${like}`).neq('status', 'received').limit(1);
+        const po = (pos ?? [])[0] as any;
+        if (po) {
+          await supabaseLogistics.from('purchase_orders').update({ status: 'received', wro_status: 'Received', received_date: new Date().toISOString().slice(0, 10), updated_at: new Date().toISOString() }).eq('id', po.id);
+          await ping('tpp_stock_received', { '1': ev.location || 'the fulfilment centre', '2': `${po.po_number || po.reference}${po.reference && po.po_number ? ` — ${po.reference}` : ''}`.slice(0, 280), '3': String(ev.detail || "Received — I've marked the PO as received ✓").replace(/\s+/g, ' ').slice(0, 280) });
+        }
+      }
+    } catch { /* per-event best-effort */ }
+  }
+  return fired;
 }
 
 export async function getGmailInsights(): Promise<GmailInsight[]> {
