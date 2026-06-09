@@ -10,9 +10,16 @@ async function handle(req: NextRequest) {
   const url = new URL(req.url);
   const given = req.headers.get('x-cron-secret') || url.searchParams.get('secret');
   if (secret && given !== secret) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  const q = url.searchParams.get('q') || '';
-  if (!q) return NextResponse.json({ error: 'pass ?q=' }, { status: 400 });
-  const res = await askStockAgent(q);
+  let q = url.searchParams.get('q') || '';
+  let pdfB64 = '';
+  if (req.method === 'POST') {
+    const b = await req.json().catch(() => ({} as any));
+    q = b.q || q;
+    pdfB64 = b.pdf_base64 || '';
+  }
+  if (!q && !pdfB64) return NextResponse.json({ error: 'pass ?q= (or POST {q, pdf_base64})' }, { status: 400 });
+  const docs = pdfB64 ? [{ base64: pdfB64, filename: 'attachment.pdf' }] : undefined;
+  const res = await askStockAgent(q, undefined, undefined, undefined, docs);
   return NextResponse.json({ ok: true, q, answer: res.text });
 }
 
