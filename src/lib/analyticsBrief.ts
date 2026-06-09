@@ -7,6 +7,7 @@ import { getAssumptions, shopifyOrders, shopifyWeekCOGS } from './analytics';
 import { fetchMetaWeek } from './meta';
 import { sendWhatsApp, sendWhatsAppTemplate, allowedNumbers, senderRole } from './whatsapp';
 import { getTemplateSid } from './waTemplates';
+import { recordProactiveContext } from './stockAgent';
 
 const AEST_OFFSET = '+10:00';
 const money = (n: number | null | undefined) => n == null ? '—' : 'A$' + Math.round(n).toLocaleString('en-AU');
@@ -238,7 +239,7 @@ export async function sendSalesReview(kind: 'daily' | 'weekly'): Promise<{ sent:
     let ok = false;
     if (sid) ok = await sendWhatsAppTemplate(to, sid, vars);
     if (!ok) ok = await sendWhatsApp(to, text);
-    if (ok) sent++;
+    if (ok) { sent++; await recordProactiveContext(to, `This is the ${kind.toUpperCase()} SALES REVIEW I just sent. If the user replies about it, respond about THESE numbers:\n${text}`).catch(() => {}); }
   }
   return { sent, kind, text };
 }

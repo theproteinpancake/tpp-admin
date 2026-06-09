@@ -6,6 +6,7 @@ import { supabaseLogistics } from './supabase-logistics';
 import { gmailSearch } from './google';
 import { getTemplateSid } from './waTemplates';
 import { sendWhatsAppTemplate, allowedNumbers, senderRole } from './whatsapp';
+import { recordProactiveContext } from './stockAgent';
 
 const MODEL = 'claude-sonnet-4-6';
 
@@ -127,11 +128,11 @@ async function applyEvents(events: any[]): Promise<number> {
   const owners = allowedNumbers().filter((to) => senderRole(to) === 'owner');
   if (!owners.length) return 0;
   let fired = 0;
-  const ping = async (tplKey: string, vars: Record<string, string>) => {
+  const ping = async (tplKey: string, vars: Record<string, string>, ctx: string) => {
     const sid = await getTemplateSid(tplKey);
     if (!sid) return false;
     let ok = false;
-    for (const to of owners) { if (await sendWhatsAppTemplate(to, sid, vars)) ok = true; }
+    for (const to of owners) { if (await sendWhatsAppTemplate(to, sid, vars)) { ok = true; await recordProactiveContext(to, ctx).catch(() => {}); } }
     if (ok) fired++;
     return ok;
   };
@@ -142,7 +143,8 @@ async function applyEvents(events: any[]): Promise<number> {
         const { data: t } = await supabaseLogistics.from('internal_transfers').select('reference,status').ilike('reference', ref).maybeSingle();
         if (t && t.status !== ev.new_status) {
           await supabaseLogistics.from('internal_transfers').update({ status: ev.new_status }).ilike('reference', ref);
-          await ping('tpp_transfer_update', { '1': t.reference, '2': String(ev.detail || `Status moved to ${ev.new_status}.`).replace(/\s+/g, ' ').slice(0, 280), '3': transferNext(ev.new_status) });
+          await ping('tpp_transfer_update', { '1': t.reference, '2': String(ev.detail || `Status moved to ${ev.new_status}.`).replace(/\s+/g, ' ').slice(0, 280), '3': transferNext(ev.new_status) },
+            `I just messaged you a TRANSFER UPDATE: ${t.reference} moved to "${ev.new_status}" — ${ev.detail || ''}. If the user replies about it, address that.`);
         }
       } else if (ev?.type === 'wro_received' && ev.po_ref) {
         const like = `%${String(ev.po_ref).trim()}%`;
@@ -151,7 +153,8 @@ async function applyEvents(events: any[]): Promise<number> {
         const po = (pos ?? [])[0] as any;
         if (po) {
           await supabaseLogistics.from('purchase_orders').update({ status: 'received', wro_status: 'Received', received_date: new Date().toISOString().slice(0, 10), updated_at: new Date().toISOString() }).eq('id', po.id);
-          await ping('tpp_stock_received', { '1': ev.location || 'the fulfilment centre', '2': `${po.po_number || po.reference}${po.reference && po.po_number ? ` — ${po.reference}` : ''}`.slice(0, 280), '3': String(ev.detail || "Received — I've marked the PO as received ✓").replace(/\s+/g, ' ').slice(0, 280) });
+          await ping('tpp_stock_received', { '1': ev.location || 'the fulfilment centre', '2': `${po.po_number || po.reference}${po.reference && po.po_number ? ` — ${po.reference}` : ''}`.slice(0, 280), '3': String(ev.detail || "Received — I've marked the PO as received ✓").replace(/\s+/g, ' ').slice(0, 280) },
+            `I just messaged you that ${po.po_number || po.reference} was RECEIVED at ${ev.location || 'the FC'} and I marked the PO received. If the user replies about it, address that.`);
         }
       }
     } catch { /* per-event best-effort */ }
