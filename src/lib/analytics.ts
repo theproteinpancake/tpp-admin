@@ -52,6 +52,62 @@ async function shopifyOrders(startIso: string, endIso: string) {
   };
 }
 
+// ---- Shopify COGS: real cost of goods for paid orders created in [start,end) ----
+// Builds a variant→unit-cost map (from Shopify's cost-per-item) then sums quantity×cost
+// across the week's order line items. Returns AUD COGS + how many units lacked a cost
+// (so the caller can fall back to the % assumption if coverage is poor).
+let _variantCost: { at: number; map: Map<string, number> } | null = null;
+async function variantCostMap(token: string): Promise<Map<string, number>> {
+  if (_variantCost && Date.now() - _variantCost.at < 3600_000) return _variantCost.map;
+  const url = `https://${SHOP}/admin/api/${API}/graphql.json`;
+  const Q = `query($cursor:String){ productVariants(first:250, after:$cursor){ pageInfo{ hasNextPage endCursor } nodes{ id inventoryItem{ unitCost{ amount } } } } }`;
+  const map = new Map<string, number>();
+  let cursor: string | null = null;
+  for (let page = 0; page < 40; page++) {
+    const res: Response = await fetch(url, { method: 'POST', headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' }, body: JSON.stringify({ query: Q, variables: { cursor } }) });
+    const j: any = await res.json();
+    const conn = j.data?.productVariants;
+    for (const v of (conn?.nodes || [])) { const c = v.inventoryItem?.unitCost?.amount; if (c != null) map.set(v.id, Number(c) || 0); }
+    if (!conn?.pageInfo?.hasNextPage) break;
+    cursor = conn.pageInfo.endCursor;
+  }
+  _variantCost = { at: Date.now(), map };
+  return map;
+}
+
+export async function shopifyWeekCOGS(startIso: string, endIso: string): Promise<{ cogs: number; units: number; missing_units: number } | null> {
+  const token = await getShopifyToken();
+  const costMap = await variantCostMap(token);
+  if (!costMap.size) throw new Error('no variant unit-costs returned (is cost-per-item set + read_inventory scope granted?)');
+  const url = `https://${SHOP}/admin/api/${API}/graphql.json`;
+  const q = `created_at:>=${startIso}T00:00:00Z created_at:<${endIso}T00:00:00Z financial_status:paid`;
+  const Q = `query($cursor:String,$q:String){ orders(first:50, after:$cursor, query:$q, sortKey:CREATED_AT){ pageInfo{ hasNextPage endCursor } nodes{ lineItems(first:20){ nodes{ quantity variant{ id } } } } } }`;
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  let cursor: string | null = null, cogs = 0, units = 0, missing = 0;
+  for (let page = 0; page < 60; page++) {
+    let j: any = null;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const res: Response = await fetch(url, { method: 'POST', headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' }, body: JSON.stringify({ query: Q, variables: { cursor, q } }) });
+      j = await res.json();
+      const throttled = Array.isArray(j.errors) && j.errors.some((e: any) => e.extensions?.code === 'THROTTLED');
+      if (!throttled) break;
+      await sleep(2500 * (attempt + 1));
+    }
+    if (j.errors) throw new Error('shopify orders query: ' + JSON.stringify(j.errors).slice(0, 200));
+    const ts = j.extensions?.cost?.throttleStatus;
+    if (ts && ts.currentlyAvailable < 400) await sleep(Math.min(3000, ((400 - ts.currentlyAvailable) / (ts.restoreRate || 100)) * 1000));
+    const conn = j.data?.orders;
+    for (const o of (conn?.nodes || [])) for (const li of (o.lineItems?.nodes || [])) {
+      const qty = Number(li.quantity) || 0; const id = li.variant?.id;
+      if (id && costMap.has(id)) { cogs += qty * (costMap.get(id) as number); units += qty; }
+      else missing += qty;
+    }
+    if (!conn?.pageInfo?.hasNextPage) break;
+    cursor = conn.pageInfo.endCursor;
+  }
+  return { cogs: round2(cogs), units, missing_units: missing };
+}
+
 // ---- ShipBob: sum fulfilment cost for shipments dated in the week (GBP→AUD) ----
 async function shipbobCharges(startIso: string, endIso: string, fx: number) {
   const { data } = await supabaseLogistics.from('shipment_costs').select('cost, currency').gte('ship_date', startIso).lt('ship_date', endIso);
