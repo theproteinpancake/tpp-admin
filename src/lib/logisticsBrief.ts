@@ -14,15 +14,16 @@ const aestDateStr = (off = 0) => new Date(Date.now() + off * 86400_000 + 10 * 36
 const longDate = () => new Date(Date.now() + 10 * 3600_000).toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
 const shortDate = (s: string) => new Date(s + 'T00:00:00Z').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 
+const sizeLabel = (g: any) => g == null ? '' : Number(g) >= 1000 ? ` ${Number(g) / 1000}kg` : ` ${Number(g)}g`;
 function stockLine(r: any): string {
   const st = computeStatus(r);
   const cover = r.days_of_cover != null ? `${Math.round(r.days_of_cover)}d` : '—';
   const inb = Number(r.inbound) > 0 ? ` (+${Number(r.inbound)} in)` : '';
-  return `${r.flavour} ${st === 'oos' ? 'OOS' : cover}${inb}`;
+  return `${r.flavour}${sizeLabel(r.unit_size_g)} ${st === 'oos' ? 'OOS' : cover}${inb}`;
 }
-// Top-N most urgent SKUs at a site (OOS first, then lowest days of cover).
+// Top-N most urgent SELLABLE SKUs at a site (primary tier, OOS first, then lowest days of cover).
 function topStock(rows: any[], code: string, n = 6): string {
-  const ranked = rows.filter((r) => r.location_code === code)
+  const ranked = rows.filter((r) => r.location_code === code && r.flavour && r.tier === 'primary')
     .map((r) => ({ r, k: computeStatus(r) === 'oos' ? -1 : (r.days_of_cover ?? 9999) }))
     .sort((a, b) => a.k - b.k).slice(0, n);
   return ranked.map((x) => stockLine(x.r)).join(', ') || 'all healthy';
