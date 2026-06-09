@@ -158,6 +158,19 @@ const tools: Anthropic.Tool[] = [
     input_schema: { type: 'object', properties: {} },
   },
   {
+    name: 'update_logistics_brief_excludes',
+    description: 'Hide or re-show specific SKUs in the daily LOGISTICS BRIEF\'s stock list, per site. Use when the owner says e.g. "don\'t remind me of GFBS/BMS/MAS/CIS in the UK going forward", "stop showing X in the brief", "those sizes aren\'t stocked in the UK", or "start showing X again". Pass the SITE (AU or UK), the exact SKU codes, and the action. After updating, confirm what\'s now hidden.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        site: { type: 'string', enum: ['AU', 'UK'], description: 'which site\'s stock list' },
+        skus: { type: 'array', items: { type: 'string' }, description: 'SKU codes e.g. ["GFBS","BMS","MAS","CIS"]' },
+        action: { type: 'string', enum: ['exclude', 'include'], description: 'exclude = hide from the brief; include = show again' },
+      },
+      required: ['site', 'skus', 'action'],
+    },
+  },
+  {
     name: 'get_wholesale_overview',
     description: 'Wholesale business snapshot: sales totals (this week/month/year vs prior), customers DUE to reorder (past their avg order interval), LAPSED customers (gone quiet), top customers, and the 320g wholesale stock + when to reorder from ABC. Use for "wholesale sales", "who\'s due to order", "who should I chase", "how\'s wholesale going", "320g stock".',
     input_schema: { type: 'object', properties: {} },
@@ -535,6 +548,20 @@ Luke`;
       escalation_guide: (cfg?.value as string) || 'Contact map not configured.',
       how_to_use: 'Match each transfer\'s status to the "status -> stage -> who to bump" list, then name the exact contact + email to chase now. Push the chokepoint for that stage; do not let Maersk teams pass it between themselves.',
     };
+  }
+  if (name === 'update_logistics_brief_excludes') {
+    const site = String(input.site || '').toUpperCase() === 'UK' ? 'UK' : 'AU';
+    const skus = (Array.isArray(input.skus) ? input.skus : []).map((s: any) => String(s).toUpperCase().trim()).filter(Boolean);
+    const action = input.action === 'include' ? 'include' : 'exclude';
+    if (!skus.length) return { error: 'No SKU codes given.' };
+    const { data } = await supabaseLogistics.from('app_config').select('value').eq('key', 'logistics_brief_excludes').maybeSingle();
+    let cfg: Record<string, string[]> = {};
+    try { cfg = data?.value ? JSON.parse(data.value as string) : {}; } catch { cfg = {}; }
+    const cur = new Set((cfg[site] || []).map((s) => s.toUpperCase()));
+    if (action === 'exclude') skus.forEach((s: string) => cur.add(s)); else skus.forEach((s: string) => cur.delete(s));
+    cfg[site] = [...cur];
+    await supabaseLogistics.from('app_config').upsert({ key: 'logistics_brief_excludes', value: JSON.stringify(cfg), updated_at: new Date().toISOString() }, { onConflict: 'key' });
+    return { ok: true, site, action, now_hidden_in_brief: cfg[site], note: `${action === 'exclude' ? 'Hidden' : 'Re-showing'} ${skus.join(', ')} ${action === 'exclude' ? 'from' : 'in'} the ${site} stock list. The ${site} brief now hides: ${cfg[site].join(', ') || '(none)'}.` };
   }
   if (name === 'get_wholesale_overview') {
     const w = await getWholesaleDashboard();

@@ -3,8 +3,15 @@
 // Sent via the tpp_logistics_brief template (delivers any time) with a free-form fallback.
 import { supabaseLogistics } from './supabase-logistics';
 import { computeStatus } from './stock';
+import { getConfig } from './settings';
 import { getTemplateSid } from './waTemplates';
 import { sendWhatsApp, sendWhatsAppTemplate, allowedNumbers, senderRole } from './whatsapp';
+import { recordProactiveContext } from './stockAgent';
+
+// SKUs the owner has asked to keep OUT of the brief's stock list, per site (e.g. UK sizes not stocked).
+async function loadExcludes(): Promise<Record<string, string[]>> {
+  try { const v = await getConfig('logistics_brief_excludes'); return v ? JSON.parse(v) : {}; } catch { return {}; }
+}
 
 const TRANSFER_STATUS: Record<string, string> = {
   draft: 'draft', in_transit: 'in transit', customs: 'awaiting customs clearance',
@@ -22,8 +29,10 @@ function stockLine(r: any): string {
   return `${r.flavour}${sizeLabel(r.unit_size_g)} ${st === 'oos' ? 'OOS' : cover}${inb}`;
 }
 // Top-N most urgent SELLABLE SKUs at a site (primary tier, OOS first, then lowest days of cover).
-function topStock(rows: any[], code: string, n = 6): string {
-  const ranked = rows.filter((r) => r.location_code === code && r.flavour && r.tier === 'primary')
+// `exclude` = SKU codes the owner asked to hide for this site.
+function topStock(rows: any[], code: string, exclude: string[] = [], n = 6): string {
+  const hidden = new Set(exclude.map((s) => s.toUpperCase()));
+  const ranked = rows.filter((r) => r.location_code === code && r.flavour && r.tier === 'primary' && !hidden.has(String(r.sku || '').toUpperCase()))
     .map((r) => ({ r, k: computeStatus(r) === 'oos' ? -1 : (r.days_of_cover ?? 9999) }))
     .sort((a, b) => a.k - b.k).slice(0, n);
   return ranked.map((x) => stockLine(x.r)).join(' · ') || 'all healthy';
@@ -51,8 +60,9 @@ export async function buildLogisticsBrief(): Promise<{ vars: Record<string, stri
     fulfilmentWatch(),
   ]);
   const rows = stockRes.data ?? [];
-  const au = topStock(rows, 'ALTONA');
-  const uk = topStock(rows, 'MANCHESTER');
+  const excl = await loadExcludes();
+  const au = topStock(rows, 'ALTONA', excl.AU || []);
+  const uk = topStock(rows, 'MANCHESTER', excl.UK || []);
 
   const transfers = (trRes.data ?? []).filter((t: any) => !['received', 'cancelled'].includes(t.status));
   const transferLine = transfers.map((t: any) => `${t.reference} — ${TRANSFER_STATUS[t.status] || t.status}${t.eta ? `, ETA ${shortDate(t.eta)}` : ''}`).join('; ') || 'none in transit';
@@ -86,7 +96,7 @@ export async function sendLogisticsBrief(): Promise<{ sent: number; text: string
     let ok = false;
     if (sid) ok = await sendWhatsAppTemplate(to, sid, vars);
     if (!ok) ok = await sendWhatsApp(to, text);
-    if (ok) sent++;
+    if (ok) { sent++; await recordProactiveContext(to, `This is the LOGISTICS BRIEF I just sent. If the user replies about it (e.g. "stop showing X in the UK", "don't remind me of these SKUs"), use update_logistics_brief_excludes:\n${text}`).catch(() => {}); }
   }
   return { sent, text };
 }
