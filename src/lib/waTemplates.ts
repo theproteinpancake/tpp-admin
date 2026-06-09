@@ -1,0 +1,70 @@
+// Definitions for our proactive WhatsApp templates (Twilio Content API → Meta approval).
+// Each delivers OUTSIDE the 24h window. Variable VALUES must be single-line (WhatsApp rejects
+// newlines/tabs inside a variable), so multi-line layout lives in the fixed body text and each
+// {{n}} carries one packed single-line value. Bodies start+end with fixed text and keep plenty
+// of fixed wording so Meta's "too many variables for its length" rule passes.
+import { twilioAuthHeader } from './whatsapp';
+import { getConfig, setConfig } from './settings';
+
+const CONTENT_API = 'https://content.twilio.com/v1/Content';
+
+export type WaTemplate = { key: string; body: string; sample: Record<string, string> };
+
+export const TEMPLATES: WaTemplate[] = [
+  {
+    key: 'tpp_sales_review',
+    body: 'TPP sales review 🥞 — {{1}}\n\nOnline & orders: {{2}}\nWholesale & total: {{3}}\nMeta (ROAS/CPA/NC): {{4}}\nNet profit: {{5}}\n\nFull breakdown in the dashboard.',
+    sample: { '1': 'Daily · Mon 9 Jun', '2': '$21,537 · 251 orders · AOV $85.80', '3': '$1,889 wholesale · $23,426 total', '4': 'ROAS 3.06× · CPA $28.11 · NC ROAS 1.80× · NC CPA $44.92', '5': '$286' },
+  },
+  {
+    key: 'tpp_logistics_brief',
+    body: 'Logistics overview — {{1}}\n\nAU priority stock: {{2}}\nUK priority stock: {{3}}\nUK transfer: {{4}}\nOutstanding inbound: {{5}}\nFulfilment watch: {{6}}\n\nReply to action anything.',
+    sample: { '1': 'Tuesday, 9 June', '2': 'Buttermilk OOS (+1T in), Maple 53d, GF Buttermilk 58d, Cinnamon 117d', '3': 'Maple 40d, Buttermilk 22d (+inbound), Cinnamon 60d', '4': 'INTERNAL2 — awaiting customs clearance, ETA this week', '5': 'April Maple+Cinnamon (MAM/CIM), May Buttermilk 1T (BMM), GF Buttermilk (GFBM/GFBL), Buttermilk 500kg (BML)', '6': 'New $99 fulfilment charge yesterday — worth a check' },
+  },
+  {
+    key: 'tpp_stock_received',
+    body: '📦 Stock received at {{1}}\n\nShipment: {{2}}\nStatus: {{3}}\n\nReply if anything looks off.',
+    sample: { '1': 'Altona (AU)', '2': 'PO 1042 — Buttermilk 1T (BMM), GF Buttermilk (GFBM)', '3': "Received into ShipBob — I've marked the PO as received ✓" },
+  },
+  {
+    key: 'tpp_transfer_update',
+    body: '🚢 Transfer update — {{1}}\n\n{{2}}\n\nNext step: {{3}}\nReply to action.',
+    sample: { '1': 'INTERNAL2', '2': 'Maersk has cleared the pallet through customs; delivery ETA this week and they\'re requesting a booking slot.', '3': "Confirm the delivery slot, then I'll watch for the ShipBob receiving." },
+  },
+];
+
+const cfgKey = (k: string) => `template:${k}`;
+
+export async function getTemplateSid(key: string): Promise<string | null> {
+  return getConfig(cfgKey(key));
+}
+
+// Create a Content template + submit it for WhatsApp approval; store the ContentSid.
+export async function createTemplate(t: WaTemplate): Promise<{ key: string; content_sid?: string; submitted?: boolean; error?: string; approval?: any }> {
+  const auth = twilioAuthHeader();
+  if (!auth) return { key: t.key, error: 'twilio creds missing' };
+  const name = `${t.key}_${Date.now().toString(36)}`; // WhatsApp names must be unique in the WABA
+  const createRes = await fetch(CONTENT_API, {
+    method: 'POST', headers: { Authorization: auth, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ friendly_name: name, language: 'en', variables: t.sample, types: { 'twilio/text': { body: t.body } } }),
+  });
+  const created = await createRes.json().catch(() => ({}));
+  if (!createRes.ok || !(created as any)?.sid) return { key: t.key, error: `create failed ${createRes.status}: ${JSON.stringify(created).slice(0, 160)}` };
+  const contentSid = (created as any).sid as string;
+  const approvalRes = await fetch(`${CONTENT_API}/${contentSid}/ApprovalRequests/whatsapp`, {
+    method: 'POST', headers: { Authorization: auth, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, category: 'UTILITY' }),
+  });
+  const approval = await approvalRes.json().catch(() => ({}));
+  await setConfig(cfgKey(t.key), contentSid);
+  return { key: t.key, content_sid: contentSid, submitted: approvalRes.ok, approval };
+}
+
+export async function templateStatus(key: string): Promise<any> {
+  const auth = twilioAuthHeader();
+  const sid = await getTemplateSid(key);
+  if (!auth || !sid) return { key, configured: !!sid };
+  const res = await fetch(`${CONTENT_API}/${sid}/ApprovalRequests`, { headers: { Authorization: auth } });
+  const j = await res.json().catch(() => ({}));
+  return { key, content_sid: sid, status: (j as any)?.whatsapp?.status ?? null, rejection: (j as any)?.whatsapp?.rejection_reason || undefined };
+}
