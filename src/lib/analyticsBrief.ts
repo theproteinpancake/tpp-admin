@@ -104,6 +104,54 @@ export async function buildWeeklyBrief(): Promise<string> {
   ].filter(Boolean).join('\n');
 }
 
+// Copy-paste-ready "week in review" for the team chat. Reads ONLY from the sales_week
+// master row (the verified source) so it can never drift from the Analytics master/dashboard.
+// Net profit uses ONE complete formula: online gross + wholesale margin − ad spend
+// − ShipBob − payment fees − wages.
+export async function buildWeekInReview(weekStart: string): Promise<string> {
+  const a = await getAssumptions();
+  const { data: r } = await supabaseLogistics.from('sales_week').select('*').eq('week_start', weekStart).maybeSingle();
+  if (!r) return `No data for the week of ${weekStart} yet.`;
+  const n = (v: any) => Number(v) || 0;
+
+  const online = n(r.online_sales), wholesale = n(r.wholesale_invoices), amazon = n(r.amazon_sales);
+  const totalSales = online + wholesale + amazon;
+  const grossProfit = n(r.gross_profit);                       // online × (1 − COGS%)
+  const wholesaleNp = wholesale * a.wholesale_margin;
+  const adSpend = n(r.meta_spend) + n(r.google_spend) + n(r.amazon_spend);
+  const paymentFees = online * a.payment_fee_pct;
+  const wages = (a.wages_per_day || 0) * 7;
+  const shipbob = n(r.shipbob_charges);
+  const netProfit = grossProfit + wholesaleNp - adSpend - shipbob - paymentFees - wages;
+
+  const d0 = (v: number) => (v < 0 ? '−$' : '$') + Math.abs(Math.round(v)).toLocaleString('en-AU');
+  const d2 = (v: number) => '$' + v.toFixed(2);
+  const xx = (v: any) => v == null ? '—' : `${Number(v).toFixed(2)}×`;
+  const pc = (v: any) => v == null ? '—' : `${(Number(v) * 100).toFixed(1)}%`;
+  const end = new Date(Date.parse(weekStart + 'T00:00:00Z') + 6 * 86400_000).toISOString().slice(0, 10);
+  const fmtD = (s: string) => new Date(s + 'T00:00:00Z').toLocaleDateString('en-AU', { day: 'numeric', month: 'long', timeZone: 'UTC' });
+
+  return [
+    `Here's TPP's week in review 🥞`,
+    `${fmtD(weekStart)} – ${fmtD(end)}`,
+    ``,
+    `${d0(online)} online`,
+    `AOV ${d2(n(r.aov))}`,
+    `CR ${pc(r.cr)}`,
+    `${n(r.orders)} orders`,
+    `${d0(wholesale)} wholesale`,
+    `${d0(amazon)} amazon`,
+    `Total sales ${d0(totalSales)}`,
+    ``,
+    `ROAS ${xx(r.meta_roas)}`,
+    `CPA ${d2(n(r.meta_cpa))}`,
+    `NC ROAS ${xx(r.meta_nc_roas)}`,
+    `NC CPA ${d2(n(r.meta_nc_cpa))}`,
+    ``,
+    `Net profit ${d0(netProfit)}`,
+  ].join('\n');
+}
+
 export async function sendAnalyticsBrief(kind: 'daily' | 'weekly'): Promise<{ sent: number }> {
   const body = kind === 'weekly' ? await buildWeeklyBrief() : await buildDailyBrief();
   const owners = allowedNumbers().filter((to) => senderRole(to) === 'owner');
