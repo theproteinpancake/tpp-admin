@@ -866,8 +866,10 @@ WHOLESALE & MARKETING — you can ALSO run ALL of Kate's wholesale + marketing t
 `;
 
 function systemFor(role: 'wholesale' | 'owner'): string {
-  const today = new Date().toLocaleDateString('en-AU', { day: '2-digit', month: '2-digit', year: 'numeric' }); // DD/MM/YYYY
-  const dateLine = `TODAY'S DATE is ${today} (DD/MM/YYYY). Use it for any date-based reference or note.\n`;
+  // AEST/AEDT — the server runs UTC, so without the timeZone the date is a day behind every
+  // morning (00:00–10:00 AEST), which threw off "days away"/overdue calcs.
+  const today = new Date().toLocaleDateString('en-AU', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Australia/Melbourne' });
+  const dateLine = `TODAY'S DATE (Melbourne time) is ${today}. Use it for any date-based reference, "days away"/overdue calc, or note.\n`;
   return dateLine + (role === 'wholesale'
     ? KATE_PREFACE + SHARED_OPS + SYSTEM
     : SYSTEM + OWNER_OPS_PREFACE + SHARED_OPS);
