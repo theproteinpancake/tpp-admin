@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { after } from 'next/server';
 import { askStockAgent, type AgentImage } from '@/lib/stockAgent';
-import { isAllowed, sendWhatsApp, fetchTwilioMedia } from '@/lib/whatsapp';
+import { isAllowed, sendWhatsApp, fetchTwilioMedia, fetchTwilioMessageBody } from '@/lib/whatsapp';
 
 export const maxDuration = 120; // agent + docket parse can take ~30s
 
@@ -19,12 +19,13 @@ const SLOW = /docket|packing|slip|\bwro\b|transfer|\bdocs?\b|draft|approve|recei
 // Twilio inbound WhatsApp webhook. Twilio drops the reply if we don't respond in
 // ~15s, so we ACK immediately and do the (slower) agent work + send via REST after().
 export async function POST(req: NextRequest) {
-  let from = '', body = '';
+  let from = '', body = '', repliedSid = '';
   const mediaUrls: string[] = [];
   try {
     const form = await req.formData();
     from = String(form.get('From') || '');
     body = String(form.get('Body') || '').trim();
+    repliedSid = String(form.get('OriginalRepliedMessageSid') || ''); // set when the user quotes/replies
     const n = Number(form.get('NumMedia') || 0);
     for (let i = 0; i < n; i++) {
       const url = String(form.get(`MediaUrl${i}`) || '');
@@ -45,7 +46,8 @@ export async function POST(req: NextRequest) {
         const m = await fetchTwilioMedia(url);
         if (m) images.push(m);
       }
-      const answer = await askStockAgent(body, from, images.length ? images : undefined);
+      const quoted = repliedSid ? await fetchTwilioMessageBody(repliedSid).catch(() => null) : null;
+      const answer = await askStockAgent(body, from, images.length ? images : undefined, quoted || undefined);
       await sendWhatsApp(from, answer.text, answer.media);
     } catch (e) {
       console.error('whatsapp agent error', e);

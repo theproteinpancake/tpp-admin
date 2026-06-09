@@ -141,7 +141,7 @@ async function applyEvents(events: any[]): Promise<number> {
         const ref = String(ev.reference).trim();
         const { data: t } = await supabaseLogistics.from('internal_transfers').select('reference,status').ilike('reference', ref).maybeSingle();
         if (t && t.status !== ev.new_status) {
-          await supabaseLogistics.from('internal_transfers').update({ status: ev.new_status, updated_at: new Date().toISOString() }).ilike('reference', ref);
+          await supabaseLogistics.from('internal_transfers').update({ status: ev.new_status }).ilike('reference', ref);
           await ping('tpp_transfer_update', { '1': t.reference, '2': String(ev.detail || `Status moved to ${ev.new_status}.`).replace(/\s+/g, ' ').slice(0, 280), '3': transferNext(ev.new_status) });
         }
       } else if (ev?.type === 'wro_received' && ev.po_ref) {

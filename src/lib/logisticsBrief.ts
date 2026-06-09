@@ -26,7 +26,7 @@ function topStock(rows: any[], code: string, n = 6): string {
   const ranked = rows.filter((r) => r.location_code === code && r.flavour && r.tier === 'primary')
     .map((r) => ({ r, k: computeStatus(r) === 'oos' ? -1 : (r.days_of_cover ?? 9999) }))
     .sort((a, b) => a.k - b.k).slice(0, n);
-  return ranked.map((x) => stockLine(x.r)).join(', ') || 'all healthy';
+  return ranked.map((x) => stockLine(x.r)).join(' · ') || 'all healthy';
 }
 
 // Yesterday's shipments whose cost is a clear outlier vs the recent median (only "new" = yesterday's).
@@ -66,12 +66,13 @@ export async function buildLogisticsBrief(): Promise<{ vars: Record<string, stri
   const date = longDate();
   const vars = { '1': date, '2': au, '3': uk, '4': transferLine, '5': outstanding, '6': watch };
   const text = [
-    `Logistics overview — ${date}`, ``,
-    `🇦🇺 AU priority stock:`, ...au.split(', ').map((s) => `• ${s}`), ``,
-    `🇬🇧 UK priority stock:`, ...uk.split(', ').map((s) => `• ${s}`), ``,
-    `🚢 UK transfer: ${transferLine}`, ``,
-    `📦 Outstanding inbound: ${outstanding}`, ``,
-    `💸 Fulfilment watch: ${watch}`,
+    `🥞 *Logistics overview* — ${date}`, ``,
+    `🇦🇺 *AU stock*`, ...au.split(' · ').map((s) => `• ${s}`), ``,
+    `🇬🇧 *UK stock*`, ...uk.split(' · ').map((s) => `• ${s}`), ``,
+    `🚢 *UK transfer*`, `${transferLine}`, ``,
+    `📦 *Outstanding inbound*`, `${outstanding}`, ``,
+    `💸 *Fulfilment watch*`, `${watch}`, ``,
+    `_Reply to action anything._`,
   ].join('\n');
   return { vars, text };
 }

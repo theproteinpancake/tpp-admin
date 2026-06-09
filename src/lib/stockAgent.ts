@@ -858,19 +858,25 @@ async function saveTurn(phone: string, userText: string, assistantText: string) 
 
 export interface AgentImage { base64: string; mediaType: string }
 
-export async function askStockAgent(question: string, phone?: string, images?: AgentImage[]): Promise<{ text: string; media?: string }> {
+export async function askStockAgent(question: string, phone?: string, images?: AgentImage[], quotedText?: string): Promise<{ text: string; media?: string }> {
   _media = null;
   _phone = phone || null;
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return { text: 'Assistant is not configured (missing API key).' };
   const client = new Anthropic({ apiKey });
 
+  // When the user REPLIES to one of our proactive messages, give the agent that context so it
+  // addresses THAT (a correction, a question, an instruction) instead of guessing/defaulting.
+  const q = quotedText
+    ? `[The user is replying to your earlier message, quoted here:\n"""\n${quotedText.slice(0, 600)}\n"""\nTreat their message below as a response to that — if they're disputing or correcting it, acknowledge and address it directly; do NOT open the action-center brief unless they ask.]\n\n${question}`
+    : question;
+
   const history = phone ? await loadHistory(phone) : [];
   const userContent: Anthropic.ContentBlockParam[] = [
     ...(images ?? []).map((im) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: im.mediaType as any, data: im.base64 } })),
-    { type: 'text' as const, text: question || '(screenshot attached)' },
+    { type: 'text' as const, text: q || '(screenshot attached)' },
   ];
-  const messages: Anthropic.MessageParam[] = [...history, { role: 'user', content: images?.length ? userContent : (question || '(no message)') }];
+  const messages: Anthropic.MessageParam[] = [...history, { role: 'user', content: images?.length ? userContent : (q || '(no message)') }];
   const system = systemFor(phone ? senderRole(phone) : 'owner');
 
   // Prompt caching: the tools + (per-role) system prompt are large and static across the

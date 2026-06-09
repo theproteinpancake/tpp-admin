@@ -18,8 +18,8 @@ export const TEMPLATES: WaTemplate[] = [
   },
   {
     key: 'tpp_logistics_brief',
-    body: 'Logistics overview — {{1}}\n\nAU priority stock: {{2}}\nUK priority stock: {{3}}\nUK transfer: {{4}}\nOutstanding inbound: {{5}}\nFulfilment watch: {{6}}\n\nReply to action anything.',
-    sample: { '1': 'Tuesday, 9 June', '2': 'Buttermilk OOS (+1T in), Maple 53d, GF Buttermilk 58d, Cinnamon 117d', '3': 'Maple 40d, Buttermilk 22d (+inbound), Cinnamon 60d', '4': 'INTERNAL2 — awaiting customs clearance, ETA this week', '5': 'April Maple+Cinnamon (MAM/CIM), May Buttermilk 1T (BMM), GF Buttermilk (GFBM/GFBL), Buttermilk 500kg (BML)', '6': 'New $99 fulfilment charge yesterday — worth a check' },
+    body: '🥞 *Logistics overview* — {{1}}\n\n🇦🇺 *AU stock*\n{{2}}\n\n🇬🇧 *UK stock*\n{{3}}\n\n🚢 *UK transfer*\n{{4}}\n\n📦 *Outstanding inbound*\n{{5}}\n\n💸 *Fulfilment watch*\n{{6}}\n\n_Reply to action anything._',
+    sample: { '1': 'Tuesday, 9 June', '2': 'Buttermilk OOS (+1T in) · Maple 53d · GF Buttermilk 58d · Cinnamon 117d', '3': 'Maple 40d · Buttermilk 22d (+inbound) · Cinnamon 60d', '4': 'INTERNAL2 — awaiting customs clearance, ETA this week', '5': 'April Maple+Cinnamon · May Buttermilk 1T · GF Buttermilk May 1T', '6': 'New $99 fulfilment charge yesterday — worth a check' },
   },
   {
     key: 'tpp_stock_received',

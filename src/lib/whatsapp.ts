@@ -93,6 +93,19 @@ export async function sendWhatsAppTemplate(to: string, contentSid: string, varia
   return true;
 }
 
+// Fetch the body of a previously-sent message (used to give the agent reply context when the
+// user quotes/replies to one of our proactive messages — Twilio sends OriginalRepliedMessageSid).
+export async function fetchTwilioMessageBody(sid: string): Promise<string | null> {
+  const acct = SID(), auth = twilioAuthHeader();
+  if (!acct || !auth || !sid) return null;
+  try {
+    const res = await fetch(`${TWILIO_API_BASE}/2010-04-01/Accounts/${acct}/Messages/${sid}.json`, { headers: { Authorization: auth } });
+    if (!res.ok) return null;
+    const j = await res.json();
+    return (j.body as string) || null;
+  } catch { return null; }
+}
+
 export async function sendWhatsApp(to: string, body: string, mediaUrl?: string): Promise<boolean> {
   const sid = SID(), from = FROM();
   const auth = twilioAuthHeader();
