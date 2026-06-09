@@ -10,6 +10,7 @@ import { getRestockPhrase } from './restock';
 import { xlsxToText } from './xlsx';
 import { sendWhatsApp, sendWhatsAppTemplate, KATE_NUMBER } from './whatsapp';
 import { getConfig } from './settings';
+import { getTemplateSid } from './waTemplates';
 
 const INBOXES: { acc: string | undefined; tag: string }[] = [{ acc: 'kate', tag: 'kate' }, { acc: undefined, tag: 'luke' }];
 // candidate POs: order-ish subject OR an attachment, recent, not our own sends
@@ -154,7 +155,11 @@ export async function runWholesalePoScour(): Promise<{ scanned: number; new_pos:
       const after = w.notified_at ? new Date(w.notified_at).getTime() : 0;
       if (latest.internalDate <= after) continue; // not newer than our notify
       const cust = w.customer_name || 'a stockist';
-      const ok = await sendWhatsApp(KATE_NUMBER, `↩️ *${cust} replied* about their OOS order:\n"${(latest.snippet || '').slice(0, 200)}"\n\nWant me to process the swap / send the rest? Reply "*process ${cust}*" or tell me what they chose.`);
+      const snippet = (latest.snippet || '').replace(/\s+/g, ' ').slice(0, 280);
+      const tpl = await getTemplateSid('tpp_wholesale_reply');
+      let ok = false;
+      if (tpl) ok = await sendWhatsAppTemplate(KATE_NUMBER, tpl, { '1': cust, '2': snippet || '(see the thread)', '3': `Reply "process ${cust}" to action the swap / send-the-rest, or tell me what they chose.` });
+      if (!ok) ok = await sendWhatsApp(KATE_NUMBER, `↩️ *${cust} replied* about their OOS order:\n"${snippet}"\n\nReply "*process ${cust}*" or tell me what they chose.`);
       if (ok) { replyPings++; await supabaseLogistics.from('wholesale_po_log').update({ reply_notified_at: new Date().toISOString() }).eq('id', w.id); }
     }
   } catch { /* reply-watch is best-effort */ }
