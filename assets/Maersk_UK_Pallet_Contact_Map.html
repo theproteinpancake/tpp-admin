@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Maersk UK Pallet — Contact Map</title>
+<style>
+  body{background:#f6f4ef;margin:0;padding:28px}
+  .wrap{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#23201d;max-width:1080px;margin:0 auto}
+  .wrap h3{font-size:21px;margin:0 0 2px}
+  .wrap .sub{color:#7a736b;font-size:13px;margin:0 0 16px}
+  .legend{display:flex;flex-wrap:wrap;gap:8px 14px;margin-bottom:18px;font-size:12px}
+  .legend span{display:inline-flex;align-items:center;gap:6px;color:#5a534c}
+  .dot{width:11px;height:11px;border-radius:3px;display:inline-block}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(238px,1fr));gap:11px}
+  .stage{background:#fff;border:1px solid #e6e0d8;border-left-width:5px;border-radius:11px;padding:11px 13px;position:relative}
+  .stage .num{font-size:11px;font-weight:700;color:#fff;background:#c9c1b6;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;position:absolute;top:11px;right:11px}
+  .stage .nm{font-weight:680;font-size:15px;margin:0 28px 3px 0}
+  .stage .team{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;font-weight:700}
+  .stage .ppl{font-size:13px;font-weight:600;margin-top:6px}
+  .stage .em{font-size:11.5px;color:#1d70b8;word-break:break-all;margin-top:1px}
+  .stage .rl{font-size:11.5px;color:#7a736b;margin-top:4px;line-height:1.35}
+  .push{display:inline-block;margin-top:7px;font-size:10px;font-weight:800;letter-spacing:.04em;color:#fff;background:#bd6930;padding:2px 7px;border-radius:20px}
+  .t-au{border-left-color:#c89b5a}.t-au .team{color:#a9742f}
+  .t-fin{border-left-color:#8a93a3}.t-fin .team{color:#6b7486}
+  .t-uk{border-left-color:#3f9aa6}.t-uk .team{color:#2f7e8a}
+  .t-cust{border-left-color:#bd6930}.t-cust .team{color:#bd6930}
+  .t-sb{border-left-color:#7faf86}.t-sb .team{color:#5f8f66}
+  .callout{margin-top:16px;background:#fbf2ea;border:1px solid #ecd7c6;border-radius:11px;padding:11px 14px;font-size:13px;line-height:1.5}
+  .callout b{color:#a4561f}
+</style></head><body><div class="wrap">
+  <h3>🥞 UK Pallet — Who Does What &amp; Who To Push</h3>
+  <p class="sub">The journey of one Maersk LCL pallet, AU → UK, stage by stage. Orange = the chokepoint to lean on.</p>
+  <div class="legend">
+    <span><i class="dot" style="background:#c89b5a"></i>Maersk AU (sales &amp; export)</span>
+    <span><i class="dot" style="background:#8a93a3"></i>Maersk finance / Damco</span>
+    <span><i class="dot" style="background:#3f9aa6"></i>Maersk UK (arrival &amp; delivery)</span>
+    <span><i class="dot" style="background:#bd6930"></i>Maersk UK customs (Felixstowe)</span>
+    <span><i class="dot" style="background:#7faf86"></i>ShipBob (partner)</span>
+  </div>
+  <div class="grid">
+    <div class="stage t-au"><div class="num">1</div><div class="nm">Quote &amp; book</div><div class="team">Maersk AU · Sales</div><div class="ppl">Jordan Burnes</div><div class="em">jordan.burnes@maersk.com</div><div class="rl">Books the shipment. Ask him to name one coordinator for the whole job.</div><span class="push">PUSH</span></div>
+    <div class="stage t-au"><div class="num">2</div><div class="nm">Pickup &amp; SLI</div><div class="team">Maersk AU · Export ops</div><div class="ppl">Quan Nguyen</div><div class="em">au.logistics@lns.maersk.com</div><div class="rl">Collects the SLI &amp; arranges pickup from ShipBob Altona.</div></div>
+    <div class="stage t-au"><div class="num">3</div><div class="nm">BL &amp; vessel</div><div class="team">Maersk AU · Ocean export</div><div class="ppl">Monita Ambrose</div><div class="em">OCE.LCLEXPORT@lns.maersk.com</div><div class="rl">Issues the Bill of Lading + vessel ETA. (Nicky van Sanden backup.)</div><span class="push">PUSH</span></div>
+    <div class="stage t-fin"><div class="num">4</div><div class="nm">Freight invoice</div><div class="team">Maersk finance / Damco</div><div class="ppl">Madhuri Kumbhar</div><div class="em">kumbhar.madhuri@maersk.com · ANZFINOPS@damco.com</div><div class="rl">Bills freight + £55 clearance fee. Pay promptly to avoid holds.</div></div>
+    <div class="stage t-uk"><div class="num">5</div><div class="nm">Arrival notice</div><div class="team">Maersk UK · LCL</div><div class="ppl">Suzanne Dook</div><div class="em">uk.logistics@lns.maersk.com</div><div class="rl">Sends arrival notice, ETA, then the devan notice.</div></div>
+    <div class="stage t-cust"><div class="num">6</div><div class="nm">Customs clearance</div><div class="team">Maersk UK customs · Felixstowe</div><div class="ppl">Izabela · Harvey · Delicia</div><div class="em">mycustomsuk@lns.maersk.com</div><div class="rl">Izabela = codes/preference/valuation · Harvey = POA forms · Delicia = rep-type. The bottleneck.</div><span class="push">PUSH</span></div>
+    <div class="stage t-uk"><div class="num">7</div><div class="nm">Devan &amp; storage</div><div class="team">Maersk UK · LCL</div><div class="ppl">Suzanne Dook</div><div class="em">uk.logistics@lns.maersk.com</div><div class="rl">5 days free from devan, then £42/day/CBM. Push customs if it's slow.</div><span class="push">CLOCK</span></div>
+    <div class="stage t-uk"><div class="num">8</div><div class="nm">Delivery (DDP)</div><div class="team">Maersk UK · LCL</div><div class="ppl">Suzanne Dook</div><div class="em">uk.logistics@lns.maersk.com</div><div class="rl">Arranges door-to-door. You book the OpenDock slot (Stephanie May, ShipBob) &amp; give it to her.</div></div>
+    <div class="stage t-sb"><div class="num">9</div><div class="nm">Received</div><div class="team">ShipBob · Manchester</div><div class="ppl">ShipBob inbound</div><div class="em">GlobalFreight@shipbob.com · lmalpass@shipbob.com</div><div class="rl">Checks the pallet in. Stephanie May (smay@shipbob.com) for OpenDock slots.</div></div>
+  </div>
+  <div class="callout">⚡ <b>Where to lean:</b> the chokepoint is always <b>Stage 6 — UK customs (mycustomsuk)</b>, and the storage clock at Stage 7 is what makes it urgent. Get the full doc pack in early, then chase <b>mycustomsuk</b> directly. Upstream, <b>Jordan</b> (booking) and <b>OCE.LCLEXPORT</b> (BL) are the two to nudge to keep things on schedule.</div>
+</div></body></html>

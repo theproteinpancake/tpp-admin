@@ -153,6 +153,11 @@ const tools: Anthropic.Tool[] = [
     input_schema: { type: 'object', properties: { reference: { type: 'string', description: 'optional transfer reference e.g. INTERNAL2' } } },
   },
   {
+    name: 'get_uk_pallet_contacts',
+    description: 'The Maersk UK-pallet contact map + escalation guide: WHO to contact/bump to push the AU→UK LCL pallet forward at its current stage (and the UK-customs timing cheat sheet). Returns the stage-by-stage contacts AND the live UK transfer status so you can name the exact person/email to chase right now. Use for "who do I bump now", "who to chase/push on the UK pallet / Maersk / customs / INTERNAL2", "how do we move the pallet along", escalation/contact questions.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
     name: 'get_wholesale_overview',
     description: 'Wholesale business snapshot: sales totals (this week/month/year vs prior), customers DUE to reorder (past their avg order interval), LAPSED customers (gone quiet), top customers, and the 320g wholesale stock + when to reorder from ABC. Use for "wholesale sales", "who\'s due to order", "who should I chase", "how\'s wholesale going", "320g stock".',
     input_schema: { type: 'object', properties: {} },
@@ -520,6 +525,16 @@ Luke`;
         qty: i.qty, received: i.qty_received,
       })),
     }));
+  }
+  if (name === 'get_uk_pallet_contacts') {
+    const { data: cfg } = await supabaseLogistics.from('app_config').select('value').eq('key', 'maersk_contact_map').maybeSingle();
+    const { data: trs } = await supabaseLogistics.from('internal_transfers').select('reference,status,eta,carrier').order('created_at', { ascending: false }).limit(5);
+    const active = (trs ?? []).filter((t: any) => !['received', 'cancelled'].includes(t.status));
+    return {
+      current_uk_transfers: active.length ? active : (trs ?? []),
+      escalation_guide: (cfg?.value as string) || 'Contact map not configured.',
+      how_to_use: 'Match each transfer\'s status to the "status -> stage -> who to bump" list, then name the exact contact + email to chase now. Push the chokepoint for that stage; do not let Maersk teams pass it between themselves.',
+    };
   }
   if (name === 'get_wholesale_overview') {
     const w = await getWholesaleDashboard();
