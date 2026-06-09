@@ -27,6 +27,16 @@ export const TEMPLATES: WaTemplate[] = [
     sample: { '1': 'Altona (AU)', '2': 'PO 1042 — Buttermilk 1T (BMM), GF Buttermilk (GFBM)', '3': "Received into ShipBob — I've marked the PO as received ✓" },
   },
   {
+    key: 'tpp_wholesale_brief',
+    body: '🛒 *Wholesale brief* — {{1}}\nMorning Kate! ☀️\n\n💵 *Sales*\n{{2}}\n\n📞 *Expect / chase a PO from*\n{{3}}\n\n🥞 *320g stock — Altona*\n{{4}}\n\n🤝 *Marketing*\n{{5}}\n\nForward me a PO, an influencer\'s details or a collab chat and I\'ll handle it. 💪',
+    sample: { '1': 'Tuesday, 9 June', '2': 'Yesterday $0 (0 orders) · Last week (1–7 Jun) $1,889 · Month $1,889', '3': 'WholeLife Barr St (125d overdue) · LaManna South Yarra (66d) · Nutrition Warehouse Bendigo (42d)', '4': 'Buttermilk 0 (0d 🔴) · Maple 77 (53d) · GF Buttermilk 75 (58d) · Cinnamon 218 (117d)', '5': 'Next collab: none upcoming · Likely to post: —' },
+  },
+  {
+    key: 'tpp_wholesale_reply',
+    body: '↩️ *{{1}} replied* about their out-of-stock order\n\n"{{2}}"\n\nNext step: {{3}}\nReply to action.',
+    sample: { '1': 'Highland Evolution', '2': 'Yes please swap the buttermilk for maple and send the rest now', '3': "Confirm the swap, then reply 'process Highland' and I'll update the order." },
+  },
+  {
     key: 'tpp_transfer_update',
     body: '🚢 Transfer update — {{1}}\n\n{{2}}\n\nNext step: {{3}}\nReply to action.',
     sample: { '1': 'INTERNAL2', '2': 'Maersk has cleared the pallet through customs; delivery ETA this week and they\'re requesting a booking slot.', '3': "Confirm the delivery slot, then I'll watch for the ShipBob receiving." },
