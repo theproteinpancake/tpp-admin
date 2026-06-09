@@ -26,12 +26,13 @@ export async function runScour(): Promise<{ scanned: number; insights: number; e
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return { scanned: 0, insights: 0, error: 'no api key' };
 
-  // gather recent emails across the logistics senders
-  const emails: { category: string; from: string; subject: string; date: string; snippet: string }[] = [];
+  // gather recent emails across the logistics senders (keep threadId — it's the STABLE key,
+  // unlike the LLM topic which drifts wording each run and breaks dismissals)
+  const emails: { category: string; threadId: string; from: string; subject: string; date: string; snippet: string }[] = [];
   for (const { category, q } of QUERIES) {
     try {
       const msgs = await gmailSearch(q, 12);
-      for (const m of msgs) emails.push({ category, from: m.from, subject: m.subject, date: m.date, snippet: m.snippet });
+      for (const m of msgs) emails.push({ category, threadId: m.threadId, from: m.from, subject: m.subject, date: m.date, snippet: m.snippet });
     } catch { /* skip a failing query */ }
   }
   if (!emails.length) return { scanned: 0, insights: 0 };
@@ -62,29 +63,41 @@ Rules: ignore auto-replies, out-of-office, marketing, and anything not logistics
 IMPORTANT — ShipBob receiving: if a ShipBob email says goods / a WRO / an inbound shipment have been RECEIVED or receiving is COMPLETE at a fulfilment centre, set needs_action=true and make the action "Mark the matching transfer/PO as received" (name the shipment/WRO if shown) — this is how we confirm stock has actually landed.
 IMPORTANT — sent mail = already handled: some emails are marked [sent] (from Luke). If Luke has already REPLIED to or RESOLVED a thread (e.g. sent the paperwork/labels, paid the invoice, made a decision, answered the request), set that job's needs_action=false — do NOT keep flagging it as waiting on Luke. Never create a job whose only message is a [sent] email; use sent mail only as evidence a thread is resolved. Only flag needs_action=true for things STILL genuinely waiting on Luke with no reply from him.
 IMPORTANT — reconcile against ops state: you are given the CURRENT OPS STATE (POs + transfers with live status). If an email implies something is still pending but the ops state shows it's DONE — e.g. the matching PO is status=received or xero=BILLED or wro=Completed, or the transfer is received — then the job is COMPLETE: set needs_action=false and say so in the summary (e.g. "GF Cinnamon — received at ShipBob ✓"). Match by flavour/PO number/reference. Trust the ops state over stale email wording.
-Return ONLY a JSON array, no prose: [{"source_key": "<short topic>", "category": "maersk|abc|shipbob", "summary": "<=140 char status", "needs_action": true|false, "action": "<=90 char next step or empty"}]`,
+For each job include "email_index": the number (from the list) of the PRIMARY email this job is about — so we can key the job to its email thread.
+Return ONLY a JSON array, no prose: [{"email_index": <number>, "source_key": "<short topic>", "category": "maersk|abc|shipbob", "summary": "<=140 char status", "needs_action": true|false, "action": "<=90 char next step or empty"}]`,
     messages: [{ role: 'user', content: `Recent logistics emails:\n\n${list}${stateBlock}` }],
   });
   const text = resp.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('');
   let parsed: any[] = [];
   try { parsed = JSON.parse(text.slice(text.indexOf('['), text.lastIndexOf(']') + 1)); } catch { return { scanned: emails.length, insights: 0, error: 'parse failed' }; }
 
-  const rows = parsed.filter((p) => p && p.source_key && p.summary).map((p) => {
-    const key = normKey(String(p.source_key));
-    const match = emails.find((e) => normKey(e.subject).includes(key.slice(0, 20)) || key.includes(normKey(e.subject).slice(0, 20)));
+  const rows = parsed.filter((p) => p && p.summary).map((p) => {
+    // Stable key = the email's thread id. Fall back to a normalised topic only if the index is missing.
+    const idx = Number(p.email_index) - 1;
+    const e = idx >= 0 && idx < emails.length ? emails[idx] : undefined;
+    const key = e?.threadId ? `thread:${e.threadId}` : normKey(String(p.source_key || p.summary));
     return {
       source_key: key,
-      category: ['maersk', 'abc', 'shipbob'].includes(p.category) ? p.category : 'other',
-      subject: match?.subject ?? String(p.source_key).slice(0, 120),
+      category: ['maersk', 'abc', 'shipbob'].includes(p.category) ? p.category : (e?.category || 'other'),
+      subject: e?.subject ?? String(p.source_key || '').slice(0, 120),
       summary: String(p.summary).slice(0, 200),
       action: p.action ? String(p.action).slice(0, 120) : null,
       needs_action: !!p.needs_action,
-      last_msg_date: match?.date ? new Date(match.date).toISOString() : null,
-      dismissed: false,
+      last_msg_date: e?.date ? new Date(e.date).toISOString() : null,
       detected_at: new Date().toISOString(),
     };
-  });
-  if (rows.length) await supabaseLogistics.from('gmail_insights').upsert(rows, { onConflict: 'source_key' });
+  }).filter((r) => !emails.find((e) => `thread:${e.threadId}` === r.source_key && e.category === 'sent')); // never a job whose key is a sent-only thread
+
+  if (rows.length) {
+    // PRESERVE the founder's dismissals — never reset `dismissed` back to false on re-scour.
+    const keys = Array.from(new Set(rows.map((r) => r.source_key)));
+    const { data: prev } = await supabaseLogistics.from('gmail_insights').select('source_key, dismissed').in('source_key', keys);
+    const dmap = new Map((prev ?? []).map((d: any) => [d.source_key, !!d.dismissed]));
+    const payload = rows.map((r) => ({ ...r, dismissed: dmap.get(r.source_key) ?? false }));
+    await supabaseLogistics.from('gmail_insights').upsert(payload, { onConflict: 'source_key' });
+    // Drop legacy topic-keyed rows (pre thread-id) so they don't double up with the stable ones.
+    try { await supabaseLogistics.from('gmail_insights').delete().not('source_key', 'like', 'thread:%'); } catch { /* best-effort */ }
+  }
   return { scanned: emails.length, insights: rows.length };
 }
 
