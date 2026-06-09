@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { TEMPLATES, createTemplate, templateStatus, getTemplateSid } from '@/lib/waTemplates';
+import { sendWhatsAppTemplate, allowedNumbers, senderRole } from '@/lib/whatsapp';
 
 export const maxDuration = 60;
 
@@ -14,6 +15,18 @@ async function handle(req: NextRequest) {
   const only = url.searchParams.get('key');
   const force = !!url.searchParams.get('force');
   const list = only ? TEMPLATES.filter((t) => t.key === only) : TEMPLATES;
+
+  // ?send=<key> → fire that template's SAMPLE content to the owner(s) — for testing the look.
+  const send = url.searchParams.get('send');
+  if (send) {
+    const t = TEMPLATES.find((x) => x.key === send);
+    const sid = t ? await getTemplateSid(send) : null;
+    if (!t || !sid) return NextResponse.json({ error: 'unknown or unconfigured template', key: send }, { status: 400 });
+    const owners = allowedNumbers().filter((to) => senderRole(to) === 'owner');
+    let sent = 0;
+    for (const to of owners) { if (await sendWhatsAppTemplate(to, sid, t.sample)) sent++; }
+    return NextResponse.json({ ok: true, sent, key: send });
+  }
 
   if (req.method === 'GET') {
     const statuses = await Promise.all(list.map((t) => templateStatus(t.key)));
