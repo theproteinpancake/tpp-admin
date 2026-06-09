@@ -106,6 +106,21 @@ export async function fetchTwilioMessageBody(sid: string): Promise<string | null
   } catch { return null; }
 }
 
+// Fetch a Twilio PDF attachment (e.g. an invoice/docket the user sends) as base64, so the agent
+// can actually READ it. Verifies the %PDF magic bytes; caps size for the document API.
+export async function fetchTwilioPdf(url: string): Promise<{ base64: string } | null> {
+  const auth = twilioAuthHeader();
+  if (!auth) return null;
+  try {
+    const res = await fetch(url, { headers: { Authorization: auth } });
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length < 100 || buf.length > 25_000_000) return null;
+    if (buf.subarray(0, 4).toString('latin1') !== '%PDF') return null;
+    return { base64: buf.toString('base64') };
+  } catch { return null; }
+}
+
 export async function sendWhatsApp(to: string, body: string, mediaUrl?: string): Promise<boolean> {
   const sid = SID(), from = FROM();
   const auth = twilioAuthHeader();

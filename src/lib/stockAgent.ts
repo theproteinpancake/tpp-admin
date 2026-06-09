@@ -798,6 +798,8 @@ INTENT — FIRST classify EACH message into exactly ONE of these, and follow ONL
 4. General question / stock / logistics → the relevant tool.
 RESPOND ONLY TO THE CURRENT MESSAGE — handle the ONE task it asks for and reply about ONLY that. NEVER re-raise, continue or bundle a DIFFERENT task from earlier; a wholesale PO and an influencer gift must NEVER appear in the same reply. Earlier unfinished tasks stay parked unless THIS message is about them. Use the flavour/size stated in THIS message, never carried from a previous one.
 
+ATTACHMENTS & "this/that" — when the message includes an ATTACHMENT (PDF invoice/docket/packing slip, or an image) or refers to "this"/"that"/"it", the attachment IS the subject. READ it first and answer specifically about ITS contents — e.g. an ABC Blending invoice → read the invoice number, line items, qty, amounts, then cross-check (does it match a PO via get_purchase_orders? were those goods received? is the billed amount right?). NEVER ignore the attachment and dump an unrelated status report (e.g. don't answer with the UK pallet/INTERNAL2 just because the words "received" or "ShipBob" appear). If you genuinely can't read it or lack what you need, say exactly what's missing and ask — do NOT substitute a generic tool dump. Match the words to the actual subject: "billing/invoice" → invoices & POs, not transfers.
+
 INBOX ACCESS: you can read the wholesale inbox(es) — Kate's (kate@) AND Luke's (luke@) — because customer POs land in either. When the user refers to a PO "that came through" (e.g. "reprocess the Wholefood Merchants PO"), call find_po_email with the store name → pick the right result (note which inbox it's in) → process_po_email(id, inbox). process_po_email reads ANY format (text, HTML table, CSV, PDF — sometimes several for one order). Pass exclude:["Buttermilk"] for "leave off X". Only ask the user to paste it if find_po_email finds nothing. For a pasted PO use parse_wholesale_po(text, exclude). Always show the summary and confirm before processing.
 
 WHOLESALE:
@@ -887,8 +889,9 @@ export async function recordProactiveContext(phone: string, summary: string) {
 }
 
 export interface AgentImage { base64: string; mediaType: string }
+export interface AgentDoc { base64: string; filename?: string }
 
-export async function askStockAgent(question: string, phone?: string, images?: AgentImage[], quotedText?: string): Promise<{ text: string; media?: string }> {
+export async function askStockAgent(question: string, phone?: string, images?: AgentImage[], quotedText?: string, docs?: AgentDoc[]): Promise<{ text: string; media?: string }> {
   _media = null;
   _phone = phone || null;
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -902,11 +905,13 @@ export async function askStockAgent(question: string, phone?: string, images?: A
     : question;
 
   const history = phone ? await loadHistory(phone) : [];
+  const hasAttach = !!(images?.length || docs?.length);
   const userContent: Anthropic.ContentBlockParam[] = [
     ...(images ?? []).map((im) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: im.mediaType as any, data: im.base64 } })),
-    { type: 'text' as const, text: q || '(screenshot attached)' },
+    ...(docs ?? []).map((d) => ({ type: 'document' as const, source: { type: 'base64' as const, media_type: 'application/pdf' as const, data: d.base64 }, ...(d.filename ? { title: d.filename } : {}) }) as any),
+    { type: 'text' as const, text: q || '(attachment sent — read it and answer about it)' },
   ];
-  const messages: Anthropic.MessageParam[] = [...history, { role: 'user', content: images?.length ? userContent : (q || '(no message)') }];
+  const messages: Anthropic.MessageParam[] = [...history, { role: 'user', content: hasAttach ? userContent : (q || '(no message)') }];
   const system = systemFor(phone ? senderRole(phone) : 'owner');
 
   // Prompt caching: the tools + (per-role) system prompt are large and static across the

@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { after } from 'next/server';
-import { askStockAgent, type AgentImage } from '@/lib/stockAgent';
-import { isAllowed, sendWhatsApp, fetchTwilioMedia, fetchTwilioMessageBody } from '@/lib/whatsapp';
+import { askStockAgent, type AgentImage, type AgentDoc } from '@/lib/stockAgent';
+import { isAllowed, sendWhatsApp, fetchTwilioMedia, fetchTwilioMessageBody, fetchTwilioPdf } from '@/lib/whatsapp';
 
 export const maxDuration = 120; // agent + docket parse can take ~30s
 
@@ -21,6 +21,7 @@ const SLOW = /docket|packing|slip|\bwro\b|transfer|\bdocs?\b|draft|approve|recei
 export async function POST(req: NextRequest) {
   let from = '', body = '', repliedSid = '';
   const mediaUrls: string[] = [];
+  const pdfUrls: string[] = [];
   try {
     const form = await req.formData();
     from = String(form.get('From') || '');
@@ -31,23 +32,29 @@ export async function POST(req: NextRequest) {
       const url = String(form.get(`MediaUrl${i}`) || '');
       const type = String(form.get(`MediaContentType${i}`) || '');
       if (url && type.startsWith('image/')) mediaUrls.push(url);
+      else if (url && /pdf/i.test(type)) pdfUrls.push(url); // invoices, dockets, packing slips
     }
   } catch {
     return empty();
   }
 
-  if (!isAllowed(from) || (!body && mediaUrls.length === 0)) return empty();
+  if (!isAllowed(from) || (!body && mediaUrls.length === 0 && pdfUrls.length === 0)) return empty();
 
   after(async () => {
     try {
-      // fetch any attached screenshots for the agent's vision
+      // fetch any attached screenshots (vision) + PDFs (invoices/dockets) so the agent reads them
       const images: AgentImage[] = [];
       for (const url of mediaUrls.slice(0, 4)) {
         const m = await fetchTwilioMedia(url);
         if (m) images.push(m);
       }
+      const docs: AgentDoc[] = [];
+      for (const url of pdfUrls.slice(0, 3)) {
+        const d = await fetchTwilioPdf(url);
+        if (d) docs.push({ base64: d.base64, filename: 'attachment.pdf' });
+      }
       const quoted = repliedSid ? await fetchTwilioMessageBody(repliedSid).catch(() => null) : null;
-      const answer = await askStockAgent(body, from, images.length ? images : undefined, quoted || undefined);
+      const answer = await askStockAgent(body, from, images.length ? images : undefined, quoted || undefined, docs.length ? docs : undefined);
       await sendWhatsApp(from, answer.text, answer.media);
     } catch (e) {
       console.error('whatsapp agent error', e);
@@ -61,5 +68,5 @@ export async function POST(req: NextRequest) {
   });
 
   // Images (vision + possible order) and heavy tasks get a quick ack; fast reads don't.
-  return (mediaUrls.length > 0 || SLOW.test(body)) ? reply('brb 👀') : empty();
+  return (mediaUrls.length > 0 || pdfUrls.length > 0 || SLOW.test(body)) ? reply('brb 👀') : empty();
 }
