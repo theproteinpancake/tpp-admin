@@ -10,7 +10,9 @@ const SHOP = SHOPIFY_SHOP;
 const API = '2024-10';
 
 export interface Assumptions { wholesale_margin: number; online_cogs_pct: number; payment_fee_pct: number; fx_gbp_aud: number; weekly_target_sales: number; weekly_target_np: number; employees: number; wages_per_day: number; shipbob_per_order: number; }
-const DEFAULT_ASSUMPTIONS: Assumptions = { wholesale_margin: 0.38, online_cogs_pct: 0.40, payment_fee_pct: 0.03, fx_gbp_aud: 1.95, weekly_target_sales: 40000, weekly_target_np: 4000, employees: 4, wages_per_day: 371, shipbob_per_order: 22 };
+// online_cogs_pct is only a FALLBACK now — real per-week COGS from Shopify drives gross
+// profit when available. 0.33 ≈ the observed ~67% GPM.
+const DEFAULT_ASSUMPTIONS: Assumptions = { wholesale_margin: 0.38, online_cogs_pct: 0.33, payment_fee_pct: 0.03, fx_gbp_aud: 1.95, weekly_target_sales: 40000, weekly_target_np: 4000, employees: 4, wages_per_day: 371, shipbob_per_order: 22 };
 
 export async function getAssumptions(): Promise<Assumptions> {
   const { data } = await supabaseLogistics.from('app_config').select('value').eq('key', 'analytics_assumptions').maybeSingle();
@@ -133,7 +135,7 @@ export async function autofillWeek(weekStart: string) {
     shipbobCharges(startIso, endIso, a.fx_gbp_aud).catch(() => null),
     wholesaleTotal(startIso, endIso).catch(() => null),
     metaConfigured() ? fetchMetaWeek(startIso, endIso).catch((e) => ({ _err: String(e) } as any)) : Promise.resolve(null),
-    supabaseLogistics.from('sales_week').select('locked').eq('week_start', weekStart).maybeSingle(),
+    supabaseLogistics.from('sales_week').select('locked, cogs').eq('week_start', weekStart).maybeSingle(),
   ]);
   const locked: string[] = (existing.data?.locked as string[]) || [];
   const row: Record<string, unknown> = { week_start: weekStart, auto_filled_at: new Date().toISOString(), updated_at: new Date().toISOString() };
@@ -142,7 +144,10 @@ export async function autofillWeek(weekStart: string) {
     set('online_sales', shop.online_sales); set('orders', shop.orders); set('aov', shop.aov);
     set('shipping_charged', shop.shipping_charged);
     set('orders_nz', shop.orders_nz); set('nz_aov', shop.nz_aov); set('orders_uk', shop.orders_uk); set('uk_aov', shop.uk_aov);
-    set('gross_profit', round2(shop.online_sales * (1 - a.online_cogs_pct)));
+    // Gross profit from REAL Shopify COGS when we have it (kept fresh by /api/analytics/backfill-cogs);
+    // fall back to the % assumption only when no real cost is stored yet.
+    const storedCogs = existing.data?.cogs != null ? Number(existing.data.cogs) : null;
+    set('gross_profit', round2(storedCogs != null ? shop.online_sales - storedCogs : shop.online_sales * (1 - a.online_cogs_pct)));
   }
   if (sb != null) set('shipbob_charges', sb);
   if (wh != null) set('wholesale_invoices', wh);
@@ -174,8 +179,11 @@ export function derive(r: any, a: Assumptions) {
   const total_ad_spend = n(r.meta_spend) + n(r.google_spend) + n(r.amazon_spend);
   const gross_profit = n(r.gross_profit);
   const wholesale_np = n(r.wholesale_invoices) * a.wholesale_margin;
+  const wages = (a.wages_per_day || 0) * 7;
+  // ONE net-profit formula (same as the week-in-review): online gross + wholesale margin
+  // − ad spend − ShipBob − payment fees − wages.
   const online_np = gross_profit - total_ad_spend - n(r.shipbob_charges) - n(r.online_sales) * a.payment_fee_pct;
-  const net_profit = online_np + wholesale_np;
+  const net_profit = online_np + wholesale_np - wages;
   return {
     sales_total: round2(sales_total),
     total_ad_spend: round2(total_ad_spend),
