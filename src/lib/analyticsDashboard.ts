@@ -66,8 +66,11 @@ async function computePeriod(fromDate: string, toDate: string, model: Model = 'l
   const online = attr.totals.revenue;
   const orders = attr.totals.orders;
   // ShipBob bills per-shipment a day or two late — estimate cost for orders not yet costed
-  // so recent ranges don't understate shipping (and inflate profit).
-  const uncosted = Math.max(0, orders - sbRows.length);
+  // so RECENT ranges don't understate shipping (and inflate profit). Historical ranges get no
+  // estimate: their weekend orders legitimately shipped in the NEXT window (cost books by
+  // ship_date, same as the master) — estimating there double-counts (~$22 × backlog).
+  const recent = Date.parse(toDate) > Date.now() - 3 * 86400_000;
+  const uncosted = recent ? Math.max(0, orders - sbRows.length) : 0;
   const shipbobEst = uncosted * (a.shipbob_per_order || 22);
   const shipbob = shipbobActual + shipbobEst;
   const ad_spend = (meta?.spend || 0); // + google when live
