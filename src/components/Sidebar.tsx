@@ -7,6 +7,7 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
   Clapperboard,
+  TrendingUp,
   UtensilsCrossed,
   Users,
   Bell,
@@ -50,6 +51,7 @@ const groups: NavGroup[] = [
     section: 'logistics',
     items: [
       { name: 'Assistant', href: '/logistics/assistant', icon: Sparkles },
+      { name: 'Forecasting', href: '/logistics/forecasting', icon: TrendingUp },
       { name: 'Stock Overview', href: '/logistics/stock', icon: Package },
       { name: 'Purchase Orders', href: '/logistics/purchase-orders', icon: ClipboardList },
       { name: 'Batches', href: '/logistics/batches', icon: Layers },
