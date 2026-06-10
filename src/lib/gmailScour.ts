@@ -149,12 +149,15 @@ async function applyEvents(events: any[]): Promise<number> {
       } else if (ev?.type === 'wro_received' && ev.po_ref) {
         const like = `%${String(ev.po_ref).trim()}%`;
         const { data: pos } = await supabaseLogistics.from('purchase_orders')
-          .select('id,po_number,reference,status').or(`reference.ilike.${like},po_number.ilike.${like}`).neq('status', 'received').limit(1);
+          .select('id,po_number,reference,status,wro_status').or(`reference.ilike.${like},po_number.ilike.${like}`).neq('status', 'received').limit(1);
         const po = (pos ?? [])[0] as any;
-        if (po) {
-          await supabaseLogistics.from('purchase_orders').update({ status: 'received', wro_status: 'Received', received_date: new Date().toISOString().slice(0, 10), updated_at: new Date().toISOString() }).eq('id', po.id);
-          await ping('tpp_stock_received', { '1': ev.location || 'the fulfilment centre', '2': `${po.po_number || po.reference}${po.reference && po.po_number ? ` — ${po.reference}` : ''}`.slice(0, 280), '3': String(ev.detail || "Received — I've marked the PO as received ✓").replace(/\s+/g, ' ').slice(0, 280) },
-            `I just messaged you that ${po.po_number || po.reference} was RECEIVED at ${ev.location || 'the FC'} and I marked the PO received. If the user replies about it, address that.`);
+        // CONFIRM-FIRST: don't auto-mark received off an email — flag it and let the owner confirm.
+        // wro_status='received_pending' is our "already asked" marker so we don't re-ping each scour.
+        if (po && po.wro_status !== 'received_pending') {
+          await supabaseLogistics.from('purchase_orders').update({ wro_status: 'received_pending' }).eq('id', po.id);
+          const ref = po.po_number || po.reference;
+          await ping('tpp_stock_received', { '1': ev.location || 'the fulfilment centre', '2': `${ref}${po.reference && po.po_number ? ` — ${po.reference}` : ''}`.slice(0, 280), '3': `Looks received per a ShipBob email — reply "confirm" and I'll mark it received (or tell me if not).`.slice(0, 280) },
+            `A ShipBob email suggests ${ref} (${po.reference}) was RECEIVED at ${ev.location || 'the FC'} — I have NOT marked it yet. If the user replies "confirm"/"yes/yep", call mark_po_received for "${po.po_number || ref}". If they say no/not yet, leave it.`);
         }
       }
     } catch { /* per-event best-effort */ }

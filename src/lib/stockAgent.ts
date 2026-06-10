@@ -14,6 +14,7 @@ import { getBillingData, buildHighlights } from './billing';
 import { getTransfer, transferUnits, transferValue, setTransferStatus } from './transfers';
 import { suggestRestock, createDraftTransfer } from './transferBuilder';
 import { getActionCenter, dismissBriefItems } from './actionCenter';
+import { setConfig } from './settings';
 import { getPoForecast } from './poForecast';
 import { MAERSK } from './transferConstants';
 import { sendWhatsApp, senderRole } from './whatsapp';
@@ -450,7 +451,10 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
   }
   if (name === 'get_action_center') {
     const acts = await getActionCenter();
-    return acts.length ? acts.map((a) => ({ priority: a.severity, title: a.title, detail: a.detail, say_to_action: a.command })) : { note: 'All clear — nothing needs action right now. ✅' };
+    if (!acts.length) return { note: 'All clear — nothing needs action right now. ✅' };
+    // Number them AND save the mapping so a "1, 3 done" reply resolves to THESE items via mark_brief_done.
+    await setConfig('last_brief_items', JSON.stringify(acts.map((a, i) => ({ n: i + 1, key: a.key, title: a.title })))).catch(() => {});
+    return acts.map((a, i) => ({ number: i + 1, priority: a.severity, title: a.title, detail: a.detail, say_to_action: a.command }));
   }
   if (name === 'suggest_transfer') {
     const pallets = input.pallets ? Number(input.pallets) : undefined;
@@ -773,7 +777,7 @@ Live data + real actions via tools. Sites: Altona (AU, AUD) & Manchester (UK, GB
 CRITICAL RULE — never say you can't do something logistics-related without FIRST calling the relevant tool. If a tool returns no rows, say "no data found right now", NOT "I don't have access". You DO have every capability below. Do not describe your own tool list to the user; just answer.
 
 Your full toolkit:
-- get_action_center — the proactive cross-site priority list (transfers due, POs, packaging, expiry, billing). Lead with this for "what needs my attention" and when opening a proactive check-in; then offer to action the top items. The morning brief NUMBERS these items; when the user replies with numbers ("1, 3 done", "disregard 2 and 5", "8 — I provisioned Manildra so it's underway"), call mark_brief_done with those numbers + any note/decision so they clear and won't resurface tomorrow. Confirm what you cleared.
+- get_action_center — the proactive cross-site priority list (transfers due, POs, packaging, expiry, billing). Lead with this for "what needs my attention" and when opening a proactive check-in; then offer to action the top items. It returns the items NUMBERED (and saves that numbering); when the user replies with numbers about them ("1, 3 done", "disregard 2 and 5", "8 — I provisioned Manildra so it's underway"), call mark_brief_done with those numbers + any note/decision so they clear and won't resurface. Confirm what you cleared. (Only treat a bare-number reply as this if you actually showed the numbered list recently.)
 - get_stock — live on-hand, available, days of cover, inbound, velocity, status, per SKU per site.
 - get_expiring_stock — batch/lot best-before dates, days left, soonest-expiring stock (BOTH sites). This covers ALL expiry / shortest-dated / batch / best-before questions.
 - get_purchase_orders — POs: supplier, status, expected date, outstanding units.
@@ -875,14 +879,15 @@ function systemFor(role: 'wholesale' | 'owner'): string {
     : SYSTEM + OWNER_OPS_PREFACE + SHARED_OPS);
 }
 
-// Recent conversation history (last 6h) so multi-step flows (confirm / SEND / yes) work.
-const HISTORY_LIMIT = 12;
+// Recent conversation history so multi-step flows (confirm / SEND / yes) AND replies to the
+// morning brief later in the day keep their context. ~26h covers a same-day reply to a 9am brief.
+const HISTORY_LIMIT = 18;
 async function loadHistory(phone: string): Promise<Anthropic.MessageParam[]> {
   const { data } = await supabaseLogistics
     .from('wa_conversation')
     .select('role, content')
     .eq('phone', phone)
-    .gt('created_at', new Date(Date.now() - 6 * 3600_000).toISOString())
+    .gt('created_at', new Date(Date.now() - 26 * 3600_000).toISOString())
     .order('created_at', { ascending: false })
     .limit(HISTORY_LIMIT);
   // drop any empty-content rows — Anthropic rejects empty messages (400) and one
@@ -907,7 +912,7 @@ async function saveTurn(phone: string, userText: string, assistantText: string) 
 // Stored as a user-framed context note + assistant ack so it survives the user-first history filter.
 // `phone` must match the inbound webhook's `From` format (whatsapp:+E164).
 export async function recordProactiveContext(phone: string, summary: string) {
-  const note = (summary || '').trim();
+  const note = (summary || '').trim().slice(0, 900); // cap so daily proactive notes don't crowd memory
   if (!phone || !note) return;
   try {
     await supabaseLogistics.from('wa_conversation').insert([
@@ -971,6 +976,11 @@ export async function askStockAgent(question: string, phone?: string, images?: A
     break;
   }
   if (!answer) answer = 'That took too many steps — try narrowing the request.';
-  if (phone) await saveTurn(phone, question, answer).catch(() => {});
+  // Mark that an attachment was sent so follow-ups ("what about line 2 of that invoice?") have
+  // context — the actual contents live in the assistant's saved answer above.
+  if (phone) {
+    const tag = hasAttach ? `[sent ${[docs?.length ? `${docs.length} PDF${docs.length > 1 ? 's' : ''}` : '', images?.length ? `${images.length} image${images.length > 1 ? 's' : ''}` : ''].filter(Boolean).join(' + ')}] ` : '';
+    await saveTurn(phone, `${tag}${question}`.trim(), answer).catch(() => {});
+  }
   return { text: answer, media: _media || undefined };
 }
