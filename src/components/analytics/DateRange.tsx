@@ -24,12 +24,12 @@ function presets() {
   ];
 }
 
-export default function DateRange({ from, to }: { from: string; to: string }) {
+export default function DateRange({ from, to, path = '/analytics', extraQs = '' }: { from: string; to: string; path?: string; extraQs?: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [f, setF] = useState(from);
   const [tIncl, setTIncl] = useState(addDays(to, -1));
-  const go = (ff: string, tt: string) => { router.push(`/analytics?from=${ff}&to=${tt}`); setOpen(false); };
+  const go = (ff: string, tt: string) => { router.push(`${path}?from=${ff}&to=${tt}${extraQs}`); setOpen(false); };
   return (
     <div className="relative">
       <button onClick={() => setOpen((o) => !o)} className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-caramel shadow-sm hover:border-caramel">

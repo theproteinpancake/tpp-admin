@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
+  Clapperboard,
   UtensilsCrossed,
   Users,
   Bell,
@@ -41,6 +42,7 @@ const groups: NavGroup[] = [
     items: [
       { name: 'Analytics', href: '/analytics', icon: BarChart3 },
       { name: 'Sales & Data', href: '/analytics/master', icon: Table2 },
+      { name: 'Ads', href: '/analytics/ads', icon: Clapperboard },
     ],
   },
   {
