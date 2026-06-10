@@ -27,6 +27,11 @@ export const TEMPLATES: WaTemplate[] = [
     sample: { '1': 'Altona (AU)', '2': 'PO 1042 — Buttermilk 1T (BMM), GF Buttermilk (GFBM)', '3': "Received into ShipBob — I've marked the PO as received ✓" },
   },
   {
+    key: 'tpp_system_alert',
+    body: '🚨 *TPP system check* — {{1}}\n\nWhat needs attention: {{2}}\n\nDetails: {{3}}\n\nReply here and I\'ll dig into it, or check the dashboard logs.',
+    sample: { '1': 'Wednesday, 10 June', '2': 'The 7am sales review did not run', '3': 'Last successful run was 26 hours ago — the cron or the route may be failing.' },
+  },
+  {
     key: 'tpp_wholesale_brief',
     body: '🛒 *Wholesale brief* — {{1}}\nMorning Kate! ☀️\n\n💵 *Sales*\n{{2}}\n\n📞 *Expect / chase a PO from*\n{{3}}\n\n🥞 *320g stock — Altona*\n{{4}}\n\n🤝 *Marketing*\n{{5}}\n\nForward me a PO, an influencer\'s details or a collab chat and I\'ll handle it. 💪',
     sample: { '1': 'Tuesday, 9 June', '2': 'Yesterday $0 (0 orders) · Last week (1–7 Jun) $1,889 · Month $1,889', '3': 'WholeLife Barr St (125d overdue) · LaManna South Yarra (66d) · Nutrition Warehouse Bendigo (42d)', '4': 'Buttermilk 0 (0d 🔴) · Maple 77 (53d) · GF Buttermilk 75 (58d) · Cinnamon 218 (117d)', '5': 'Next collab: none upcoming · Likely to post: —' },

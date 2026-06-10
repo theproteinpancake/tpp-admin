@@ -72,25 +72,44 @@ export async function fetchTwilioMedia(url: string): Promise<{ base64: string; m
   } catch { return null; }
 }
 
+// POST a message to Twilio with RETRY on transient failures (network error, 5xx, 429).
+// 4xx errors are permanent (bad number, closed 24h window, rejected template) — no retry.
+// Briefs ride on this; a single network blip must not silently eat a morning brief.
+async function twilioSend(params: URLSearchParams, label: string): Promise<boolean> {
+  const sid = SID(), auth = twilioAuthHeader();
+  if (!sid || !auth) { console.error(`Twilio ${label}: missing credentials`); return false; }
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(`${TWILIO_API_BASE}/2010-04-01/Accounts/${sid}/Messages.json`, {
+        method: 'POST',
+        headers: { Authorization: auth, 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params,
+      });
+      if (res.ok) return true;
+      const body = await res.text();
+      if (res.status < 500 && res.status !== 429) { console.error(`Twilio ${label} failed (permanent)`, res.status, body.slice(0, 300)); return false; }
+      console.error(`Twilio ${label} failed (attempt ${attempt + 1})`, res.status, body.slice(0, 200));
+    } catch (e) {
+      console.error(`Twilio ${label} network error (attempt ${attempt + 1})`, String(e).slice(0, 200));
+    }
+    await sleep(2000 * (attempt + 1));
+  }
+  return false;
+}
+
 // Send a pre-approved WhatsApp **template** (Twilio Content API). Unlike sendWhatsApp,
 // a template delivers OUTSIDE the 24-hour customer-service window — so proactive alerts
 // (e.g. a PO detected at 4am) actually reach Kate. `variables` maps "1","2",… → value;
 // each value must be a single line (WhatsApp rejects newlines/tabs inside variables).
 export async function sendWhatsAppTemplate(to: string, contentSid: string, variables: Record<string, string>): Promise<boolean> {
-  const sid = SID(), from = FROM();
-  const auth = twilioAuthHeader();
+  const from = FROM();
   const msgService = process.env.TWILIO_MESSAGING_SERVICE_SID || '';
-  if (!sid || !auth || !contentSid || (!from && !msgService)) { console.error('Twilio template send: missing config'); return false; }
+  if (!contentSid || (!from && !msgService)) { console.error('Twilio template send: missing config'); return false; }
   const params = new URLSearchParams({ To: waAddr(to), ContentSid: contentSid, ContentVariables: JSON.stringify(variables) });
   if (msgService) params.set('MessagingServiceSid', msgService);
   else params.set('From', waAddr(from));
-  const res = await fetch(`${TWILIO_API_BASE}/2010-04-01/Accounts/${sid}/Messages.json`, {
-    method: 'POST',
-    headers: { Authorization: auth, 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: params,
-  });
-  if (!res.ok) { console.error('Twilio template send failed', res.status, await res.text()); return false; }
-  return true;
+  return twilioSend(params, 'template send');
 }
 
 // Fetch the body of a previously-sent message (used to give the agent reply context when the
@@ -122,23 +141,13 @@ export async function fetchTwilioPdf(url: string): Promise<{ base64: string } | 
 }
 
 export async function sendWhatsApp(to: string, body: string, mediaUrl?: string): Promise<boolean> {
-  const sid = SID(), from = FROM();
-  const auth = twilioAuthHeader();
+  const from = FROM();
   const msgService = process.env.TWILIO_MESSAGING_SERVICE_SID || '';
-  if (!sid || !auth || (!from && !msgService)) { console.error('Twilio env missing'); return false; }
+  if (!from && !msgService) { console.error('Twilio env missing'); return false; }
   const params = new URLSearchParams({ To: waAddr(to), Body: body.slice(0, 1550) });
   // Prefer the Messaging Service when configured; otherwise send directly from the number.
   if (msgService) params.set('MessagingServiceSid', msgService);
   else params.set('From', waAddr(from)); // normalise so a missing "whatsapp:" prefix still works
   if (mediaUrl) params.set('MediaUrl', mediaUrl);
-  const res = await fetch(`${TWILIO_API_BASE}/2010-04-01/Accounts/${sid}/Messages.json`, {
-    method: 'POST',
-    headers: {
-      Authorization: auth,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: params,
-  });
-  if (!res.ok) { console.error('Twilio send failed', res.status, await res.text()); return false; }
-  return true;
+  return twilioSend(params, 'send');
 }

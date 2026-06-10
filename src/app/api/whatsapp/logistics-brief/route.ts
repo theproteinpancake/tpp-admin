@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { buildLogisticsBrief, sendLogisticsBrief } from '@/lib/logisticsBrief';
+import { recordJobRun } from '@/lib/settings';
 
 export const maxDuration = 60;
 
@@ -14,6 +15,7 @@ async function handle(req: NextRequest) {
     return NextResponse.json({ ok: true, dry: true, text, vars });
   }
   const res = await sendLogisticsBrief();
+  if (res.sent > 0) await recordJobRun('logistics-brief');
   return NextResponse.json({ ok: true, ...res });
 }
 

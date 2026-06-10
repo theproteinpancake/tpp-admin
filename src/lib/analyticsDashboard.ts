@@ -1,9 +1,11 @@
 // Dashboard data for an arbitrary date range + automatic previous-period comparison.
 // Powers the Triple-Whale-style Analytics page (KPI tiles + channel sections + attribution).
+// Net profit uses the SAME formula as the master + reviews: online gross (real COGS) +
+// wholesale margin − ad spend − ShipBob − payment fees − wages.
 import { supabaseLogistics } from './supabase-logistics';
 import { getAttribution, type AttribRow, type Model } from './attribution';
 import { fetchMetaWeek } from './meta';
-import { getAssumptions } from './analytics';
+import { getAssumptions, shopifyWeekCOGS } from './analytics';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const div = (a: number, b: number) => (b ? r2(a / b) : null);
@@ -13,9 +15,33 @@ export interface Period {
   wholesale: number; sales_total: number;
   meta_spend: number | null; meta_roas: number | null; meta_purchases: number; meta_cpa: number | null;
   ad_spend: number; blended_roas: number | null; nc_roas: number | null; mer: number | null;
-  cogs: number; payment_fees: number; wages: number; gross_profit: number; gpm: number | null;
+  cogs: number; cogs_real: boolean; payment_fees: number; wages: number; gross_profit: number; gpm: number | null;
   shipbob: number; shipbob_orders: number; shipbob_estimated: boolean;
   net_profit: number; npm: number | null;
+}
+
+// Real COGS for an arbitrary range. Short ranges (≤16 days — covers every preset up to "last
+// 14 days" + any single week) hit Shopify live for EXACT line-item costs, matching the master
+// to the dollar. Longer ranges use the blended REAL rate from the stored weekly master COGS
+// (last ~12 weeks with data) — still sourced, just averaged. Assumption % only as last resort.
+async function rangeCOGS(fromDate: string, toDate: string, online: number, assumptionPct: number): Promise<{ cogs: number; real: boolean }> {
+  const days = Math.round((Date.parse(toDate) - Date.parse(fromDate)) / 86400_000);
+  if (days <= 16) {
+    try {
+      const c = await shopifyWeekCOGS(fromDate, toDate);
+      if (c) return { cogs: c.cogs, real: true };
+    } catch { /* fall through to blended */ }
+  }
+  try {
+    const { data } = await supabaseLogistics.from('sales_week')
+      .select('online_sales, cogs').not('cogs', 'is', null)
+      .order('week_start', { ascending: false }).limit(12);
+    const rows = (data ?? []) as any[];
+    const sales = rows.reduce((s, r) => s + (Number(r.online_sales) || 0), 0);
+    const cogs = rows.reduce((s, r) => s + (Number(r.cogs) || 0), 0);
+    if (sales > 0 && cogs > 0) return { cogs: online * (cogs / sales), real: true };
+  } catch { /* fall through to assumption */ }
+  return { cogs: online * assumptionPct, real: false };
 }
 
 async function computePeriod(fromDate: string, toDate: string, model: Model = 'last'): Promise<{ p: Period; attr: { rows: AttribRow[]; totals: any } }> {
@@ -45,11 +71,12 @@ async function computePeriod(fromDate: string, toDate: string, model: Model = 'l
   const shipbobEst = uncosted * (a.shipbob_per_order || 22);
   const shipbob = shipbobActual + shipbobEst;
   const ad_spend = (meta?.spend || 0); // + google when live
-  const cogs = online * a.online_cogs_pct;
+  const { cogs, real: cogs_real } = await rangeCOGS(fromDate, toDate, online, a.online_cogs_pct);
   const payment_fees = online * a.payment_fee_pct;
   const wages = (a.wages_per_day || 0) * days;
   const gross_profit = online - cogs;
-  const net_profit = gross_profit - ad_spend - shipbob - payment_fees - wages;
+  // ONE net-profit formula (matches master + weekly/daily reviews): includes wholesale margin.
+  const net_profit = gross_profit + wholesale * a.wholesale_margin - ad_spend - shipbob - payment_fees - wages;
   const sales_total = online + wholesale;
   return {
     attr,
@@ -58,9 +85,9 @@ async function computePeriod(fromDate: string, toDate: string, model: Model = 'l
       wholesale: r2(wholesale), sales_total: r2(sales_total),
       meta_spend: meta?.spend ?? null, meta_roas: meta?.roas ?? null, meta_purchases: meta?.purchases || 0, meta_cpa: meta?.cpa ?? null,
       ad_spend: r2(ad_spend), blended_roas: div(online, ad_spend), nc_roas, mer: div(ad_spend, online),
-      cogs: r2(cogs), payment_fees: r2(payment_fees), wages: r2(wages), gross_profit: r2(gross_profit), gpm: div(gross_profit, online),
+      cogs: r2(cogs), cogs_real, payment_fees: r2(payment_fees), wages: r2(wages), gross_profit: r2(gross_profit), gpm: div(gross_profit, online),
       shipbob: r2(shipbob), shipbob_orders: sbRows.length, shipbob_estimated: uncosted > 0,
-      net_profit: r2(net_profit), npm: div(net_profit, online),
+      net_profit: r2(net_profit), npm: div(net_profit, sales_total),
     },
   };
 }

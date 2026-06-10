@@ -3,11 +3,12 @@
 import { supabaseLogistics } from './supabase-logistics';
 import { fetchMetaWeek } from './meta'; // (startIso, endExclusiveIso) range insights
 import { getAssumptions, derive } from './analytics';
+import { melbMidnightUtc } from './tz';
 
 export type Model = 'first' | 'last';
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const div = (a: number, b: number) => (b ? r2(a / b) : null);
-const utcTs = (date: string) => new Date(`${date}T00:00:00+10:00`).toISOString(); // AEST date → UTC instant
+const utcTs = (date: string) => melbMidnightUtc(date); // Melbourne date → UTC instant (DST-safe)
 
 export interface AttribRow {
   source: string; spend: number | null; orders: number; revenue: number; nc_orders: number; nc_revenue: number;

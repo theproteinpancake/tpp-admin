@@ -2,13 +2,14 @@ import Link from 'next/link';
 import { Table2 } from 'lucide-react';
 import { getMasterYear } from '@/lib/analytics';
 import SalesMaster from '@/components/analytics/SalesMaster';
+import { melbDate } from '@/lib/tz';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 export default async function SalesMasterPage({ searchParams }: { searchParams: Promise<{ year?: string }> }) {
   const sp = await searchParams;
-  const current = new Date(Date.now() + 10 * 3600_000).getFullYear();
+  const current = Number(melbDate(0).slice(0, 4));
   const year = Number(sp.year) || current;
   const { weeks, years } = await getMasterYear(year);
 

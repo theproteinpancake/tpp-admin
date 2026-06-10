@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { buildWeekInReview } from '@/lib/analyticsBrief';
+import { melbDate, dowMon0, addDays } from '@/lib/tz';
 import { sendWhatsApp, allowedNumbers, senderRole } from '@/lib/whatsapp';
 
 export const maxDuration = 30;
 
-// Last completed Mon–Sun week start (AEST), as a YYYY-MM-DD Monday.
+// Last completed Mon–Sun week start (Melbourne time, DST-safe), as a YYYY-MM-DD Monday.
 function lastCompletedMonday(): string {
-  const today = new Date(Date.now() + 10 * 3600_000).toISOString().slice(0, 10); // AEST date
-  const dow = (new Date(today + 'T00:00:00Z').getUTCDay() + 6) % 7;               // Mon=0
-  const thisMon = Date.parse(today + 'T00:00:00Z') - dow * 86400_000;
-  return new Date(thisMon - 7 * 86400_000).toISOString().slice(0, 10);
+  const today = melbDate(0);
+  return addDays(today, -dowMon0(today) - 7);
 }
 
 // Copy-paste week-in-review for the owner. ?week=YYYY-MM-DD picks a week (defaults to last

@@ -7,6 +7,7 @@ import { getConfig } from './settings';
 import { getTemplateSid } from './waTemplates';
 import { sendWhatsApp, sendWhatsAppTemplate, allowedNumbers, senderRole } from './whatsapp';
 import { recordProactiveContext } from './stockAgent';
+import { melbDate, melbLongDate } from './tz';
 
 // SKUs the owner has asked to keep OUT of the brief's stock list, per site (e.g. UK sizes not stocked).
 async function loadExcludes(): Promise<Record<string, string[]>> {
@@ -17,8 +18,8 @@ const TRANSFER_STATUS: Record<string, string> = {
   draft: 'draft', in_transit: 'in transit', customs: 'awaiting customs clearance',
   arrived: 'arrived — awaiting receiving', received: 'received', cancelled: 'cancelled',
 };
-const aestDateStr = (off = 0) => new Date(Date.now() + off * 86400_000 + 10 * 3600_000).toISOString().slice(0, 10);
-const longDate = () => new Date(Date.now() + 10 * 3600_000).toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
+const aestDateStr = (off = 0) => melbDate(off);
+const longDate = () => melbLongDate();
 const shortDate = (s: string) => new Date(s + 'T00:00:00Z').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 
 const sizeLabel = (g: any) => g == null ? '' : Number(g) >= 1000 ? ` ${Number(g) / 1000}kg` : ` ${Number(g)}g`;

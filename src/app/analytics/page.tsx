@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { BarChart3, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { getDashboard, type Period } from '@/lib/analyticsDashboard';
 import DateRange from '@/components/analytics/DateRange';
+import { melbDate } from '@/lib/tz';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -11,8 +12,8 @@ const money2 = (n: number | null | undefined) => n == null ? '—' : 'A$' + n.to
 const pct = (n: number | null | undefined) => n == null ? '—' : `${(n * 100).toFixed(1)}%`;
 const x = (n: number | null | undefined) => n == null ? '—' : `${n.toFixed(2)}×`;
 const num = (n: number | null | undefined) => n == null ? '—' : Math.round(n).toLocaleString('en-AU');
-const aestToday = () => new Date(Date.now() + 10 * 3600_000).toISOString().slice(0, 10);
-const addDays = (d: string, n: number) => new Date(Date.parse(d) + n * 86400_000).toISOString().slice(0, 10);
+const aestToday = () => melbDate(0);
+const addDays = (d: string, n: number) => new Date(Date.parse(d + 'T00:00:00Z') + n * 86400_000).toISOString().slice(0, 10);
 
 function Delta({ cur, prev, invert }: { cur: number | null | undefined; prev: number | null | undefined; invert?: boolean }) {
   if (cur == null || prev == null || prev === 0) return null;
@@ -121,7 +122,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
 
         {/* Expenses */}
         <Section title="Expenses" icon="🧾">
-          <Tile label="COGS (est.)" value={money(c.cogs)} cur={c.cogs} prev={p.cogs} invert />
+          <Tile label={c.cogs_real ? 'COGS (Shopify)' : 'COGS (est.)'} value={money(c.cogs)} cur={c.cogs} prev={p.cogs} invert />
           <Tile label={c.shipbob_estimated ? 'Shipping (incl. est.)' : 'Shipping (ShipBob)'} value={money(c.shipbob)} cur={c.shipbob} prev={p.shipbob} invert />
           <Tile label="Payment fees" value={money(c.payment_fees)} cur={c.payment_fees} prev={p.payment_fees} invert />
           <Tile label="Wages" value={money(c.wages)} cur={c.wages} prev={p.wages} invert />
@@ -171,7 +172,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
           </div>
         </section>
 
-        <p className="text-[11px] text-gray-400">Click-based last-touch attribution from Shopify customer journeys + new/returning. ROAS/NC-ROAS use Meta spend (Google/Amazon pending). COGS, payment-fee &amp; margin assumptions are editable.</p>
+        <p className="text-[11px] text-gray-400">Net profit = online gross (real Shopify COGS) + wholesale margin − ad spend − ShipBob − payment fees − wages — same formula as the Sales &amp; Data master. Meta NC figures use incrementality. Google/Amazon pending.</p>
       </div>
     </div>
   );

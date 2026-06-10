@@ -3,14 +3,14 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Calendar, ChevronDown } from 'lucide-react';
 
-const aestToday = () => new Date(Date.now() + 10 * 3600_000).toISOString().slice(0, 10);
-const addDays = (d: string, n: number) => new Date(Date.parse(d) + n * 86400_000).toISOString().slice(0, 10);
+const aestToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Australia/Melbourne' }).format(new Date()); // DST-safe
+const addDays = (d: string, n: number) => new Date(Date.parse(d + 'T00:00:00Z') + n * 86400_000).toISOString().slice(0, 10);
 const fmt = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
 
 function presets() {
   const t = aestToday();
   const tomorrow = addDays(t, 1);
-  const dow = (new Date(t + 'T00:00:00').getUTCDay() + 6) % 7; // Mon=0
+  const dow = (new Date(t + 'T00:00:00Z').getUTCDay() + 6) % 7; // Mon=0 (Z = calendar-space, no local-TZ skew)
   const thisMon = addDays(t, -dow);
   return [
     { k: 'Today', from: t, to: tomorrow },

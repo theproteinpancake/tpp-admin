@@ -15,6 +15,12 @@ export async function getConfigMany(keys: string[]): Promise<Record<string, stri
   return Object.fromEntries((data ?? []).map((r: any) => [r.key, r.value]));
 }
 
+// Heartbeat for the daily system health check: each cron route records a successful run;
+// /api/whatsapp/health-check alerts the owner when an expected job hasn't run in its window.
+export async function recordJobRun(job: string) {
+  try { await setConfig(`health:last:${job}`, new Date().toISOString()); } catch { /* never break the job for the heartbeat */ }
+}
+
 export async function listStaff() {
   const { data } = await supabaseLogistics.from('app_users').select('*').order('created_at', { ascending: true });
   return data ?? [];

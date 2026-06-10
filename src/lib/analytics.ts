@@ -5,6 +5,7 @@
 import { supabaseLogistics } from './supabase-logistics';
 import { fetchMetaWeek, metaConfigured } from './meta';
 import { getShopifyToken, SHOPIFY_SHOP } from './shopifyToken';
+import { melbMidnightUtc } from './tz';
 
 const SHOP = SHOPIFY_SHOP;
 const API = '2024-10';
@@ -26,10 +27,12 @@ const iso = (d: Date) => d.toISOString().slice(0, 10);
 export function weekRange(weekStart: string) { const s = new Date(weekStart + 'T00:00:00'); const e = new Date(s.getTime() + 7 * 86400_000); return { start: s, end: e, startIso: iso(s), endIso: iso(e) }; }
 
 // ---- Shopify: aggregate paid orders created in [start,end) ----
+// Boundaries are MELBOURNE midnights (DST-safe) so a "day"/"week" here matches Shopify's own
+// store-timezone reports, the attribution engine, and the dashboard — not 10am-shifted UTC days.
 export async function shopifyOrders(startIso: string, endIso: string) {
   const token = await getShopifyToken();
   const base = `https://${SHOP}/admin/api/${API}/orders.json`;
-  let url = `${base}?status=any&financial_status=paid&created_at_min=${startIso}T00:00:00Z&created_at_max=${endIso}T00:00:00Z&limit=250&fields=id,total_price,subtotal_price,total_discounts,shipping_lines,shipping_address,created_at`;
+  let url = `${base}?status=any&financial_status=paid&created_at_min=${melbMidnightUtc(startIso)}&created_at_max=${melbMidnightUtc(endIso)}&limit=250&fields=id,total_price,subtotal_price,total_discounts,shipping_lines,shipping_address,created_at`;
   const orders: any[] = [];
   for (let i = 0; i < 20 && url; i++) {
     const res = await fetch(url, { headers: { 'X-Shopify-Access-Token': token } });
@@ -82,7 +85,8 @@ export async function shopifyWeekCOGS(startIso: string, endIso: string): Promise
   const costMap = await variantCostMap(token);
   if (!costMap.size) throw new Error('no variant unit-costs returned (is cost-per-item set + read_inventory scope granted?)');
   const url = `https://${SHOP}/admin/api/${API}/graphql.json`;
-  const q = `created_at:>=${startIso}T00:00:00Z created_at:<${endIso}T00:00:00Z financial_status:paid`;
+  // Melbourne-midnight boundaries — must match shopifyOrders so COGS covers the same orders.
+  const q = `created_at:>=${melbMidnightUtc(startIso)} created_at:<${melbMidnightUtc(endIso)} financial_status:paid`;
   const Q = `query($cursor:String,$q:String){ orders(first:50, after:$cursor, query:$q, sortKey:CREATED_AT){ pageInfo{ hasNextPage endCursor } nodes{ lineItems(first:20){ nodes{ quantity variant{ id } } } } } }`;
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   let cursor: string | null = null, cogs = 0, units = 0, missing = 0;
@@ -160,8 +164,8 @@ export async function autofillWeek(weekStart: string) {
       set('meta_nc_cpa', meta.nc_cpa);
     } else if (meta.spend) {
       try {
-        const fromTs = new Date(`${startIso}T00:00:00+10:00`).toISOString();
-        const toTs = new Date(`${endIso}T00:00:00+10:00`).toISOString();
+        const fromTs = melbMidnightUtc(startIso);
+        const toTs = melbMidnightUtc(endIso);
         const { data: roll } = await supabaseLogistics.rpc('attribution_rollup', { p_from: fromTs, p_to: toTs, p_model: 'last' });
         const m = ((roll ?? []) as any[]).find((r) => r.source === 'meta');
         if (m) {

@@ -12,6 +12,7 @@ import { sendWhatsApp, sendWhatsAppTemplate, waAddr, KATE_NUMBER } from './whats
 import { getConfig } from './settings';
 import { getTemplateSid } from './waTemplates';
 import { recordProactiveContext } from './stockAgent';
+import { melbHour } from './tz';
 
 const INBOXES: { acc: string | undefined; tag: string }[] = [{ acc: 'kate', tag: 'kate' }, { acc: undefined, tag: 'luke' }];
 // candidate POs: order-ish subject OR an attachment, recent, not our own sends
@@ -37,7 +38,7 @@ function bestReplyAddr(c: { from: string; replyTo?: string }, contactEmail?: str
 // OOS reply drafts — TWO variants by MOQ (4 cartons). Greeting is a neutral time-of-day line
 // (no name) — parsed customer names are too unreliable to address directly.
 const MOQ_CARTONS = 4;
-const greeting = () => (new Date(Date.now() + 10 * 3600_000).getUTCHours() < 12 ? 'Good morning,' : 'Good afternoon,'); // AEST
+const greeting = () => (melbHour() < 12 ? 'Good morning,' : 'Good afternoon,'); // Melbourne local, DST-safe
 async function oosListWithEta(oos: { flavour: string }[]): Promise<string> {
   const parts: string[] = [];
   for (const o of oos) {
