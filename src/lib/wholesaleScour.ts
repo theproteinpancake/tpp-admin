@@ -111,7 +111,28 @@ export async function runWholesalePoScour(): Promise<{ scanned: number; new_pos:
 
     const isPO = !!assessment && assessment.lines.length > 0;
     const a = assessment;
-    const handled = isPO && a!.already_processed;
+    let handled = isPO && a!.already_processed;
+
+    // SAME-PO dedup across emails: one PO can arrive several times (lands in BOTH inboxes,
+    // stockist resends, system + human copy). If we've ALREADY pinged Kate about this PO number
+    // — or an identical order (same customer + same lines) within 5 days — stay silent: log it
+    // as a duplicate, no ping, no extra draft.
+    const linesSig = isPO ? a!.lines.map((l) => `${l.sku}x${l.cartons}`).sort().join(',') : null;
+    if (isPO && !handled) {
+      try {
+        if (a!.po_number) {
+          const { data: prior } = await supabaseLogistics.from('wholesale_po_log')
+            .select('id').eq('po_number', a!.po_number).not('notified_at', 'is', null).limit(1);
+          if (prior?.length) handled = true;
+        } else if (a!.customer_name && linesSig) {
+          const since = new Date(Date.now() - 5 * 864e5).toISOString();
+          const { data: prior } = await supabaseLogistics.from('wholesale_po_log')
+            .select('id').eq('customer_name', a!.customer_name).eq('lines_sig', linesSig)
+            .not('notified_at', 'is', null).gte('created_at', since).limit(1);
+          if (prior?.length) handled = true;
+        }
+      } catch { /* dedup is best-effort — worst case is one extra ping */ }
+    }
     const oosCase = isPO && !handled && !a!.fulfillable && a!.customer_on_file && a!.oos.length > 0;
     // MOQ rule: in-stock cartons (fully-available lines only) decide the OOS path —
     //  ≥4 → fulfil excluding the OOS lines + inform them; <4 → ask swap-or-backorder.
@@ -138,6 +159,7 @@ export async function runWholesalePoScour(): Promise<{ scanned: number; new_pos:
       await supabaseLogistics.from('wholesale_po_log').insert({
         email_message_id: c.id, inbox: c.inbox, thread_id: c.threadId || null, from_email: parseAddr(c.from) || null,
         po_number: a?.po_number || null, customer_name: a?.customer_name || null, draft_id: draftId,
+        lines_sig: linesSig,
         status: !isPO ? 'ignored' : (handled ? 'duplicate' : (a!.fulfillable ? 'notified' : 'oos')),
         notified_at: isPO && !handled ? new Date().toISOString() : null,
       });
