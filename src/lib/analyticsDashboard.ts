@@ -24,12 +24,14 @@ export interface Period {
 // 14 days" + any single week) hit Shopify live for EXACT line-item costs, matching the master
 // to the dollar. Longer ranges use the blended REAL rate from the stored weekly master COGS
 // (last ~12 weeks with data) — still sourced, just averaged. Assumption % only as last resort.
-async function rangeCOGS(fromDate: string, toDate: string, online: number, assumptionPct: number): Promise<{ cogs: number; real: boolean }> {
+// Returns either an exact kg figure (live Shopify) or a RATE to apply to revenue — so it can
+// run in PARALLEL with the attribution fetch (it doesn't need the revenue figure up front).
+async function rangeCOGS(fromDate: string, toDate: string, assumptionPct: number): Promise<{ exact?: number; rate?: number; real: boolean }> {
   const days = Math.round((Date.parse(toDate) - Date.parse(fromDate)) / 86400_000);
   if (days <= 16) {
     try {
       const c = await shopifyWeekCOGS(fromDate, toDate);
-      if (c) return { cogs: c.cogs, real: true };
+      if (c) return { exact: c.cogs, real: true };
     } catch { /* fall through to blended */ }
   }
   try {
@@ -39,19 +41,20 @@ async function rangeCOGS(fromDate: string, toDate: string, online: number, assum
     const rows = (data ?? []) as any[];
     const sales = rows.reduce((s, r) => s + (Number(r.online_sales) || 0), 0);
     const cogs = rows.reduce((s, r) => s + (Number(r.cogs) || 0), 0);
-    if (sales > 0 && cogs > 0) return { cogs: online * (cogs / sales), real: true };
+    if (sales > 0 && cogs > 0) return { rate: cogs / sales, real: true };
   } catch { /* fall through to assumption */ }
-  return { cogs: online * assumptionPct, real: false };
+  return { rate: assumptionPct, real: false };
 }
 
 async function computePeriod(fromDate: string, toDate: string, model: Model = 'last'): Promise<{ p: Period; attr: { rows: AttribRow[]; totals: any } }> {
   const a = await getAssumptions();
   const days = Math.max(1, Math.round((Date.parse(toDate) - Date.parse(fromDate)) / 86400_000));
-  const [attr, meta, wh, sb] = await Promise.all([
+  const [attr, meta, wh, sb, cogsRes] = await Promise.all([
     getAttribution(fromDate, toDate, model),
     fetchMetaWeek(fromDate, toDate).catch(() => null), // platform-reported spend/roas/purchases/cpa
     supabaseLogistics.from('wholesale_orders').select('total').gte('order_date', fromDate).lt('order_date', toDate),
     supabaseLogistics.from('shipment_costs').select('cost,currency').gte('ship_date', fromDate).lt('ship_date', toDate),
+    rangeCOGS(fromDate, toDate, a.online_cogs_pct), // parallel — biggest page-speed win
   ]);
   // Prefer Meta's native incrementality for the Meta row's NC ROAS/CPA (most accurate) — overrides
   // the click-based attribution figure. Falls back to click attribution if incrementality is 0.
@@ -74,7 +77,8 @@ async function computePeriod(fromDate: string, toDate: string, model: Model = 'l
   const shipbobEst = uncosted * (a.shipbob_per_order || 22);
   const shipbob = shipbobActual + shipbobEst;
   const ad_spend = (meta?.spend || 0); // + google when live
-  const { cogs, real: cogs_real } = await rangeCOGS(fromDate, toDate, online, a.online_cogs_pct);
+  const cogs = cogsRes.exact ?? online * (cogsRes.rate ?? a.online_cogs_pct);
+  const cogs_real = cogsRes.real;
   const payment_fees = online * a.payment_fee_pct;
   const wages = (a.wages_per_day || 0) * days;
   const gross_profit = online - cogs;

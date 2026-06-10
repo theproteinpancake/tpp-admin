@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { Clapperboard, Play, Trophy, ExternalLink } from 'lucide-react';
-import { fetchCampaignPerformance, fetchAdPerformance, type AdPerf } from '@/lib/metaAds';
+import { fetchCampaignPerformance, fetchAdInsights, hydrateCreatives, type AdPerf } from '@/lib/metaAds';
 import DateRange from '@/components/analytics/DateRange';
 import { melbDate, addDays } from '@/lib/tz';
 
@@ -37,7 +37,9 @@ function Metric({ label, value, hot }: { label: string; value: string; hot?: boo
   );
 }
 
-export default async function AdsPage({ searchParams }: { searchParams: Promise<{ from?: string; to?: string; sort?: string }> }) {
+const PAGE_SIZE = 10;
+
+export default async function AdsPage({ searchParams }: { searchParams: Promise<{ from?: string; to?: string; sort?: string; page?: string }> }) {
   const sp = await searchParams;
   const t = melbDate(0);
   const from = sp.from || addDays(t, -13);
@@ -47,15 +49,19 @@ export default async function AdsPage({ searchParams }: { searchParams: Promise<
   let campaigns: Awaited<ReturnType<typeof fetchCampaignPerformance>> = [];
   let ads: AdPerf[] = [];
   let err: string | null = null;
-  try { [campaigns, ads] = await Promise.all([fetchCampaignPerformance(from, to), fetchAdPerformance(from, to)]); }
+  try { [campaigns, ads] = await Promise.all([fetchCampaignPerformance(from, to), fetchAdInsights(from, to)]); }
   catch (e) { err = String((e as any)?.message || e); }
   const sorted = sortAds(ads, sort);
+  const pages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const page = Math.min(Math.max(Number(sp.page) || 1, 1), pages);
+  // hydrate creatives ONLY for the visible page — keeps the page fast at any ad count
+  const visible = await hydrateCreatives(sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE));
   const top3 = new Set(sorted.slice(0, 3).map((a) => a.ad_id));
   const totals = campaigns.reduce((s, c) => ({ spend: s.spend + c.spend, revenue: s.revenue + c.revenue, purchases: s.purchases + c.purchases }), { spend: 0, revenue: 0, purchases: 0 });
-  const qs = (s: string) => `/analytics/ads?from=${from}&to=${to}&sort=${s}`;
+  const qs = (s: string, p = 1) => `/analytics/ads?from=${from}&to=${to}&sort=${s}&page=${p}`;
 
   return (
-    <div className="mx-auto max-w-7xl overflow-x-hidden px-4 py-5 sm:px-6 sm:py-8">
+    <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-8">
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <Clapperboard className="h-6 w-6 text-caramel" />
@@ -129,7 +135,7 @@ export default async function AdsPage({ searchParams }: { searchParams: Promise<
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {sorted.map((a, i) => (
+          {visible.map((a, i) => (
             <div key={a.ad_id} className={`overflow-hidden rounded-xl border bg-white shadow-sm transition hover:shadow-md ${top3.has(a.ad_id) ? 'border-emerald-400 ring-1 ring-emerald-300' : 'border-gray-200'}`}>
               <div className="relative aspect-square bg-gray-100">
                 {a.thumbnail
@@ -139,7 +145,7 @@ export default async function AdsPage({ searchParams }: { searchParams: Promise<
                   <span className="absolute left-2 top-2 flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white"><Play className="h-3 w-3" /> video</span>
                 )}
                 {top3.has(a.ad_id) && (
-                  <span className="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-bold text-white"><Trophy className="h-3 w-3" /> #{sorted.findIndex((s) => s.ad_id === a.ad_id) + 1}</span>
+                  <span className="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-bold text-white"><Trophy className="h-3 w-3" /> #{sorted.findIndex((x) => x.ad_id === a.ad_id) + 1}</span>
                 )}
                 {a.preview_url && (
                   <a href={a.preview_url} target="_blank" rel="noreferrer" className="absolute bottom-2 right-2 rounded-full bg-white/85 p-1.5 text-caramel shadow hover:bg-white" title="Open ad preview"><ExternalLink className="h-3.5 w-3.5" /></a>
@@ -161,6 +167,13 @@ export default async function AdsPage({ searchParams }: { searchParams: Promise<
           ))}
         </div>
         {ads.length === 0 && !err && <p className="py-8 text-center text-sm text-gray-400">No ads with spend in this range.</p>}
+        {pages > 1 && (
+          <div className="mt-4 flex items-center justify-center gap-2 text-xs">
+            {page > 1 && <Link href={qs(sort, page - 1)} className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 font-medium text-caramel hover:bg-cream">← Prev</Link>}
+            <span className="px-2 text-gray-500">Page {page} of {pages} · {sorted.length} ads</span>
+            {page < pages && <Link href={qs(sort, page + 1)} className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 font-medium text-caramel hover:bg-cream">Next →</Link>}
+          </div>
+        )}
       </section>
     </div>
   );

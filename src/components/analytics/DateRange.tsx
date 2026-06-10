@@ -38,7 +38,8 @@ export default function DateRange({ from, to, path = '/analytics', extraQs = '' 
       {open && (
         <>
           <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-30 mt-1 w-[min(18rem,calc(100vw-2rem))] rounded-xl border border-gray-200 bg-white p-3 shadow-xl">
+          {/* mobile: FIXED + centred so no overflow/clipping ancestor can hide it; desktop: anchored dropdown */}
+          <div className="fixed left-1/2 top-20 z-50 w-[min(20rem,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-gray-200 bg-white p-3 shadow-xl sm:absolute sm:left-auto sm:right-0 sm:top-auto sm:mt-1 sm:w-72 sm:translate-x-0">
             <div className="grid grid-cols-2 gap-1.5">
               {presets().map((p) => (
                 <button key={p.k} onClick={() => go(p.from, p.to)} className="rounded-md px-2 py-1.5 text-left text-xs font-medium text-gray-700 hover:bg-cream">{p.k}</button>

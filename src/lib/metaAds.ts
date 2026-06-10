@@ -61,15 +61,16 @@ export async function fetchCampaignPerformance(fromDate: string, toDate: string)
     .sort((a, b) => b.spend - a.spend);
 }
 
-export async function fetchAdPerformance(fromDate: string, toDate: string): Promise<AdPerf[]> {
+// Ad-level INSIGHTS only (one fast call) — creatives are hydrated separately for just the
+// page of ads being displayed (hydrateCreatives), so 100 ads don't slow the page down.
+export async function fetchAdInsights(fromDate: string, toDate: string): Promise<AdPerf[]> {
   if (!TOKEN || !ACCT) return [];
   const url = `${GRAPH}/${ACCT}/insights?level=ad&fields=ad_id,ad_name,campaign_name,adset_name,spend,impressions,ctr,cpm,actions,action_values&limit=100&sort=${encodeURIComponent('spend_descending')}&${rangeParams(fromDate, toDate)}`;
   const res = await fetch(url);
   const j = await res.json();
   if (!res.ok || j.error) throw new Error(`Meta ads ${res.status}: ${(j.error?.message || '').slice(0, 160)}`);
   const rows = ((j.data || []) as any[]).filter((row) => (Number(row.spend) || 0) > 0);
-
-  const ads: AdPerf[] = rows.map((row) => ({
+  return rows.map((row) => ({
     ad_id: row.ad_id, ad_name: row.ad_name || '(unnamed)',
     campaign_name: row.campaign_name || '', adset_name: row.adset_name || '',
     ...perfFrom(row),
@@ -78,8 +79,12 @@ export async function fetchAdPerformance(fromDate: string, toDate: string): Prom
     cpm: row.cpm != null ? r2(Number(row.cpm)) : null,
     thumbnail: null, is_video: false, preview_url: null,
   }));
+}
 
-  // Creatives in batches of 50 ids: big thumbnail + video flag + shareable preview link.
+// Hydrate creatives (big thumbnail + video flag + shareable preview) for a SLICE of ads — call
+// with just the visible page. Mutates + returns the slice. Batches of 50 ids.
+export async function hydrateCreatives(ads: AdPerf[]): Promise<AdPerf[]> {
+  if (!TOKEN || !ads.length) return ads;
   for (let i = 0; i < ads.length; i += 50) {
     const batch = ads.slice(i, i + 50);
     const ids = batch.map((a) => a.ad_id).join(',');
@@ -99,4 +104,9 @@ export async function fetchAdPerformance(fromDate: string, toDate: string): Prom
     } catch { /* thumbnails are best-effort — metrics still render */ }
   }
   return ads;
+}
+
+// Back-compat for the probe: insights + all creatives.
+export async function fetchAdPerformance(fromDate: string, toDate: string): Promise<AdPerf[]> {
+  return hydrateCreatives(await fetchAdInsights(fromDate, toDate));
 }

@@ -40,7 +40,7 @@ export default async function ForecastingPage() {
         <Chip label="Vs last year" value={pctG(improve)} sub="full-year projection" />
         <Chip label="Revenue growth" value={pctG(sales.growth_revenue)} sub="last 12 wks vs same wks LY" />
         <Chip label="Customer base" value={pctG(sales.growth_customers)} sub={`${sales.cur_customers.toLocaleString()} vs ${sales.prev_customers.toLocaleString()} buyers/365d`} />
-        <Chip label="Blended growth" value={`${sales.growth_blended.toFixed(2)}×`} sub="applied to the projection" />
+        <Chip label="Peak uplift" value={`${sales.growth_peak.toFixed(2)}×`} sub="BFCM & promo weeks (best recent momentum)" />
         <Chip label="Weekly run-rate" value={money(sales.run_rate_weekly)} sub="avg of last 12 weeks" />
       </div>
 
@@ -53,8 +53,8 @@ export default async function ForecastingPage() {
       <section>
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h2 className="text-sm font-semibold text-caramel">🏭 ABC ordering forecast <span className="text-[11px] font-normal text-gray-400">(500kg multiples per flavour per month)</span></h2>
-            <p className="text-[11px] text-gray-400">Live SKU velocity × seasonality × {sales.growth_blended.toFixed(2)}× growth, rounded to ABC's 500kg multiples (remainders carry forward).</p>
+            <h2 className="text-sm font-semibold text-caramel">🏭 ABC ordering forecast <span className="text-[11px] font-normal text-gray-400">(ABC multiples per flavour per month)</span></h2>
+            <p className="text-[11px] text-gray-400">Live SKU velocity (OOS-softened) + wholesale buffer (~{ordering.wholesale_kg_day}kg/day) × seasonality × {ordering.growth.toFixed(2)}× growth ({ordering.growth_peak.toFixed(2)}× in peak months) — rounded to ABC multiples (Buttermilk 1T, others 500kg; bigger blocks emerge automatically when demand calls for it). Remainders carry forward.</p>
           </div>
           <a href="/api/logistics/forecast-export" className="inline-flex items-center gap-1.5 rounded-lg bg-caramel px-3 py-2 text-xs font-medium text-white shadow-sm hover:bg-maple">
             <Download className="h-3.5 w-3.5" /> Export CSV for ABC
@@ -74,7 +74,7 @@ export default async function ForecastingPage() {
                 <tr key={f.flavour} className="border-b border-gray-100 text-right last:border-0 hover:bg-cream/40">
                   <td className="px-2 py-2 text-left font-medium text-caramel">{f.flavour}</td>
                   {f.months.map((v, i) => (
-                    <td key={i} className={`px-2 py-2 tabular-nums ${v > 0 ? 'font-semibold text-caramel' : 'text-gray-300'}`} title={`raw demand ≈ ${f.demand_kg[i]}kg`}>{kg(v)}</td>
+                    <td key={i} className={`px-2 py-2 tabular-nums ${v > 0 ? 'font-semibold text-caramel' : 'text-gray-300'}`} title={`demand ≈ ${f.demand_kg[i]}kg (incl. ~${f.ws_kg[i]}kg wholesale)`}>{kg(v)}</td>
                   ))}
                   <td className="px-2 py-2 font-bold tabular-nums text-caramel">{kg(f.total)}</td>
                 </tr>
@@ -87,7 +87,7 @@ export default async function ForecastingPage() {
             </tbody>
           </table>
         </div>
-        <p className="mt-2 text-[11px] text-gray-400">Hover a cell for the raw demand behind the 500kg rounding. Forecast starts next month (this month's POs are already placed). Numbers are estimates for ABC's production planning — actual POs still go through the normal draft → approve flow.</p>
+        <p className="mt-2 text-[11px] text-gray-400">Hover a cell for the raw demand (with the wholesale share) behind the rounding. Forecast starts next month (this month's POs are already placed). Estimates for ABC's production planning — actual POs still go through the normal draft → approve flow.</p>
       </section>
     </div>
   );
