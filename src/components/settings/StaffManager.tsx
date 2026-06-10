@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { UserPlus, Trash2, Link2, Copy } from 'lucide-react';
 
-type Staff = { id: string; email: string; name: string | null; role: string; active: boolean; sections?: string[] | null; password_hash?: string | null };
+type Staff = { id: string; email: string; name: string | null; role: string; active: boolean; sections?: string[] | null; password_hash?: string | null; whatsapp?: string | null };
 
 const ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: 'owner', label: 'Owner (full access)' },
@@ -91,6 +91,15 @@ export default function StaffManager({ initial }: { initial: Staff[] }) {
                 </div>
               </div>
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <span className="text-[10px] uppercase tracking-wide text-gray-400">WhatsApp:</span>
+                <input
+                  defaultValue={u.whatsapp || ''}
+                  placeholder="+61…"
+                  disabled={busy}
+                  onBlur={(e) => { const v = e.target.value.trim(); if (v !== (u.whatsapp || '')) call({ action: 'update', id: u.id, whatsapp: v }); }}
+                  className="w-32 rounded-md border border-gray-200 px-2 py-0.5 text-[11px] text-caramel"
+                  title="This user's WhatsApp number — drives their personalised agent (persona + tool access by role)"
+                />
                 <span className="text-[10px] uppercase tracking-wide text-gray-400">Access:</span>
                 {owner ? (
                   <span className="rounded-full bg-caramel/10 px-2 py-0.5 text-[11px] font-medium text-caramel">Everything</span>

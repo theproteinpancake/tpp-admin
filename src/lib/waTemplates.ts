@@ -27,6 +27,11 @@ export const TEMPLATES: WaTemplate[] = [
     sample: { '1': 'Altona (AU)', '2': 'PO 1042 — Buttermilk 1T (BMM), GF Buttermilk (GFBM)', '3': "Received into ShipBob — I've marked the PO as received ✓" },
   },
   {
+    key: 'tpp_followup',
+    body: '⏰ *Follow-up* — {{1}}\n\n{{2}}\n\nReply "done", "snooze a day", or tell me what to do next and I\'ll handle it.',
+    sample: { '1': 'Friday, 13 June', '2': 'Chase mycustomsuk (Izabela) — no customs update on INTERNAL2 since Tuesday.' },
+  },
+  {
     key: 'tpp_system_alert',
     body: '🚨 *TPP system check* — {{1}}\n\nWhat needs attention: {{2}}\n\nDetails: {{3}}\n\nReply here and I\'ll dig into it, or check the dashboard logs.',
     sample: { '1': 'Wednesday, 10 June', '2': 'The 7am sales review did not run', '3': 'Last successful run was 26 hours ago — the cron or the route may be failing.' },

@@ -15,9 +15,10 @@ import { getTransfer, transferUnits, transferValue, setTransferStatus } from './
 import { suggestRestock, createDraftTransfer } from './transferBuilder';
 import { getActionCenter, dismissBriefItems } from './actionCenter';
 import { setConfig } from './settings';
+import { melbMidnightUtc } from './tz';
 import { getPoForecast } from './poForecast';
 import { MAERSK } from './transferConstants';
-import { sendWhatsApp, senderRole } from './whatsapp';
+import { sendWhatsApp, senderRole, waAddr } from './whatsapp';
 import { processWholesalePO, processWholesalePOMulti, oosReplyBody } from './wholesalePO';
 import { createWholesaleOrder, sendWholesaleInvoice } from './wholesaleActions';
 import { getWholesaleDashboard } from './wholesale';
@@ -29,6 +30,15 @@ const APP_URL = process.env.PUBLIC_APP_URL || 'https://admin.theproteinpancake.c
 const TRANSFER_DOC_LIST: [string, string][] = [['commercial-invoice', 'Commercial Invoice'], ['packing-list', 'Packing List']];
 
 const MODEL = 'claude-sonnet-4-6';
+
+// Tools that CHANGE something (orders, invoices, emails, statuses) — logged to agent_actions.
+const MUTATING_TOOLS = new Set([
+  'approve_po', 'send_po_email', 'create_wro', 'send_email_draft', 'create_transfer',
+  'update_transfer_status', 'mark_po_received', 'create_wholesale_order', 'process_po_email',
+  'send_influencer_gift', 'update_influencer_status', 'save_collab', 'update_collab',
+  'mark_brief_done', 'set_restock_eta', 'update_logistics_brief_excludes',
+  'schedule_followup', 'cancel_followup', 'draft_po',
+]);
 
 const tools: Anthropic.Tool[] = [
   {
@@ -157,6 +167,29 @@ const tools: Anthropic.Tool[] = [
     name: 'get_uk_pallet_contacts',
     description: 'The Maersk UK-pallet contact map + escalation guide: WHO to contact/bump to push the AU→UK LCL pallet forward at its current stage (and the UK-customs timing cheat sheet). Returns the stage-by-stage contacts AND the live UK transfer status so you can name the exact person/email to chase right now. Use for "who do I bump now", "who to chase/push on the UK pallet / Maersk / customs / INTERNAL2", "how do we move the pallet along", escalation/contact questions.',
     input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'schedule_followup',
+    description: 'Schedule a FUTURE reminder/follow-up that I will WhatsApp the user when due. Use whenever the user says "remind me…", "chase X on Friday", "follow up if no reply by…", "ping me when…(a date/time)", or when YOU promise to check back on something. Pass due_at as ISO date-time in MELBOURNE local time (e.g. "2026-06-12T09:00"). Confirm what was scheduled and for when.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        due_at: { type: 'string', description: 'when to fire, Melbourne local, e.g. "2026-06-12T09:00" (default 9am if no time given)' },
+        message: { type: 'string', description: 'what to say when it fires, e.g. "Chase Izabela — no customs update on INTERNAL2"' },
+        context: { type: 'string', description: 'optional extra context so you can act when the user replies' },
+      },
+      required: ['due_at', 'message'],
+    },
+  },
+  {
+    name: 'list_followups',
+    description: 'List the user\'s pending follow-ups/reminders (id, due, message). Use for "what reminders do I have", "what are you chasing", or before cancelling one.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'cancel_followup',
+    description: 'Cancel a pending follow-up by id (from list_followups). Use when the user says it\'s done/no longer needed.',
+    input_schema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
   },
   {
     name: 'update_logistics_brief_excludes',
@@ -553,6 +586,30 @@ Luke`;
       how_to_use: 'Match each transfer\'s status to the "status -> stage -> who to bump" list, then name the exact contact + email to chase now. Push the chokepoint for that stage; do not let Maersk teams pass it between themselves.',
     };
   }
+  if (name === 'schedule_followup') {
+    const raw = String(input.due_at || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}/.test(raw)) return { error: 'Need a due date like "2026-06-12T09:00" (Melbourne time).' };
+    const local = raw.length <= 10 ? `${raw}T09:00` : raw.slice(0, 16);
+    // Melbourne local → UTC instant (DST-safe): date part via melbMidnightUtc + clock offset
+    const midnight = Date.parse(melbMidnightUtc(local.slice(0, 10)));
+    const [hh, mm] = local.slice(11).split(':').map(Number);
+    const dueUtc = new Date(midnight + (hh * 60 + (mm || 0)) * 60_000).toISOString();
+    if (Date.parse(dueUtc) < Date.now()) return { error: `${local} is in the past — pick a future time.` };
+    const { data, error } = await supabaseLogistics.from('agent_followups')
+      .insert({ phone: _phone || '', due_at: dueUtc, message: String(input.message).slice(0, 500), context: input.context ? String(input.context).slice(0, 800) : null })
+      .select('id').maybeSingle();
+    if (error) return { error: error.message };
+    return { ok: true, id: data?.id, note: `Scheduled — I'll ping you ${local.replace('T', ' at ')} (Melbourne).` };
+  }
+  if (name === 'list_followups') {
+    const { data } = await supabaseLogistics.from('agent_followups')
+      .select('id, due_at, message').eq('status', 'pending').eq('phone', _phone || '').order('due_at');
+    return (data ?? []).map((f: any) => ({ id: f.id, due_melbourne: new Date(f.due_at).toLocaleString('en-AU', { timeZone: 'Australia/Melbourne', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }), message: f.message }));
+  }
+  if (name === 'cancel_followup') {
+    const { error } = await supabaseLogistics.from('agent_followups').update({ status: 'cancelled' }).eq('id', String(input.id)).eq('status', 'pending');
+    return error ? { error: error.message } : { ok: true, note: 'Cancelled.' };
+  }
   if (name === 'update_logistics_brief_excludes') {
     const site = String(input.site || '').toUpperCase() === 'UK' ? 'UK' : 'AU';
     const skus = (Array.isArray(input.skus) ? input.skus : []).map((s: any) => String(s).toUpperCase().trim()).filter(Boolean);
@@ -831,6 +888,8 @@ RESPOND ONLY TO THE CURRENT MESSAGE — handle the ONE task it asks for and repl
 
 ATTACHMENTS & "this/that" — when the message includes an ATTACHMENT (PDF invoice/docket/packing slip, or an image) or refers to "this"/"that"/"it", the attachment IS the subject. READ it first and answer specifically about ITS contents — e.g. an ABC Blending invoice → read the invoice number, line items, qty, amounts, then cross-check (does it match a PO via get_purchase_orders? were those goods received? is the billed amount right?). NEVER ignore the attachment and dump an unrelated status report (e.g. don't answer with the UK pallet/INTERNAL2 just because the words "received" or "ShipBob" appear). If you genuinely can't read it or lack what you need, say exactly what's missing and ask — do NOT substitute a generic tool dump. Match the words to the actual subject: "billing/invoice" → invoices & POs, not transfers.
 
+PO-ALERT REPLIES (CRITICAL): when the conversation contains a context note about a wholesale PO I proactively alerted (it includes the SOURCE EMAIL id+inbox), a reply with a clear instruction — "process it", "process [customer]", "remove/exclude X and proceed", "swap X for Y" — is the user's FULL confirmation. Execute end-to-end immediately: process_po_email(id, inbox, exclude as instructed) then create the order, and report the ShipBob order # + Xero invoice #. Never ask "which customer" (it's in the context note) and never re-ask for a confirmation they just gave. Only pause if their instruction is genuinely ambiguous (e.g. a swap to a flavour that's also OOS).
+
 INBOX ACCESS: you can read the wholesale inbox(es) — Kate's (kate@) AND Luke's (luke@) — because customer POs land in either. When the user refers to a PO "that came through" (e.g. "reprocess the Wholefood Merchants PO"), call find_po_email with the store name → pick the right result (note which inbox it's in) → process_po_email(id, inbox). process_po_email reads ANY format (text, HTML table, CSV, PDF — sometimes several for one order). Pass exclude:["Buttermilk"] for "leave off X". Only ask the user to paste it if find_po_email finds nothing. For a pasted PO use parse_wholesale_po(text, exclude). Always show the summary and confirm before processing.
 
 WHOLESALE:
@@ -870,14 +929,47 @@ const OWNER_OPS_PREFACE = `
 WHOLESALE & MARKETING — you can ALSO run ALL of Kate's wholesale + marketing tasks and read her inbox, so Luke can take over for Kate whenever he needs. Everything below applies to you too ("the user" = Luke).
 `;
 
+// Owner-level tools Kate's agent must NOT have: ABC ordering, transfers ops, receiving/WROs,
+// billing $, the owner action-center, and brief config. She keeps stock/transfer READS,
+// wholesale, influencers, collabs, restock ETAs and follow-ups.
+const WHOLESALE_EXCLUDED_TOOLS = new Set([
+  'draft_po', 'approve_po', 'send_po_email', 'get_reorder_recommendations', 'get_po_forecast',
+  'suggest_transfer', 'create_transfer', 'update_transfer_status', 'send_transfer_docs', 'draft_transfer_email',
+  'get_uk_pallet_contacts', 'check_docket', 'parse_docket', 'create_wro', 'draft_sharon_reply', 'send_email_draft',
+  'mark_po_received', 'get_action_center', 'mark_brief_done', 'get_shipping_billing', 'update_logistics_brief_excludes',
+]);
+export function toolsForRole(role: 'wholesale' | 'owner') {
+  return role === 'wholesale' ? tools.filter((t) => !WHOLESALE_EXCLUDED_TOOLS.has(t.name)) : tools;
+}
+
+const KATE_STOCK_BLURB = `STOCK & LOGISTICS (read-only for you): get_stock for live stock/cover per SKU per site; get_expiring_stock for best-before questions; get_purchase_orders / get_internal_transfers to answer "when is X back in stock / when does the UK pallet land" (use status_meaning — never say something has landed unless status is received); set_restock_eta when Luke/ABC confirm a restock date (it flows into OOS customer emails). Ordering stock, transfers, receiving and billing are Luke's — if asked, say you'll flag it with Luke rather than claiming you can't help.
+FOLLOW-UPS: schedule_followup / list_followups / cancel_followup for "remind me…" and your own promised check-backs.
+Voice: friendly, sharp, emoji-light. Lead with the answer. Use tools for every number.`;
+
 function systemFor(role: 'wholesale' | 'owner'): string {
-  // AEST/AEDT — the server runs UTC, so without the timeZone the date is a day behind every
-  // morning (00:00–10:00 AEST), which threw off "days away"/overdue calcs.
   const today = new Date().toLocaleDateString('en-AU', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Australia/Melbourne' });
   const dateLine = `TODAY'S DATE (Melbourne time) is ${today}. Use it for any date-based reference, "days away"/overdue calc, or note.\n`;
   return dateLine + (role === 'wholesale'
-    ? KATE_PREFACE + SHARED_OPS + SYSTEM
+    ? KATE_PREFACE + SHARED_OPS + KATE_STOCK_BLURB
     : SYSTEM + OWNER_OPS_PREFACE + SHARED_OPS);
+}
+
+// Per-user role from app_users.whatsapp (5-min cache) — adding a teammate (e.g. a marketing
+// agent for Reece) is just setting their number + role in Settings, no code change.
+let _roleCache: { at: number; map: Map<string, 'wholesale' | 'owner'> } | null = null;
+async function resolveRole(phone: string): Promise<'wholesale' | 'owner'> {
+  const norm = waAddr(phone);
+  if (!_roleCache || Date.now() - _roleCache.at > 300_000) {
+    const map = new Map<string, 'wholesale' | 'owner'>();
+    try {
+      const { data } = await supabaseLogistics.from('app_users').select('whatsapp, role').not('whatsapp', 'is', null);
+      for (const u of (data ?? []) as any[]) {
+        if (u.whatsapp) map.set(waAddr(String(u.whatsapp)), ['owner', 'admin'].includes(u.role) ? 'owner' : 'wholesale');
+      }
+    } catch { /* fall back to static below */ }
+    _roleCache = { at: Date.now(), map };
+  }
+  return _roleCache.map.get(norm) ?? senderRole(phone); // static KATE_NUMBER fallback
 }
 
 // Recent conversation history so multi-step flows (confirm / SEND / yes) AND replies to the
@@ -947,13 +1039,15 @@ export async function askStockAgent(question: string, phone?: string, images?: A
     { type: 'text' as const, text: q || '(attachment sent — read it and answer about it)' },
   ];
   const messages: Anthropic.MessageParam[] = [...history, { role: 'user', content: hasAttach ? userContent : (q || '(no message)') }];
-  const system = systemFor(phone ? senderRole(phone) : 'owner');
+  const role = phone ? await resolveRole(phone) : 'owner';
+  const system = systemFor(role);
+  const roleTools = toolsForRole(role);
 
   // Prompt caching: the tools + (per-role) system prompt are large and static across the
   // tool-use loop and across turns — cache them so we only pay full price on a cache miss
   // (~5-min TTL). Breakpoints on the last tool + the system block cache the whole prefix.
-  const cachedTools: Anthropic.Tool[] = tools.map((t, i) =>
-    i === tools.length - 1 ? ({ ...t, cache_control: { type: 'ephemeral' } } as Anthropic.Tool) : t);
+  const cachedTools: Anthropic.Tool[] = roleTools.map((t, i) =>
+    i === roleTools.length - 1 ? ({ ...t, cache_control: { type: 'ephemeral' } } as Anthropic.Tool) : t);
   const systemBlocks: Anthropic.TextBlockParam[] = [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }];
 
   let answer = '';
@@ -966,6 +1060,13 @@ export async function askStockAgent(question: string, phone?: string, images?: A
           let out: unknown;
           try { out = await runTool(block.name, block.input as Record<string, unknown>); }
           catch (e) { out = { error: String(e).slice(0, 200) }; }
+          // Audit trail: every ACTION the agent takes on the user's behalf (not read-only lookups).
+          if (MUTATING_TOOLS.has(block.name) && !(out as any)?.error) {
+            supabaseLogistics.from('agent_actions').insert({
+              phone: _phone, tool: block.name,
+              summary: JSON.stringify(block.input).slice(0, 400),
+            }).then(() => {}, () => {});
+          }
           results.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(out).slice(0, 7000) });
         }
       }

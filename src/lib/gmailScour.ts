@@ -5,8 +5,9 @@ import Anthropic from '@anthropic-ai/sdk';
 import { supabaseLogistics } from './supabase-logistics';
 import { gmailSearch } from './google';
 import { getTemplateSid } from './waTemplates';
-import { sendWhatsAppTemplate, allowedNumbers, senderRole } from './whatsapp';
+import { sendWhatsApp, sendWhatsAppTemplate, allowedNumbers, senderRole } from './whatsapp';
 import { recordProactiveContext } from './stockAgent';
+import { createXeroBill } from './xeroBills';
 
 const MODEL = 'claude-sonnet-4-6';
 
@@ -70,6 +71,7 @@ For each job include "email_index": the number (from the list) of the PRIMARY em
 ALSO detect concrete STATE CHANGES as "events" (may be empty) — ONLY when an email shows the change has happened NOW (never an ETA/forecast):
  • transfer_update — a Maersk email shows a pallet/transfer changed status: {"type":"transfer_update","reference":"INTERNAL2","new_status":"in_transit|customs|arrived|received","detail":"<=120 char what changed e.g. cleared customs, requesting booking slot"}
  • wro_received — a ShipBob email confirms a WRO / inbound shipment was RECEIVED into inventory at a fulfilment centre: {"type":"wro_received","po_ref":"<PO reference or flavour named in the email>","location":"Altona|Manchester","detail":"<=120 char"}
+ • supplier_bill — an email contains/announces a SUPPLIER INVOICE we must pay (ABC tax invoice, Maersk/ShipBob freight or storage invoice, etc.): {"type":"supplier_bill","supplier":"ABC Blending|Maersk|ShipBob|...","invoice_number":"<exact number e.g. AB01049>","amount":<total incl GST as number>,"currency":"AUD|GBP|USD","due_date":"YYYY-MM-DD or null"} — only when an invoice number AND amount are visible; never guess amounts.
 Return ONLY a JSON object, no prose: {"jobs":[{"email_index":<n>,"source_key":"<topic>","category":"maersk|abc|shipbob","summary":"<=140 char","needs_action":true|false,"action":"<=90 char or empty"}],"events":[ ... ]}`,
     messages: [{ role: 'user', content: `Recent logistics emails:\n\n${list}${stateBlock}` }],
   });
@@ -145,6 +147,23 @@ async function applyEvents(events: any[]): Promise<number> {
           await supabaseLogistics.from('internal_transfers').update({ status: ev.new_status }).ilike('reference', ref);
           await ping('tpp_transfer_update', { '1': t.reference, '2': String(ev.detail || `Status moved to ${ev.new_status}.`).replace(/\s+/g, ' ').slice(0, 280), '3': transferNext(ev.new_status) },
             `I just messaged you a TRANSFER UPDATE: ${t.reference} moved to "${ev.new_status}" — ${ev.detail || ''}. If the user replies about it, address that.`);
+        }
+      } else if (ev?.type === 'supplier_bill' && ev.invoice_number && Number(ev.amount) > 0) {
+        // AP capture → REAL Xero bill. Insert (unique on invoice_number → once), then create
+        // the ACCPAY bill in Xero so the bank feed auto-matches it at payment time.
+        const { data: ins, error } = await supabaseLogistics.from('detected_bills').insert({
+          supplier: String(ev.supplier || 'Supplier').slice(0, 80),
+          invoice_number: String(ev.invoice_number).trim().slice(0, 60),
+          amount: Number(ev.amount), currency: String(ev.currency || 'AUD').slice(0, 3).toUpperCase(),
+          due_date: /^\d{4}-\d{2}-\d{2}$/.test(String(ev.due_date || '')) ? ev.due_date : null,
+        }).select('id, supplier, invoice_number, amount, currency, due_date').maybeSingle();
+        if (!error && ins) {
+          fired++;
+          const res = await createXeroBill(ins as any).catch((e) => ({ created: false, note: String(e).slice(0, 140) }));
+          for (const to of owners) {
+            await sendWhatsApp(to, `🧾 *Bill captured* — ${ins.supplier} ${ins.invoice_number} ($${Math.round(Number(ins.amount)).toLocaleString()})${ins.due_date ? `, due ${ins.due_date}` : ''}\n\n${res.note}`).catch(() => {});
+            await recordProactiveContext(to, `I captured supplier bill ${ins.invoice_number} (${ins.supplier}, $${ins.amount}) from the inbox. ${res.note}`).catch(() => {});
+          }
         }
       } else if (ev?.type === 'wro_received' && ev.po_ref) {
         const like = `%${String(ev.po_ref).trim()}%`;

@@ -7,6 +7,7 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
   Clapperboard,
+  Landmark,
   TrendingUp,
   UtensilsCrossed,
   Users,
@@ -33,7 +34,7 @@ import {
 
 type Section = 'analytics' | 'app' | 'logistics' | 'wholesale' | 'marketing';
 type NavItem = { name: string; href: string; icon: LucideIcon };
-type NavGroup = { label: string; section: Section; items: NavItem[] };
+type NavGroup = { label: string; section: Section; ownerOnly?: boolean; items: NavItem[] };
 type Me = { name: string | null; email: string; role: string; sections: Section[]; isOwner: boolean };
 
 const groups: NavGroup[] = [
@@ -44,6 +45,14 @@ const groups: NavGroup[] = [
       { name: 'Analytics', href: '/analytics', icon: BarChart3 },
       { name: 'Sales & Data', href: '/analytics/master', icon: Table2 },
       { name: 'Ads', href: '/analytics/ads', icon: Clapperboard },
+    ],
+  },
+  {
+    label: 'Money',
+    section: 'analytics',
+    ownerOnly: true,
+    items: [
+      { name: 'Money', href: '/money', icon: Landmark },
     ],
   },
   {
@@ -110,7 +119,7 @@ export default function Sidebar({ onNavigate, onClose }: { onNavigate?: () => vo
   };
 
   // Until /api/me resolves, show nothing extra; once we know the user, scope the nav.
-  const visibleGroups = me ? groups.filter((g) => me.sections.includes(g.section)) : groups;
+  const visibleGroups = me ? groups.filter((g) => me.sections.includes(g.section) && (!g.ownerOnly || me.isOwner)) : groups.filter((g) => !g.ownerOnly);
 
   // Longest-matching href wins, so /wholesale/orders highlights only "Orders", not "Dashboard".
   const allHrefs = visibleGroups.flatMap((g) => g.items.map((i) => i.href));

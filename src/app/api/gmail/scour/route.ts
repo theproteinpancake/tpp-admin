@@ -3,6 +3,7 @@ import { runScour } from '@/lib/gmailScour';
 import { reconcilePOsFromWROs } from '@/lib/poReconcile';
 import { refreshInfluencerTracking } from '@/lib/marketing';
 import { recordJobRun } from '@/lib/settings';
+import { syncDetectedBillStatuses } from '@/lib/xeroBills';
 
 export const maxDuration = 120;
 
@@ -12,6 +13,7 @@ async function handle(req: NextRequest) {
   if (secret && given !== secret) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   const res = await runScour();
   if (!res.error) await recordJobRun('gmail-scour');
+  const billsSynced = await syncDetectedBillStatuses().catch(() => 0); // mark PAID once reconciled
   // daily check: close out any PO whose WRO has landed at ShipBob so it stops
   // being counted as inbound (and mark it Billed in Xero).
   let reconcile: Awaited<ReturnType<typeof reconcilePOsFromWROs>> | { error: string };
@@ -21,7 +23,7 @@ async function handle(req: NextRequest) {
   let tracking: Awaited<ReturnType<typeof refreshInfluencerTracking>> | { error: string };
   try { tracking = await refreshInfluencerTracking(); }
   catch (e) { tracking = { error: String(e) }; }
-  return NextResponse.json({ ok: true, ...res, po_reconcile: reconcile, influencer_tracking: tracking });
+  return NextResponse.json({ ok: true, ...res, bills_synced: billsSynced, po_reconcile: reconcile, influencer_tracking: tracking });
 }
 
 export const POST = handle;

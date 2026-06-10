@@ -10,6 +10,7 @@ import { sendWhatsApp, sendWhatsAppTemplate, allowedNumbers, senderRole } from '
 import { getTemplateSid } from './waTemplates';
 import { recordProactiveContext } from './stockAgent';
 import { melbDate, melbMidnightUtc, dowMon0, addDays } from './tz';
+import { cashBriefLine } from './cashflow';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -133,8 +134,17 @@ export async function sendSalesReview(kind: 'daily' | 'weekly'): Promise<{ sent:
     m = await dayMetrics(melbDate(-1));
   }
   if (!m) return { sent: 0, kind, text: 'no data' };
-  const text = reviewText(m);
+  // owner extras: weekly target tracking + the cash position line (owner-only recipients anyway)
+  let extra = '';
+  if (kind === 'weekly') {
+    const a = await getAssumptions();
+    if (a.weekly_target_sales) extra += `\n\nTarget: sales ${m.total >= a.weekly_target_sales ? '✅' : '⚠️'} $${Math.round(m.total).toLocaleString('en-AU')}/$${a.weekly_target_sales.toLocaleString('en-AU')} · profit ${m.net >= (a.weekly_target_np || 0) ? '✅' : '⚠️'} $${Math.round(m.net).toLocaleString('en-AU')}/$${(a.weekly_target_np || 0).toLocaleString('en-AU')}`;
+    const cash = await cashBriefLine();
+    if (cash) extra += `\n💰 ${cash}`;
+  }
+  const text = reviewText(m) + extra;
   const vars = reviewVars(m);
+  if (extra) vars['5'] = `${vars['5']} · ${extra.replace(/\n+/g, ' · ').replace(/ · +/g, ' · ').trim()}`.slice(0, 550);
   const sid = await getTemplateSid('tpp_sales_review');
   const owners = allowedNumbers().filter((to) => senderRole(to) === 'owner');
   let sent = 0;

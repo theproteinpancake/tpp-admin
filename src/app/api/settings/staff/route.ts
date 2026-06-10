@@ -27,6 +27,7 @@ export async function POST(req: NextRequest) {
     const token = newSetupToken();
     const { error } = await supabaseLogistics.from('app_users').insert({
       email, name: b.name || null, role: normRole(b.role), sections: normSections(b.sections), active: true, setup_token: token,
+      whatsapp: typeof b.whatsapp === 'string' && b.whatsapp.trim() ? b.whatsapp.trim() : null,
     });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true, setup_link: setupLink(req, email, token) });
@@ -46,6 +47,7 @@ export async function POST(req: NextRequest) {
     if ('sections' in b) patch.sections = normSections(b.sections);
     if (typeof b.active === 'boolean') patch.active = b.active;
     if (typeof b.name === 'string') patch.name = b.name;
+    if (typeof b.whatsapp === 'string') patch.whatsapp = b.whatsapp.trim() || null; // per-user agent number
     const { error } = await supabaseLogistics.from('app_users').update(patch).eq('id', b.id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });
