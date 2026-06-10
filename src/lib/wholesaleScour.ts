@@ -20,28 +20,45 @@ const QUERY = 'newer_than:2d -in:sent -from:theproteinpancake.co (subject:order 
 const parseAddr = (from: string) => { const m = /<([^>]+)>/.exec(from || ''); return (m ? m[1] : (from || '')).trim(); };
 const isUs = (from: string) => /theproteinpancake\.co/i.test(from || '');
 
-// Build the OOS reply-draft body (swap / partial), folding in any restock ETA.
-// Greeting is a neutral time-of-day line (no name) — parsed customer names are too
-// unreliable to address directly (e.g. "Highland Evolution Dance & Fitness" → "Hi Highland").
-async function oosDraftBody(_custName: string | null, oos: { flavour: string }[]): Promise<string> {
+// OOS reply drafts — TWO variants by MOQ (4 cartons). Greeting is a neutral time-of-day line
+// (no name) — parsed customer names are too unreliable to address directly.
+const MOQ_CARTONS = 4;
+const greeting = () => (new Date(Date.now() + 10 * 3600_000).getUTCHours() < 12 ? 'Good morning,' : 'Good afternoon,'); // AEST
+async function oosListWithEta(oos: { flavour: string }[]): Promise<string> {
   const parts: string[] = [];
   for (const o of oos) {
     const eta = await getRestockPhrase(o.flavour).catch(() => null);
     parts.push(eta ? `${o.flavour} (${eta})` : o.flavour);
   }
-  const list = parts.join(', ');
-  const aestHour = new Date(Date.now() + 10 * 3600_000).getUTCHours(); // AEST (UTC+10)
-  const hi = aestHour < 12 ? 'Good morning,' : 'Good afternoon,';
+  return parts.join(', ');
+}
+// In-stock portion is UNDER MOQ → ask them: swap to in-stock flavours, or backorder the lot.
+async function oosBelowMoqBody(oos: { flavour: string }[]): Promise<string> {
+  const list = await oosListWithEta(oos);
   return [
-    hi,
+    greeting(),
     '',
     `Thanks so much for your order! Unfortunately we're currently out of stock on ${list}.`,
     '',
     'Would you like to either:',
-    `  1) Swap ${oos.length > 1 ? 'them' : 'it'} for another flavour, or`,
-    `  2) Have us send the rest of your order now and follow up with the ${oos.length > 1 ? 'remaining flavours' : list.replace(/\s*\([^)]*\)/, '')} once back in stock?`,
+    `  1) Swap ${oos.length > 1 ? 'them' : 'it'} for another flavour that's in stock, or`,
+    `  2) Have us pop your order on backorder and send it in full once ${oos.length > 1 ? "they're" : "it's"} back in stock?`,
     '',
     "Just let me know which you'd prefer and we'll get it sorted straight away.",
+    '',
+    'Thanks!',
+    'Kate',
+  ].join('\n');
+}
+// In-stock portion MEETS MOQ → we fulfil excluding the OOS lines and just let them know.
+async function oosOverMoqBody(oos: { flavour: string }[]): Promise<string> {
+  const list = await oosListWithEta(oos);
+  return [
+    greeting(),
+    '',
+    `Thanks so much for your order! Unfortunately we're currently out of stock on ${list}, so we've processed and invoiced your order excluding ${oos.length > 1 ? 'those' : 'it'} — the rest is on its way to you now.`,
+    '',
+    `Feel free to pop ${oos.length > 1 ? 'them' : 'it'} on your next order — happy to prioritise it once ${oos.length > 1 ? "they're" : "it's"} back in stock.`,
     '',
     'Thanks!',
     'Kate',
@@ -82,14 +99,21 @@ export async function runWholesalePoScour(): Promise<{ scanned: number; new_pos:
     const a = assessment;
     const handled = isPO && a!.already_processed;
     const oosCase = isPO && !handled && !a!.fulfillable && a!.customer_on_file && a!.oos.length > 0;
+    // MOQ rule: in-stock cartons (fully-available lines only) decide the OOS path —
+    //  ≥4 → fulfil excluding the OOS lines + inform them; <4 → ask swap-or-backorder.
+    const inStockCartons = isPO ? a!.lines.filter((l) => l.ok).reduce((s, l) => s + l.cartons, 0) : 0;
+    const meetsMoq = inStockCartons >= MOQ_CARTONS;
 
-    // For an OOS PO we auto-draft the stockist reply (in the inbox the PO landed in).
+    // Auto-draft the stockist reply — ALWAYS from Kate's inbox (she owns wholesale), even when
+    // the PO landed in Luke's. A Gmail threadId is mailbox-specific, so cross-inbox we omit it;
+    // the In-Reply-To header (global Message-ID) still threads the reply for the customer.
     let draftId: string | null = null;
     if (oosCase) {
       try {
         draftId = await gmailCreateReplyDraft({
-          account, to: parseAddr(c.from), subject: c.subject, threadId: c.threadId, inReplyTo: c.messageId,
-          body: await oosDraftBody(a!.customer_name, a!.oos),
+          account: 'kate', to: parseAddr(c.from), subject: c.subject,
+          threadId: c.inbox === 'kate' ? c.threadId : undefined, inReplyTo: c.messageId,
+          body: meetsMoq ? await oosOverMoqBody(a!.oos) : await oosBelowMoqBody(a!.oos),
         });
       } catch { /* draft is best-effort; Kate can still action manually */ }
     }
@@ -118,11 +142,15 @@ export async function runWholesalePoScour(): Promise<{ scanned: number; new_pos:
     } else if (a!.fulfillable) {
       action = `✅ Stock's good — reply "process ${cust}" and I'll create the ShipBob order + draft the Xero invoice.`;
       msg = `🛒 *New PO* from ${cust}${a!.po_number ? ` (#${a!.po_number})` : ''}\n${lineStr}\n📦 ${a!.boxes.join(' + ')} · ${a!.free_shipping ? 'free shipping' : '+$15 freight'}\n\n${action}`;
-    } else {
+    } else if (meetsMoq) {
+      // ≥4 in-stock cartons: fulfil excluding OOS, customer just gets a heads-up.
       const oos = a!.oos.map((o) => o.flavour).join(', ');
-      action = draftId
-        ? `⚠️ OOS ${oos}. I've drafted a reply in your inbox (swap or send-the-rest) — review & send, or reply here to tweak.`
-        : `⚠️ OOS ${oos}. Reply and I'll draft a note to swap or send the rest.`;
+      action = `⚠️ OOS ${oos}, but ${inStockCartons} in-stock cartons meets MOQ — reply "process ${cust}" and I'll create the ShipBob order + Xero invoice EXCLUDING ${oos}.${draftId ? ` The we've-left-it-off email is drafted in your inbox — send it once processed.` : ''}`;
+      msg = `🛒 *New PO* from ${cust}${a!.po_number ? ` (#${a!.po_number})` : ''}\n${lineStr}\n\n${action}`;
+    } else {
+      // <4 in-stock cartons: under MOQ — ask them to swap or backorder.
+      const oos = a!.oos.map((o) => o.flavour).join(', ');
+      action = `⚠️ OOS ${oos} leaves only ${inStockCartons} in-stock carton${inStockCartons === 1 ? '' : 's'} (under the 4-carton MOQ).${draftId ? ` I've drafted a swap-or-backorder ask in your inbox — review & send.` : ` Reply and I'll draft a swap-or-backorder ask.`}`;
       msg = `🛒 *New PO* from ${cust}${a!.po_number ? ` (#${a!.po_number})` : ''}\n${lineStr}\n\n${action}`;
     }
     // Fire via the approved template so it lands instantly even outside the 24h window;
@@ -141,9 +169,11 @@ export async function runWholesalePoScour(): Promise<{ scanned: number; new_pos:
     if (ok) {
       notified++;
       // give the agent memory of this alert so Kate's reply ("process it", "remove X and proceed") has context
+      const oosNames = a!.oos.map((o) => o.flavour).join(', ');
       const state = !a!.customer_on_file ? 'Customer is NOT on file in Xero yet.'
         : a!.fulfillable ? `In stock — ready to create the ShipBob order + draft Xero invoice on confirmation. Box: ${a!.boxes.join(' + ')}, ${a!.free_shipping ? 'free shipping' : '+$15 freight'}.`
-        : `OOS: ${a!.oos.map((o) => o.flavour).join(', ')} — drafted a swap/send-the-rest reply, awaiting their decision.`;
+        : meetsMoq ? `OOS: ${oosNames}, but the ${inStockCartons} in-stock cartons MEET the 4-carton MOQ. If Kate says "process", process EXCLUDING ${oosNames} (pass them as exclude). A we've-left-it-off email is drafted in Kate's inbox for after processing.`
+        : `OOS: ${oosNames} — in-stock portion (${inStockCartons}) is UNDER the 4-carton MOQ, so we asked the stockist to swap or backorder (draft in Kate's inbox). If Kate says they chose a swap, process with the swap; if backorder, leave it parked until restock — do not process now.`;
       const ctx = `Wholesale PO from ${cust}${a!.po_number ? ` (PO ${a!.po_number})` : ''}.\nLines: ${lineInline}.\n${state}\nShip to: ${a!.ship_to || '—'}.`;
       await recordProactiveContext(waAddr(KATE_NUMBER), ctx).catch(() => {});
     }
