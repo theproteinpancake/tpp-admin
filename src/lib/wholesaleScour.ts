@@ -20,6 +20,20 @@ const QUERY = 'newer_than:2d -in:sent -from:theproteinpancake.co (subject:order 
 const parseAddr = (from: string) => { const m = /<([^>]+)>/.exec(from || ''); return (m ? m[1] : (from || '')).trim(); };
 const isUs = (from: string) => /theproteinpancake\.co/i.test(from || '');
 
+// Pick the address a human reply should go to. Many POs arrive via an ordering system
+// (Supply'd relay, "orderingsystem@", no-reply) — replying to the sender goes nowhere.
+// Precedence: Reply-To header when it differs from From (the system's explicit redirect)
+// → the contact email parsed from the PO body → Reply-To → From.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function bestReplyAddr(c: { from: string; replyTo?: string }, contactEmail?: string | null): string {
+  const from = parseAddr(c.from);
+  const rt = c.replyTo ? parseAddr(c.replyTo) : '';
+  if (rt && EMAIL_RE.test(rt) && rt.toLowerCase() !== from.toLowerCase()) return rt;
+  const ce = (contactEmail || '').trim();
+  if (ce && EMAIL_RE.test(ce) && !/theproteinpancake/i.test(ce)) return ce;
+  return (rt && EMAIL_RE.test(rt) ? rt : '') || from;
+}
+
 // OOS reply drafts — TWO variants by MOQ (4 cartons). Greeting is a neutral time-of-day line
 // (no name) — parsed customer names are too unreliable to address directly.
 const MOQ_CARTONS = 4;
@@ -70,11 +84,11 @@ export async function runWholesalePoScour(): Promise<{ scanned: number; new_pos:
   const { data: seenRows } = await supabaseLogistics.from('wholesale_po_log').select('email_message_id').not('email_message_id', 'is', null);
   const seen = new Set((seenRows ?? []).map((r: any) => r.email_message_id));
 
-  const candidates: { id: string; threadId?: string; messageId?: string; inbox: string; from: string; subject: string }[] = [];
+  const candidates: { id: string; threadId?: string; messageId?: string; inbox: string; from: string; subject: string; replyTo?: string }[] = [];
   for (const { acc, tag } of INBOXES) {
     try {
       const hits = await gmailSearch(QUERY, 12, acc);
-      for (const h of hits) if (!seen.has(h.id)) candidates.push({ id: h.id, threadId: h.threadId, messageId: h.messageId, inbox: tag, from: h.from, subject: h.subject });
+      for (const h of hits) if (!seen.has(h.id)) candidates.push({ id: h.id, threadId: h.threadId, messageId: h.messageId, inbox: tag, from: h.from, subject: h.subject, replyTo: h.replyTo });
     } catch { /* skip inbox that errors */ }
   }
 
@@ -108,10 +122,11 @@ export async function runWholesalePoScour(): Promise<{ scanned: number; new_pos:
     // the PO landed in Luke's. A Gmail threadId is mailbox-specific, so cross-inbox we omit it;
     // the In-Reply-To header (global Message-ID) still threads the reply for the customer.
     let draftId: string | null = null;
+    const replyAddr = isPO ? bestReplyAddr(c, a!.contact_email) : parseAddr(c.from);
     if (oosCase) {
       try {
         draftId = await gmailCreateReplyDraft({
-          account: 'kate', to: parseAddr(c.from), subject: c.subject,
+          account: 'kate', to: replyAddr, subject: c.subject,
           threadId: c.inbox === 'kate' ? c.threadId : undefined, inReplyTo: c.messageId,
           body: meetsMoq ? await oosOverMoqBody(a!.oos) : await oosBelowMoqBody(a!.oos),
         });
@@ -174,7 +189,7 @@ export async function runWholesalePoScour(): Promise<{ scanned: number; new_pos:
         : a!.fulfillable ? `In stock — ready to create the ShipBob order + draft Xero invoice on confirmation. Box: ${a!.boxes.join(' + ')}, ${a!.free_shipping ? 'free shipping' : '+$15 freight'}.`
         : meetsMoq ? `OOS: ${oosNames}, but the ${inStockCartons} in-stock cartons MEET the 4-carton MOQ. If Kate says "process", process EXCLUDING ${oosNames} (pass them as exclude). A we've-left-it-off email is drafted in Kate's inbox for after processing.`
         : `OOS: ${oosNames} — in-stock portion (${inStockCartons}) is UNDER the 4-carton MOQ, so we asked the stockist to swap or backorder (draft in Kate's inbox). If Kate says they chose a swap, process with the swap; if backorder, leave it parked until restock — do not process now.`;
-      const ctx = `Wholesale PO from ${cust}${a!.po_number ? ` (PO ${a!.po_number})` : ''}.\nLines: ${lineInline}.\n${state}\nShip to: ${a!.ship_to || '—'}.`;
+      const ctx = `Wholesale PO from ${cust}${a!.po_number ? ` (PO ${a!.po_number})` : ''}.\nLines: ${lineInline}.\n${state}\nShip to: ${a!.ship_to || '—'}.\nStockist reply address: ${replyAddr} (use this for any email to them — NOT the system sender).`;
       await recordProactiveContext(waAddr(KATE_NUMBER), ctx).catch(() => {});
     }
   }

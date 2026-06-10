@@ -104,9 +104,9 @@ export async function gmailSearch(query: string, max = 10, account?: string) {
   const msgs = (list.messages || []) as { id: string; threadId: string }[];
   const out = [];
   for (const m0 of msgs) {
-    const m = await gget(`/messages/${m0.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date&metadataHeaders=Message-ID`, account);
+    const m = await gget(`/messages/${m0.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date&metadataHeaders=Message-ID&metadataHeaders=Reply-To`, account);
     const h = (m.payload?.headers || []).reduce((a: any, x: any) => (a[x.name] = x.value, a), {});
-    out.push({ id: m0.id, threadId: m.threadId as string, from: h.From, subject: h.Subject, date: h.Date, messageId: h['Message-ID'], snippet: m.snippet });
+    out.push({ id: m0.id, threadId: m.threadId as string, from: h.From, subject: h.Subject, date: h.Date, messageId: h['Message-ID'], replyTo: h['Reply-To'] as string | undefined, snippet: m.snippet });
   }
   return out;
 }

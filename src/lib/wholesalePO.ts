@@ -18,6 +18,7 @@ export interface ParsedPO {
   customer_name: string | null;     // who we ship to / the Xero contact (the specific store)
   bill_to: string | null;           // who pays (e.g. HQ) — may differ from ship-to
   ship_to: string | null;           // full delivery address (the specific store)
+  contact_email: string | null;     // the stockist's REAL contact/orders email from the PO body
   lines: POLine[];
   unmatched: string[];
   flags: string[];                  // parser warnings (unit conversion, ambiguity…)
@@ -31,6 +32,7 @@ export interface POAssessment {
   customer_name: string | null;
   bill_to: string | null;
   ship_to: string | null;
+  contact_email: string | null;     // best human reply address from the PO body (not the relay/system sender)
   customer_on_file: boolean;        // matched an existing Xero/wholesale customer?
   needs_review: boolean;            // true if Kate must check (new customer / flags)
   flags: string[];
@@ -66,7 +68,8 @@ CARTONS vs UNITS (CRITICAL): some stores (e.g. Nutrition Warehouse) order in ind
 ADDRESSES: capture bill_to (who PAYS — e.g. head office, "Bill To") and ship_to (the FULL delivery address — "Deliver To"/"Ship To", the specific store). customer_name = the SPECIFIC store we ship to (e.g. "Nutrition Warehouse Darwin"), NOT the HQ. If bill-to ≠ ship-to, note it.
 
 Also capture the customer's PO NUMBER (e.g. "PO347986", "398022", "401135", "PO #PO347986") as po_number — this is how we avoid processing the same order twice.
-Reply ONLY with JSON: {"po_number":"the PO number or null","customer_name":"specific store or null","bill_to":"payer or null","ship_to":"full delivery address or null","lines":[{"sku":"BMS","flavour":"Buttermilk","ordered_qty":4,"qty_basis":"units","cartons":1,"flag":null}],"unmatched":[],"flags":["any order-level warning"]}`;
+CONTACT EMAIL: many POs arrive via an ordering system (Supply'd, an "orderingsystem@"/relay/no-reply sender) — replies must NOT go to those. Capture contact_email = the stockist's REAL email stated in the PO itself: an "Email:" field, an "if I can be of any assistance contact me" line, or a person's signature email (e.g. orders@wholefoodmerchants.com, administration@tonyandmarks.com.au). Prefer the store/orders address over a generic HQ one. null if none shown.
+Reply ONLY with JSON: {"po_number":"the PO number or null","customer_name":"specific store or null","bill_to":"payer or null","ship_to":"full delivery address or null","contact_email":"stockist's real email or null","lines":[{"sku":"BMS","flavour":"Buttermilk","ordered_qty":4,"qty_basis":"units","cartons":1,"flag":null}],"unmatched":[],"flags":["any order-level warning"]}`;
 
 function parseJson(out: string): ParsedPO {
   const json = JSON.parse(out.slice(out.indexOf('{'), out.lastIndexOf('}') + 1));
@@ -78,6 +81,7 @@ function parseJson(out: string): ParsedPO {
   return {
     po_number: json.po_number ?? null,
     customer_name: json.customer_name ?? null, bill_to: json.bill_to ?? null, ship_to: json.ship_to ?? null,
+    contact_email: json.contact_email ?? null,
     lines, unmatched: json.unmatched ?? [], flags: [...(json.flags ?? []), ...lineFlags],
   };
 }
@@ -201,6 +205,7 @@ export async function assessPO(parsed: ParsedPO): Promise<POAssessment> {
   return {
     po_number: parsed.po_number, already_processed, existing,
     customer_name: parsed.customer_name, bill_to: parsed.bill_to, ship_to: parsed.ship_to,
+    contact_email: parsed.contact_email ?? null,
     customer_on_file, needs_review, flags,
     lines, total_cartons: total, fulfillable, oos, boxes: fulfillable ? planBoxes(total) : [],
     free_shipping, over_b2c_limit: over, summary,
