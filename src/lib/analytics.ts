@@ -153,8 +153,12 @@ export async function autofillWeek(weekStart: string) {
   if (wh != null) set('wholesale_invoices', wh);
   if (meta && !meta._err) {
     set('meta_spend', meta.spend); set('meta_roas', meta.roas); set('meta_purchases', meta.purchases); set('meta_cpa', meta.cpa);
-    // NC ROAS/CPA from our attribution engine (new-customer Meta revenue/orders ÷ spend)
-    if (meta.spend) {
+    // NC ROAS/CPA: prefer Meta's native INCREMENTALITY (truly-caused conversions/value) — the most
+    // accurate. Fall back to our click-based attribution only if incrementality isn't returning.
+    if (meta.inc_conversions > 0) {
+      set('meta_nc_roas', meta.nc_roas);
+      set('meta_nc_cpa', meta.nc_cpa);
+    } else if (meta.spend) {
       try {
         const fromTs = new Date(`${startIso}T00:00:00+10:00`).toISOString();
         const toTs = new Date(`${endIso}T00:00:00+10:00`).toISOString();

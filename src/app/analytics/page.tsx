@@ -99,8 +99,8 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
           <Tile label="ROAS" value={x(c.meta_roas)} cur={c.meta_roas} prev={p.meta_roas} />
           <Tile label="Purchases" value={num(c.meta_purchases)} cur={c.meta_purchases} prev={p.meta_purchases} />
           <Tile label="CPA" value={money2(c.meta_cpa)} cur={c.meta_cpa} prev={p.meta_cpa} invert />
-          <Tile label="NC-ROAS (attr.)" value={x(metaRow?.nc_roas)} />
-          <Tile label="NC-CPA (attr.)" value={money2(metaRow?.nc_cpa)} />
+          <Tile label="NC-ROAS (incr.)" value={x(metaRow?.nc_roas)} />
+          <Tile label="NC-CPA (incr.)" value={money2(metaRow?.nc_cpa)} />
         </Section>
 
         {/* Google + Amazon (pending connection) */}

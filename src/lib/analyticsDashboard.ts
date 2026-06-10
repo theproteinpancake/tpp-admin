@@ -27,6 +27,13 @@ async function computePeriod(fromDate: string, toDate: string, model: Model = 'l
     supabaseLogistics.from('wholesale_orders').select('total').gte('order_date', fromDate).lt('order_date', toDate),
     supabaseLogistics.from('shipment_costs').select('cost,currency').gte('ship_date', fromDate).lt('ship_date', toDate),
   ]);
+  // Prefer Meta's native incrementality for the Meta row's NC ROAS/CPA (most accurate) — overrides
+  // the click-based attribution figure. Falls back to click attribution if incrementality is 0.
+  const metaRow = attr.rows.find((r) => /meta/i.test(r.source));
+  const haveInc = !!(meta && meta.inc_conversions > 0);
+  if (haveInc && metaRow) { metaRow.nc_roas = meta!.nc_roas; metaRow.nc_cpa = meta!.nc_cpa; }
+  const nc_roas = haveInc ? meta!.nc_roas : attr.totals.nc_roas;
+
   const wholesale = (wh.data ?? []).reduce((s: number, o: any) => s + (Number(o.total) || 0), 0);
   const sbRows = (sb.data ?? []) as any[];
   const shipbobActual = sbRows.reduce((s, o) => s + (/gbp/i.test(o.currency || '') ? (Number(o.cost) || 0) * a.fx_gbp_aud : Number(o.cost) || 0), 0);
@@ -50,7 +57,7 @@ async function computePeriod(fromDate: string, toDate: string, model: Model = 'l
       online: r2(online), orders, aov: attr.totals.aov, new_pct: attr.totals.new_pct,
       wholesale: r2(wholesale), sales_total: r2(sales_total),
       meta_spend: meta?.spend ?? null, meta_roas: meta?.roas ?? null, meta_purchases: meta?.purchases || 0, meta_cpa: meta?.cpa ?? null,
-      ad_spend: r2(ad_spend), blended_roas: div(online, ad_spend), nc_roas: attr.totals.nc_roas, mer: div(ad_spend, online),
+      ad_spend: r2(ad_spend), blended_roas: div(online, ad_spend), nc_roas, mer: div(ad_spend, online),
       cogs: r2(cogs), payment_fees: r2(payment_fees), wages: r2(wages), gross_profit: r2(gross_profit), gpm: div(gross_profit, online),
       shipbob: r2(shipbob), shipbob_orders: sbRows.length, shipbob_estimated: uncosted > 0,
       net_profit: r2(net_profit), npm: div(net_profit, online),
