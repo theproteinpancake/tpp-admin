@@ -60,10 +60,11 @@ POs arrive in MANY formats — plain email text, HTML tables, CSV, and/or PDF at
 FLAVOUR→SKU: "buttermilk"=BMS, "gluten free buttermilk"/"GF buttermilk"=GFBS, "cinnamon churro"/"churro"=CIS, "maple"=MAS, "cookies & cream"=CCS, "chocolate"=CHS, "salted caramel"=SCS, "GF cinnamon churro"=GFCIS, "sugar free maple syrup"/"maple syrup"=MSS, plus any other listed flavour by name+size.
 GF IS A DISTINCT PRODUCT: a plain flavour is the REGULAR product only — "Buttermilk"=BMS (NOT GFBS), "Cinnamon Churro"=CIS (NOT GFCIS). The Gluten Free variant applies ONLY when "GF" or "Gluten Free" is explicitly written. Never map a plain flavour to its GF SKU or vice versa. Supplier codes (TPPBP01=Buttermilk, TPPMP01=Maple, TPPCC01=Cinnamon Churro, etc.) map by the product NAME shown. Ignore freight/shipping/discount/total lines.
 
-CARTONS vs UNITS (CRITICAL): some stores (e.g. Nutrition Warehouse) order in individual BAGS/UNITS, not cartons — e.g. qty "4" on a single-320g-bag line = 4 bags = 1 carton. Decide each line's basis:
-- CARTON basis if the description says "carton"/"x4 per carton"/"box", OR the unit/line price looks per-carton (~$32–44).
-- UNIT (bag) basis if the line is a single 320g bag with a per-bag price (~$7–12). Then cartons = qty ÷ 4.
-- Set ordered_qty (as written), qty_basis ("cartons" or "units"), and cartons (final carton count). If a unit qty does NOT divide evenly by 4, round to nearest carton and add a flag like "NW Darwin: 5 bags ≈ 1.25 cartons — confirm".
+CARTONS vs UNITS (CRITICAL — get the basis right, never the other way):
+- DEFAULT IS CARTONS. A stockist typing a casual order ("Buttermilk x8", "8 x buttermilk", "can I get 5 churro") means 8 CARTONS/boxes — wholesale customers order boxes. ordered_qty=8, qty_basis="cartons", cartons=8.
+- UNIT (bag) basis ONLY with explicit evidence: a per-bag price (~$7–12) on a single-320g line, or the words "bags"/"units"/"singles"/"320g x N units", or a retailer ordering-system line for a single 320g item (e.g. Nutrition Warehouse). Then cartons = qty ÷ 4.
+- CARTON basis is confirmed by "carton"/"box"/"x4 per carton" wording or a per-carton price (~$32–44).
+- NEVER ALTER QUANTITIES: ordered_qty must be EXACTLY the number written in the order. If the basis is genuinely unclear, use CARTONS and add a flag "basis assumed cartons — confirm". If a unit qty does not divide evenly by 4, add a flag like "5 bags ≈ 1.25 cartons — confirm".
 
 ADDRESSES: capture bill_to (who PAYS — e.g. head office, "Bill To") and ship_to (the FULL delivery address — "Deliver To"/"Ship To", the specific store). customer_name = the SPECIFIC store we ship to (e.g. "Nutrition Warehouse Darwin"), NOT the HQ. If bill-to ≠ ship-to, note it.
 
@@ -73,17 +74,46 @@ Reply ONLY with JSON: {"po_number":"the PO number or null","customer_name":"spec
 
 function parseJson(out: string): ParsedPO {
   const json = JSON.parse(out.slice(out.indexOf('{'), out.lastIndexOf('}') + 1));
-  const lines = (json.lines ?? []).map((l: any) => ({
-    sku: l.sku, flavour: l.flavour, cartons: Math.max(0, Math.round(Number(l.cartons) || 0)),
-    ordered_qty: l.ordered_qty ?? null, qty_basis: l.qty_basis ?? null, flag: l.flag ?? null,
-  }));
+  const flags: string[] = [...(json.flags ?? [])];
+  // DETERMINISTIC ARITHMETIC — never trust the model's division. cartons is always recomputed
+  // from ordered_qty + qty_basis in code; a silent ÷4 (the "x8 became ×2" bug) cannot happen.
+  const lines = (json.lines ?? []).map((l: any) => {
+    const orderedQty = l.ordered_qty != null ? Math.max(0, Math.round(Number(l.ordered_qty) || 0)) : null;
+    const basis = l.qty_basis === 'units' ? 'units' : 'cartons';
+    let cartons = Math.max(0, Math.round(Number(l.cartons) || 0));
+    if (orderedQty != null && orderedQty > 0) {
+      if (basis === 'units') {
+        const exact = orderedQty / 4;
+        cartons = Math.max(1, Math.round(exact));
+        if (orderedQty % 4 !== 0) flags.push(`⚠️ ${l.flavour}: ${orderedQty} bags ≈ ${exact} cartons — confirm`);
+      } else if (cartons !== orderedQty) {
+        flags.push(`⚠️ ${l.flavour}: corrected cartons ${cartons}→${orderedQty} to match the ordered quantity`);
+        cartons = orderedQty;
+      }
+    }
+    return { sku: l.sku, flavour: l.flavour, cartons, ordered_qty: orderedQty, qty_basis: basis, flag: l.flag ?? null };
+  });
   const lineFlags = lines.filter((l: any) => l.flag).map((l: any) => l.flag as string);
   return {
     po_number: json.po_number ?? null,
     customer_name: json.customer_name ?? null, bill_to: json.bill_to ?? null, ship_to: json.ship_to ?? null,
     contact_email: json.contact_email ?? null,
-    lines, unmatched: json.unmatched ?? [], flags: [...(json.flags ?? []), ...lineFlags],
+    lines, unmatched: json.unmatched ?? [], flags: [...flags, ...lineFlags],
   };
+}
+
+// SOURCE-TEXT VERIFICATION for plain-email orders (the hallucination-prone case): every parsed
+// quantity must literally appear as a number in the email. A miss → flag + needs_review, so it
+// can never silently process. (Skipped when the order came via PDF — qty lives in the PDF.)
+function verifyQuantitiesAgainstText(text: string, parsed: ParsedPO): void {
+  if (!text || text.trim().length < 20) return;
+  const numbersInText = new Set((text.match(/\d+/g) || []).map((n) => String(Number(n))));
+  for (const l of parsed.lines) {
+    const q = l.ordered_qty;
+    if (q != null && q > 0 && !numbersInText.has(String(q))) {
+      parsed.flags.push(`🛑 ${l.flavour}: parsed quantity ${q} does NOT appear in the email — verify against the original before processing`);
+    }
+  }
 }
 
 export async function parseWholesalePO(text: string): Promise<ParsedPO> {
@@ -106,7 +136,9 @@ export async function parseWholesalePOMulti(src: { text?: string; pdfs?: { filen
     messages: [{ role: 'user', content }],
   });
   const out = resp.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('');
-  return parseJson(out);
+  const parsed = parseJson(out);
+  if (!src.pdfs?.length) verifyQuantitiesAgainstText(src.text || '', parsed);
+  return parsed;
 }
 
 // Box plan for N cartons of 320g (Altona). Packs into 8s, then a right-sized last box.

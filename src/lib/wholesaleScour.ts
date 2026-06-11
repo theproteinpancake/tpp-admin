@@ -170,15 +170,21 @@ export async function runWholesalePoScour(): Promise<{ scanned: number; new_pos:
     if (handled) continue; // don't re-ping for handled POs
 
     // build Kate's WhatsApp ping — `action` is a single-line version for the template variable.
+    // Unit→carton conversions are shown explicitly so a basis mistake can never hide.
     const cust = a!.customer_name || 'a customer';
-    const lineStr = a!.lines.map((l) => `• ${l.flavour} ×${l.cartons}`).join('\n');
-    const lineInline = a!.lines.map((l) => `${l.flavour} ×${l.cartons}`).join(', ') || '—';
+    const fmtLine = (l: any) => `${l.flavour} ×${l.cartons}${l.qty_basis === 'units' && l.ordered_qty ? ` ctn (${l.ordered_qty} bags)` : ''}`;
+    const lineStr = a!.lines.map((l) => `• ${fmtLine(l)}`).join('\n');
+    const lineInline = a!.lines.map(fmtLine).join(', ') || '—';
+    // Quantity warnings from the parser (mismatch vs email / non-divisible bags / assumed basis)
+    const qtyFlags = (a!.flags || []).filter((f) => /🛑|≈|corrected cartons|basis assumed/.test(f));
     let msg: string, action: string;
     if (!a!.customer_on_file) {
       action = `🆕 Not in Xero yet — add them (name, ship-to, email, ABN), then reply and I'll process it.`;
       msg = `🛒 *New PO* from ${cust}${a!.po_number ? ` (#${a!.po_number})` : ''}\n${lineStr}\n\n${action}\nShip to: ${a!.ship_to || '—'}`;
     } else if (a!.fulfillable) {
-      action = `✅ Stock's good — reply "process ${cust}" and I'll create the ShipBob order + draft the Xero invoice.`;
+      action = qtyFlags.length
+        ? `⚠️ CHECK QUANTITIES first: ${qtyFlags[0]} — confirm the lines, then reply "process ${cust}".`
+        : `✅ Stock's good — reply "process ${cust}" and I'll create the ShipBob order + draft the Xero invoice.`;
       msg = `🛒 *New PO* from ${cust}${a!.po_number ? ` (#${a!.po_number})` : ''}\n${lineStr}\n📦 ${a!.boxes.join(' + ')} · ${a!.free_shipping ? 'free shipping' : '+$15 freight'}\n\n${action}`;
     } else if (meetsMoq) {
       // ≥4 in-stock cartons: fulfil excluding OOS, customer just gets a heads-up.
@@ -212,7 +218,8 @@ export async function runWholesalePoScour(): Promise<{ scanned: number; new_pos:
         : a!.fulfillable ? `In stock — ready to create the ShipBob order + draft Xero invoice on confirmation. Box: ${a!.boxes.join(' + ')}, ${a!.free_shipping ? 'free shipping' : '+$15 freight'}.`
         : meetsMoq ? `OOS: ${oosNames}, but the ${inStockCartons} in-stock cartons MEET the 4-carton MOQ. If Kate says "process", process EXCLUDING ${oosNames} (pass them as exclude). A we've-left-it-off email is drafted in Kate's inbox for after processing.`
         : `OOS: ${oosNames} — in-stock portion (${inStockCartons}) is UNDER the 4-carton MOQ, so we asked the stockist to swap or backorder (draft in Kate's inbox). If Kate says they chose a swap, process with the swap; if backorder, leave it parked until restock — do not process now.`;
-      const ctx = `Wholesale PO from ${cust}${a!.po_number ? ` (PO ${a!.po_number})` : ''}.\nLines: ${lineInline}.\n${state}\nShip to: ${a!.ship_to || '—'}.\nStockist reply address: ${replyAddr} (use this for any email to them — NOT the system sender).\nSOURCE EMAIL: id "${c.id}" in inbox "${c.inbox}" — to action this PO call process_po_email with that exact id+inbox (plus exclude for any flavours to leave off). When Kate replies with a clear action on THIS alert ("process it", "process excluding X", "swap X for Y and go"), that reply IS her confirmation — execute end-to-end (process_po_email → create_wholesale_order) and report the ShipBob order + Xero invoice numbers. Do NOT re-ask for confirmation she already gave.`;
+      const qtyNote = qtyFlags.length ? `\nQUANTITY WARNINGS: ${qtyFlags.join(' | ')} — this order is NOT one-shot: restate the lines and get Kate's explicit confirmation of quantities before processing.` : '';
+      const ctx = `Wholesale PO from ${cust}${a!.po_number ? ` (PO ${a!.po_number})` : ''}.\nLines: ${lineInline}.${qtyNote}\n${state}\nShip to: ${a!.ship_to || '—'}.\nStockist reply address: ${replyAddr} (use this for any email to them — NOT the system sender).\nSOURCE EMAIL: id "${c.id}" in inbox "${c.inbox}" — to action this PO call process_po_email with that exact id+inbox (plus exclude for any flavours to leave off). When Kate replies with a clear action on THIS alert ("process it", "process excluding X", "swap X for Y and go"), that reply IS her confirmation — execute end-to-end (process_po_email → create_wholesale_order) and report the ShipBob order + Xero invoice numbers. Do NOT re-ask for confirmation she already gave.`;
       await recordProactiveContext(waAddr(KATE_NUMBER), ctx).catch(() => {});
     }
   }
