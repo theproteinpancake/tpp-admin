@@ -98,6 +98,41 @@ async function gget(path: string, account?: string): Promise<any> {
   return res.json();
 }
 
+async function gpost(path: string, body: unknown, account?: string): Promise<any> {
+  const token = await getGoogleToken(account);
+  if (!token) throw new Error(account ? `Gmail (${account}) not connected` : 'Gmail not connected');
+  const res = await fetch(`${GMAIL}${path}`, {
+    method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Gmail POST ${path}: ${res.status} ${await res.text()}`);
+  return res.json();
+}
+
+// ---- "TPP Control" label: applied to every email the agent drafts or sends, so Luke/Kate
+// can filter their inboxes for agent work at a glance. Created on first use per account. ----
+const CONTROL_LABEL = 'TPP Control';
+const _labelIds: Record<string, string> = {};
+async function controlLabelId(account?: string): Promise<string | null> {
+  const key = account || 'primary';
+  if (_labelIds[key]) return _labelIds[key];
+  try {
+    const list = await gget('/labels', account);
+    let id = (list.labels || []).find((l: any) => l.name === CONTROL_LABEL)?.id as string | undefined;
+    if (!id) id = (await gpost('/labels', { name: CONTROL_LABEL, labelListVisibility: 'labelShow', messageListVisibility: 'show' }, account))?.id;
+    if (id) _labelIds[key] = id;
+    return id || null;
+  } catch { return null; }
+}
+// Best-effort — labelling must never break a draft/send.
+export async function applyControlLabel(messageId: string | undefined, account?: string): Promise<void> {
+  if (!messageId) return;
+  try {
+    const id = await controlLabelId(account);
+    if (id) await gpost(`/messages/${messageId}/modify`, { addLabelIds: [id] }, account);
+  } catch { /* cosmetic */ }
+}
+
 // Search messages (Gmail query syntax), returns lightweight {id, from, subject, snippet, date}
 export async function gmailSearch(query: string, max = 10, account?: string) {
   const list = await gget(`/messages?q=${encodeURIComponent(query)}&maxResults=${max}`, account);
@@ -218,7 +253,9 @@ export async function gmailCreateDraft(to: string, subject: string, body: string
     body: JSON.stringify({ message: { raw: rawMessage(to, subject, body, attachment, cc) } }),
   });
   if (!res.ok) throw new Error(`Gmail draft failed: ${res.status} ${await res.text()}`);
-  return (await res.json()).id;
+  const j = await res.json();
+  await applyControlLabel(j.message?.id);
+  return j.id;
 }
 
 // Create a threaded REPLY draft in a specific inbox (does not send). Returns draft id.
@@ -239,7 +276,9 @@ export async function gmailCreateReplyDraft(opts: {
     body: JSON.stringify({ message }),
   });
   if (!res.ok) throw new Error(`Gmail reply draft failed: ${res.status} ${await res.text()}`);
-  return (await res.json()).id;
+  const j = await res.json();
+  await applyControlLabel(j.message?.id, opts.account);
+  return j.id;
 }
 
 // Send an email immediately (To + optional Cc + optional PDF). Returns the sent message id.
@@ -251,7 +290,9 @@ export async function gmailSend(to: string, subject: string, body: string, opts:
     body: JSON.stringify({ raw: rawMessage(to, subject, body, opts.attachment, opts.cc) }),
   });
   if (!res.ok) throw new Error(`Gmail send failed: ${res.status} ${await res.text()}`);
-  return (await res.json()).id;
+  const sent = await res.json();
+  await applyControlLabel(sent.id);
+  return sent.id;
 }
 
 // Send an existing draft.
@@ -263,4 +304,6 @@ export async function gmailSendDraft(draftId: string): Promise<void> {
     body: JSON.stringify({ id: draftId }),
   });
   if (!res.ok) throw new Error(`Gmail send failed: ${res.status} ${await res.text()}`);
+  const sent = await res.json().catch(() => null);
+  await applyControlLabel(sent?.id);
 }
