@@ -68,28 +68,44 @@ export default async function WholesaleDashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Due to order */}
-        <div className="rounded-xl border border-gray-200 bg-paper p-4 shadow-sm">
-          <p className="mb-3 flex items-center gap-2 text-sm font-semibold text-caramel"><Clock className="h-4 w-4 text-caramel" /> Due to reorder</p>
-          {d.due.length === 0 ? <p className="text-sm text-gray-400">No customers due right now.</p> : (
-            <div className="space-y-2">
-              {d.due.slice(0, 12).map((c) => (
-                <div key={c.id} className="flex items-center justify-between gap-2 text-sm">
-                  <span className="truncate text-caramel">{c.name}</span>
-                  <span className="flex shrink-0 items-center gap-2">
-                    <span className="text-xs text-gray-400">~{c.avg_interval_days}d · last {fmtDate(c.last_order)}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${c.overdue_days >= 0 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
-                      {c.overdue_days >= 0 ? `${c.overdue_days}d overdue` : `due in ${Math.abs(c.overdue_days)}d`}
-                    </span>
-                    <DueActions id={c.id} />
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+      {/* Due to reorder — full-width table: cycle / last order / expected / how late */}
+      <div className="mb-6 rounded-xl border border-gray-200 bg-paper p-4 shadow-sm">
+        <p className="mb-3 flex items-center gap-2 text-sm font-semibold text-caramel"><Clock className="h-4 w-4 text-caramel" /> Due to reorder</p>
+        {d.due.length === 0 ? <p className="text-sm text-gray-400">No customers due right now.</p> : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 text-left text-[11px] uppercase tracking-wide text-gray-400">
+                  <th className="px-2 py-1.5 font-semibold">Customer</th>
+                  <th className="px-2 py-1.5 text-right font-semibold" title="their average gap between orders">Order cycle</th>
+                  <th className="px-2 py-1.5 text-right font-semibold">Last order</th>
+                  <th className="px-2 py-1.5 text-right font-semibold" title="last order + their cycle">Expected</th>
+                  <th className="px-2 py-1.5 text-right font-semibold">Status</th>
+                  <th className="px-2 py-1.5"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {d.due.slice(0, 12).map((c) => (
+                  <tr key={c.id} className="border-b border-gray-50 last:border-0 hover:bg-cream/20">
+                    <td className="max-w-[260px] truncate px-2 py-2 font-medium text-caramel">{c.name}</td>
+                    <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums text-gray-600">every ~{c.avg_interval_days}d</td>
+                    <td className="whitespace-nowrap px-2 py-2 text-right text-gray-600">{fmtDate(c.last_order)} <span className="text-[11px] text-gray-400">({c.days_since}d ago)</span></td>
+                    <td className="whitespace-nowrap px-2 py-2 text-right text-gray-600">{fmtDate(c.expected_next)}</td>
+                    <td className="whitespace-nowrap px-2 py-2 text-right">
+                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${c.overdue_days >= 14 ? 'bg-red-100 text-red-700' : c.overdue_days >= 0 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                        {c.overdue_days >= 0 ? `${c.overdue_days}d late` : `due in ${Math.abs(c.overdue_days)}d`}
+                      </span>
+                    </td>
+                    <td className="whitespace-nowrap px-2 py-2 text-right"><DueActions id={c.id} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Top customers */}
         <div className="rounded-xl border border-gray-200 bg-paper p-4 shadow-sm">
           <p className="mb-3 text-sm font-semibold text-caramel">Top customers</p>

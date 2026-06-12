@@ -99,7 +99,7 @@ export default function InfluencerTable({ influencers }: { influencers: Inf[] })
       if (region !== 'ALL' && (i.region || 'OTHER') !== region) return false;
       if (statusF && normStatus(i.status) !== statusF) return false;
       if (postF && normPost(i.post_type) !== postF) return false;
-      if (needle && !`${i.name} ${i.handle || ''} ${i.flavour_sent || ''}`.toLowerCase().includes(needle)) return false;
+      if (needle && !`${i.name} ${i.handle || ''} ${i.email || ''} ${i.flavour_sent || ''}`.toLowerCase().includes(needle)) return false;
       return true;
     });
     const t = (d: string | null) => { const v = Date.parse((d || '') + 'T00:00:00'); return Number.isNaN(v) ? 0 : v; };
@@ -129,7 +129,7 @@ export default function InfluencerTable({ influencers }: { influencers: Inf[] })
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <div className="relative">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name / handle / flavour…"
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name / handle / email / flavour…"
             className="w-56 rounded-lg border border-gray-200 py-1.5 pl-8 pr-2 text-sm text-caramel placeholder:text-gray-400 focus:border-caramel focus:outline-none focus:ring-1 focus:ring-caramel" />
         </div>
         <select value={statusF} onChange={(e) => setStatusF(e.target.value)} className="rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-caramel focus:border-caramel focus:outline-none">
@@ -157,9 +157,10 @@ export default function InfluencerTable({ influencers }: { influencers: Inf[] })
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100 text-left text-[11px] uppercase tracking-wide text-gray-400">
-                <th className="px-3 py-2">Name</th><th className="px-3 py-2">Handle</th><th className="px-3 py-2">Flavour</th>
+                <th className="px-3 py-2">Name</th><th className="px-3 py-2">Handle</th><th className="px-3 py-2">Email</th><th className="px-3 py-2">Flavour</th>
                 <th className="px-3 py-2">Sent</th><th className="px-3 py-2">Delivery Status</th><th className="px-3 py-2">Posted Status</th>
-                <th className="px-3 py-2">Cost</th><th className="px-3 py-2">Tracking</th><th className="px-3 py-2 w-48">Notes</th><th className="px-3 py-2"></th>
+                <th className="px-3 py-2">Cost</th><th className="px-3 py-2">Tracking</th><th className="px-3 py-2 w-48 min-w-40">Notes</th>
+                <th className="sticky right-0 bg-cream/95 px-2 py-2"></th>
               </tr>
             </thead>
             <tbody>
@@ -167,6 +168,7 @@ export default function InfluencerTable({ influencers }: { influencers: Inf[] })
                 <tr key={i.id} className="border-b border-gray-50 align-top hover:bg-cream/20">
                   <td className="px-3 py-2 font-medium text-caramel">{i.name}{i.followers ? <span className="block text-[10px] text-gray-400">{i.followers.toLocaleString()} followers</span> : ''}</td>
                   <td className="px-3 py-2 text-gray-500">{i.handle ? <a className="text-blue-600 hover:underline" href={`https://instagram.com/${(i.handle || '').replace('@', '')}`} target="_blank">{i.handle}</a> : '—'}</td>
+                  <td className="max-w-[180px] truncate px-3 py-2 text-xs">{i.email ? <a className="text-blue-600 hover:underline" href={`mailto:${i.email}`} title={i.email}>{i.email}</a> : <span className="text-gray-300">—</span>}</td>
                   <td className="px-3 py-2 text-xs text-gray-600">{i.flavour_sent || '—'}</td>
                   <td className="px-3 py-2 text-gray-400">{fmtDate(i.date_initiated)}</td>
                   <td className="px-3 py-2"><Cell id={i.id} field="status" value={['order_processing', 'shipped', 'delivered', 'completed'].includes(i.status || '') ? (i.status as string) : 'order_processing'} options={STATUS} colors={STATUS_COLOR} /></td>
@@ -174,7 +176,7 @@ export default function InfluencerTable({ influencers }: { influencers: Inf[] })
                   <td className="px-3 py-2 text-xs text-gray-600" title={i.parcel_cost != null ? `COGS ${ccy(i.cost_cogs, i.cost_currency)} + fulfilment ${ccy(i.cost_fulfilment, i.cost_currency)}` : ''}>{ccy(i.parcel_cost, i.cost_currency)}</td>
                   <td className="px-3 py-2 text-xs">{i.tracking_url ? <a href={i.tracking_url} target="_blank" className="inline-flex items-center gap-1 text-blue-600 hover:underline">{i.tracking_number || 'track'}<ExternalLink className="h-3 w-3" /></a> : (i.tracking_number || '—')}</td>
                   <td className="px-3 py-2"><Notes id={i.id} value={i.notes || ''} /></td>
-                  <td className="px-3 py-2"><DeleteBtn id={i.id} name={i.name} /></td>
+                  <td className="sticky right-0 bg-paper/95 px-2 py-2 backdrop-blur-sm"><DeleteBtn id={i.id} name={i.name} /></td>
                 </tr>
               ))}
             </tbody>
