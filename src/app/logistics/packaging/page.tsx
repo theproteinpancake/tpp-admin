@@ -62,7 +62,7 @@ export default async function PackagingPage() {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                {['Pouch (SKU)', 'Baseline', 'Used (POs)', 'Remaining', '~Days cover', 'Status', 'Set / update baseline'].map((h) => (
+                {['Pouch (SKU)', 'Baseline', 'Used (POs)', 'Pouches left', 'SRP cartons (320g)', 'Packable', '~Days cover', 'Status', 'Set / update baseline'].map((h) => (
                   <th key={h} className="whitespace-nowrap px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">{h}</th>
                 ))}
               </tr>
@@ -80,7 +80,16 @@ export default async function PackagingPage() {
                   <td className="px-4 py-3 text-sm text-gray-600">{fmt(p.baseline_qty)}{p.baseline_date && <span className="block text-[11px] text-gray-400">from {p.baseline_date}</span>}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{p.baseline_qty != null ? `−${fmt(p.consumed)}` : '—'}</td>
                   <td className="px-4 py-3 text-sm font-semibold text-caramel">{fmt(p.remaining)}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{p.days_cover != null ? `${p.days_cover}d` : '—'}</td>
+                  <td className="px-4 py-3 text-sm">
+                    {p.srp ? (
+                      <span className={p.srp.binding ? 'font-semibold text-red-600' : 'text-gray-600'}>
+                        {fmt(p.srp.boxes_remaining)} <span className="text-[11px] text-gray-400">×{p.srp.units_per} = {fmt(p.srp.packable_bags)}</span>
+                        {p.srp.binding && <span className="block text-[10px] font-medium uppercase tracking-wide text-red-500">⚠ carton-limited</span>}
+                      </span>
+                    ) : <span className="text-gray-300">—</span>}
+                  </td>
+                  <td className="px-4 py-3 text-sm font-semibold text-caramel">{fmt(p.packable)}{p.srp?.binding && <span className="block text-[10px] font-normal text-gray-400">of {fmt(p.remaining)} pouches</span>}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">{(() => { const d = Math.min(p.days_cover ?? Infinity, p.srp?.days_cover ?? Infinity); return Number.isFinite(d) ? `${d}d` : '—'; })()}</td>
                   <td className="px-4 py-3"><Pill status={p.status} /></td>
                   <td className="px-4 py-3">
                     <form action={async (fd) => { 'use server'; await setPouchBaseline(fd); }} className="flex items-center gap-1.5">
@@ -104,9 +113,9 @@ export default async function PackagingPage() {
         <section className="mb-10">
           <div className="mb-3 flex items-center gap-2">
             <Boxes className="h-5 w-5 text-caramel" />
-            <h2 className="text-lg font-semibold text-caramel">Shelf-ready cartons (SRP)</h2>
+            <h2 className="text-lg font-semibold text-caramel">SRP cartons — discontinued 320g</h2>
           </div>
-          <p className="mb-3 text-xs text-gray-500">Wholesale display cartons. Each box = {srp[0]?.units_per ?? 4}× 320g bags — every PO of the linked SKU auto-deducts boxes, so you can see you&apos;ll have enough shelf-ready stock for wholesale.</p>
+          <p className="mb-3 text-xs text-gray-500">Held shelf-ready cartons for 320g sizes we no longer produce (active flavours show inline on their pouch row above). No active SKU draws these down.</p>
           <div className="overflow-x-auto rounded-xl border border-gray-200 bg-paper shadow-sm">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
