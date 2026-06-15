@@ -1,5 +1,5 @@
 import { Boxes, Package2, Mail, AlertTriangle } from 'lucide-react';
-import { getPouchTracking, getCustomPackaging, PACK_STATUS_META } from '@/lib/packaging';
+import { getPouchTracking, getSrpTracking, getCustomPackaging, PACK_STATUS_META } from '@/lib/packaging';
 import { flavourColor } from '@/lib/flavours';
 import { setPouchBaseline, deletePackaging } from '@/lib/packagingActions';
 import CustomPackagingForm from '@/components/packaging/CustomPackagingForm';
@@ -14,7 +14,8 @@ function Pill({ status }: { status: keyof typeof PACK_STATUS_META }) {
 const fmt = (n: number | null) => (n == null ? '—' : n.toLocaleString('en-AU'));
 
 export default async function PackagingPage() {
-  const [pouches, custom] = await Promise.all([getPouchTracking(), getCustomPackaging()]);
+  const [pouches, srp, custom] = await Promise.all([getPouchTracking(), getSrpTracking(), getCustomPackaging()]);
+  const srpAlerts = srp.filter((s) => s.status === 'order_now' || s.status === 'order_soon').length;
   const pouchAlerts = pouches.filter((p) => p.status === 'order_now' || p.status === 'order_soon').length;
   const pouchSet = pouches.filter((p) => p.baseline_qty != null).length;
   const customAlerts = custom.filter((c) => c.status === 'order_now' || c.status === 'order_soon').length;
@@ -27,7 +28,7 @@ export default async function PackagingPage() {
       </div>
 
       {/* Summary */}
-      <div className="mb-8 grid gap-4 sm:grid-cols-3">
+      <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
           <p className="text-sm font-semibold text-caramel">Pouch SKUs tracked</p>
           <div className="mt-2 text-2xl font-bold text-caramel">{pouchSet}<span className="text-sm font-normal text-gray-400"> / {pouches.length}</span></div>
@@ -37,6 +38,11 @@ export default async function PackagingPage() {
           <p className="text-sm font-semibold text-caramel">Pouches to reorder</p>
           <div className={`mt-2 text-2xl font-bold ${pouchAlerts ? 'text-red-600' : 'text-emerald-600'}`}>{pouchAlerts}</div>
           <p className="text-xs text-gray-400">within lead time</p>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
+          <p className="text-sm font-semibold text-caramel">SRP cartons to reorder</p>
+          <div className={`mt-2 text-2xl font-bold ${srpAlerts ? 'text-red-600' : 'text-emerald-600'}`}>{srpAlerts}</div>
+          <p className="text-xs text-gray-400">shelf-ready for wholesale</p>
         </div>
         <div className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
           <p className="text-sm font-semibold text-caramel">Custom packaging to reorder</p>
@@ -92,6 +98,46 @@ export default async function PackagingPage() {
           </table>
         </div>
       </section>
+
+      {/* Shelf-ready (SRP) cartons — auto-deduct from the linked 320g SKU's POs */}
+      {srp.length > 0 && (
+        <section className="mb-10">
+          <div className="mb-3 flex items-center gap-2">
+            <Boxes className="h-5 w-5 text-caramel" />
+            <h2 className="text-lg font-semibold text-caramel">Shelf-ready cartons (SRP)</h2>
+          </div>
+          <p className="mb-3 text-xs text-gray-500">Wholesale display cartons. Each box = {srp[0]?.units_per ?? 4}× 320g bags — every PO of the linked SKU auto-deducts boxes, so you can see you&apos;ll have enough shelf-ready stock for wholesale.</p>
+          <div className="overflow-x-auto rounded-xl border border-gray-200 bg-paper shadow-sm">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  {['Carton', 'Linked SKU', 'Baseline', 'Used (POs)', 'Remaining', '~Days cover', 'Status'].map((h) => (
+                    <th key={h} className="whitespace-nowrap px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {srp.map((s) => (
+                  <tr key={s.id} className="hover:bg-cream/30">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <span className="h-3 w-1.5 rounded-full" style={{ backgroundColor: flavourColor(s.linked_flavour) }} />
+                        <span className="text-sm font-medium text-caramel">{s.name.replace('SRP Box (small) — ', '')}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-600">{s.linked_sku || '—'} <span className="text-[11px] text-gray-400">×{s.units_per}/box</span></td>
+                    <td className="px-4 py-3 text-sm text-gray-600">{fmt(s.baseline_qty)}{s.baseline_date && <span className="block text-[11px] text-gray-400">from {s.baseline_date}</span>}</td>
+                    <td className="px-4 py-3 text-sm text-gray-600">{s.baseline_qty != null ? `−${fmt(s.consumed_boxes)}` : '—'}{s.consumed_units > 0 && <span className="block text-[11px] text-gray-400">{fmt(s.consumed_units)} bags</span>}</td>
+                    <td className="px-4 py-3 text-sm font-semibold text-caramel">{fmt(s.remaining)}</td>
+                    <td className="px-4 py-3 text-sm text-gray-600">{s.days_cover != null ? `${s.days_cover}d` : '—'}</td>
+                    <td className="px-4 py-3"><Pill status={s.status} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {/* Custom packaging */}
       <section>

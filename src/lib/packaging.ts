@@ -70,8 +70,68 @@ export async function getPouchTracking(): Promise<PouchRow[]> {
   });
 }
 
+export interface SrpRow {
+  id: string; name: string; sku: string | null; linked_sku: string | null; linked_flavour: string | null;
+  units_per: number; baseline_qty: number | null; baseline_date: string | null;
+  consumed_units: number; consumed_boxes: number; remaining: number | null;
+  daily: number | null; days_cover: number | null; lead_days: number; status: PackStatus;
+}
+
+// Shelf-ready (SRP) cartons: auto-deduct from their linked 320g SKU's POs at units_per bags/box.
+// e.g. a PO for 400× CIS bags consumes 100 small Cinnamon Churro SRP boxes.
+export async function getSrpTracking(): Promise<SrpRow[]> {
+  const [{ data: srp }, { data: poItems }, { data: vel }] = await Promise.all([
+    supabaseLogistics.from('packaging').select('*').eq('kind', 'srp').eq('active', true),
+    supabaseLogistics.from('po_items').select('product_id, qty_ordered, po:po_id(created_at)'),
+    supabaseLogistics.from('v_stock_current').select('product_id, avg_daily_units_30d').eq('location_code', 'ALTONA'),
+  ]);
+  const products = (srp ?? []).map((s: any) => s.linked_product_id).filter(Boolean);
+  const { data: prod } = products.length
+    ? await supabaseLogistics.from('products').select('id, sku, flavour').in('id', products)
+    : { data: [] as any[] };
+  const prodById = new Map((prod ?? []).map((p: any) => [p.id, p]));
+  const velByProduct = new Map((vel ?? []).map((v: any) => [v.product_id, Number(v.avg_daily_units_30d) || 0]));
+
+  const rows: SrpRow[] = (srp ?? []).map((s: any) => {
+    const lp = prodById.get(s.linked_product_id);
+    const units_per = s.units_per || 4;
+    const baseline_qty = s.baseline_qty ?? null;
+    const baseline_date = s.baseline_date ?? null;
+    const lead_days = s.lead_days ?? 60;
+    // bags of the linked 320g SKU ordered on/after the baseline → boxes consumed
+    const consumed_units = baseline_date && s.linked_product_id
+      ? (poItems ?? []).filter((i: any) => i.product_id === s.linked_product_id && (i.po?.created_at ?? '').slice(0, 10) >= baseline_date)
+          .reduce((acc: number, i: any) => acc + (i.qty_ordered || 0), 0)
+      : 0;
+    const consumed_boxes = Math.round(consumed_units / units_per);
+    const remaining = baseline_qty == null ? null : baseline_qty - consumed_boxes;
+    // box usage/day = the linked SKU's daily velocity ÷ bags-per-box
+    const unitDaily = s.linked_product_id ? (velByProduct.get(s.linked_product_id) ?? 0) : 0;
+    const daily = unitDaily > 0 ? unitDaily / units_per : null;
+    const days_cover = remaining != null && daily && daily > 0 ? Math.round(remaining / daily) : null;
+
+    let status: PackStatus = 'unset';
+    if (baseline_qty != null) {
+      if (remaining != null && remaining <= 0) status = 'order_now';
+      else if (days_cover != null && days_cover < lead_days) status = 'order_now';
+      else if (days_cover != null && days_cover < lead_days + 21) status = 'order_soon';
+      else status = 'ok';
+    }
+    return {
+      id: s.id, name: s.name, sku: s.sku, linked_sku: lp?.sku ?? null, linked_flavour: lp?.flavour ?? null,
+      units_per, baseline_qty, baseline_date, consumed_units, consumed_boxes, remaining,
+      daily, days_cover, lead_days, status,
+    };
+  });
+  return rows.sort((a, b) => {
+    const av = a.days_cover ?? (a.baseline_qty == null ? 1e8 : 1e7);
+    const bv = b.days_cover ?? (b.baseline_qty == null ? 1e8 : 1e7);
+    return av - bv;
+  });
+}
+
 export async function getCustomPackaging(): Promise<CustomPack[]> {
-  const { data } = await supabaseLogistics.from('packaging').select('*').neq('kind', 'pouch').eq('active', true).order('name');
+  const { data } = await supabaseLogistics.from('packaging').select('*').not('kind', 'in', '("pouch","srp")').eq('active', true).order('name');
   return (data ?? []).map((p: any): CustomPack => {
     const on_hand = p.manual_on_hand ?? null;
     let status: PackStatus = 'unset';
