@@ -82,7 +82,7 @@ export async function getCustomPackaging(): Promise<CustomPack[]> {
       if (on_hand <= rp) status = 'order_now';
       else if (days != null && days < p.lead_days) status = 'order_now';
       else if (days != null && days < p.lead_days + 21) status = 'order_soon';
-      else status = 'ok';
+      else status = 'ok'; // a count is recorded — 'unset' only means no count at all
     }
     return {
       id: p.id, kind: p.kind, name: p.name, sku: p.sku, site: p.site, supplier: p.supplier,
