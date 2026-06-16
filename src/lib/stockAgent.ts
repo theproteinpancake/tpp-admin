@@ -8,6 +8,7 @@ import { draftWhatsAppPO, approveLatestWhatsAppDraft, sendLatestPOEmail } from '
 import { markPOReceived } from './poReconcile';
 import { findLatestDocket, parseDocket, createWROFromParsed, draftSharonReply } from './wroFlow';
 import { resolveVisyItem, draftVisyOrder } from './visyOrder';
+import { findContacts } from './contacts';
 import { gmailSendDraft, gmailCreateDraft, gmailSearch, gmailGetBody, gmailGetAllAttachments } from './google';
 import { getLots, expiryStatus, EXPIRY_META } from './lots';
 import { getShippingData } from './shipping';
@@ -146,6 +147,11 @@ const tools: Anthropic.Tool[] = [
     name: 'draft_transfer_email',
     description: 'Draft (NOT send) an email to Jordan at Maersk to start/progress a transfer, with links to the Commercial Invoice + Packing List. Show the user the draft; only send_email_draft when they explicitly approve.',
     input_schema: { type: 'object', properties: { reference: { type: 'string' } }, required: ['reference'] },
+  },
+  {
+    name: 'find_contact',
+    description: "Look up a supplier / logistics contact from the directory (ABC Blending, VISY, the pouch supplier in China, ShipBob ops people, maple-syrup manufacturer, freight providers, etc.). Use when the user asks for someone's email/phone/address or 'who do I contact for X'. Pass a name, company, or category word (e.g. 'Janny', 'ABC', 'pouches', 'ShipBob escalation', 'freight').",
+    input_schema: { type: 'object', properties: { query: { type: 'string', description: 'name / company / category, e.g. "Janny", "ABC address", "ShipBob escalation"' } }, required: ['query'] },
   },
   {
     name: 'order_packaging',
@@ -816,6 +822,13 @@ Luke`;
   if (name === 'draft_sharon_reply') {
     try {
       return await draftSharonReply(String(input.to), (input.docket_ref as string) || null, Number(input.wro_id));
+    } catch (e) { return { error: String(e).slice(0, 160) }; }
+  }
+  if (name === 'find_contact') {
+    try {
+      const cs = await findContacts(String(input.query || ''));
+      if (!cs.length) return { found: 0, note: `No contact matching "${input.query}".` };
+      return { found: cs.length, contacts: cs.map((c) => ({ company: c.company, name: c.name, role: c.role, email: c.email, phone: c.phone, address: c.address, notes: c.notes })) };
     } catch (e) { return { error: String(e).slice(0, 160) }; }
   }
   if (name === 'order_packaging') {

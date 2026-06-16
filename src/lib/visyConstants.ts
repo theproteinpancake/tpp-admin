@@ -13,9 +13,10 @@ export const ABC_DELIVERY = {
 
 // Where ShipBob shipping cartons go — must arrive with a WRO label affixed to the pallet.
 export const ALTONA_DELIVERY = {
-  company: 'The Protein Pancake C/O ShipBob',
+  company: 'The Protein Pancake C/O ShipBob, Inc',
   attn: 'Inbound Receiving',
   address: '21-27 Marshall Court, Altona VIC 3018',
+  phone: '0412 474 330',
 };
 
 export const VISY_SIGNATURE =
@@ -33,6 +34,7 @@ export function deliveryBlock(dest: 'ABC' | 'ALTONA'): string {
       'For delivery to;',
       `Company: ${ALTONA_DELIVERY.company}`,
       `ATT: ${ALTONA_DELIVERY.attn}`,
+      `Phone: ${ALTONA_DELIVERY.phone}`,
       ALTONA_DELIVERY.address,
       '',
       'Please dispatch with the attached WRO label affixed to the pallet so ShipBob can receive it.',
