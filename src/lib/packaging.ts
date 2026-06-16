@@ -1,6 +1,7 @@
 // Packaging tracking: empty pouches at ABC (manual baseline, auto-deducted by POs)
 // + custom shipping packaging (boxes / thank-you cards) with lead-time reorder flags.
 import { supabaseLogistics } from './supabase-logistics';
+import { getInventoryLevels } from './shipbob';
 
 export type PackStatus = 'unset' | 'order_now' | 'order_soon' | 'ok';
 export const PACK_STATUS_META: Record<PackStatus, { label: string; bg: string }> = {
@@ -175,8 +176,42 @@ export async function getSrpTracking(): Promise<SrpRow[]> {
   });
 }
 
+export interface ShipperRow {
+  id: string; name: string; visy_code: string | null; sku: string | null;
+  min_order: number | null; reorder_point: number | null; inventory_id: number | null;
+  fulfillable: number | null; onhand: number | null; live: boolean; status: PackStatus;
+}
+
+// ShipBob Altona shipping cartons (PANSMALL etc.) — stock is pulled LIVE from ShipBob (not a
+// baseline), since they're consumed by every outbound order. Ordering one creates a WRO for the pallet.
+export async function getShipperTracking(): Promise<ShipperRow[]> {
+  const { data } = await supabaseLogistics.from('packaging').select('*').eq('kind', 'shipper').eq('active', true).order('name');
+  const rows = (data ?? []) as any[];
+  const ids = rows.map((p) => p.shipbob_inventory_id).filter(Boolean) as number[];
+  const live = await getInventoryLevels('ALTONA', ids).catch(() => new Map());
+  const out: ShipperRow[] = rows.map((p) => {
+    const lvl = p.shipbob_inventory_id ? live.get(p.shipbob_inventory_id) : undefined;
+    const fulfillable = lvl ? lvl.fulfillable : null;
+    const rp = p.reorder_point ?? 0;
+    let status: PackStatus = 'unset';
+    if (fulfillable != null) {
+      if (fulfillable <= rp) status = 'order_now';
+      else if (fulfillable <= rp * 1.5) status = 'order_soon';
+      else status = 'ok';
+    }
+    return {
+      id: p.id, name: p.name, visy_code: p.visy_code, sku: p.sku,
+      min_order: p.min_order, reorder_point: p.reorder_point, inventory_id: p.shipbob_inventory_id ?? null,
+      fulfillable, onhand: lvl ? lvl.onhand : null, live: !!lvl, status,
+    };
+  });
+  // lowest cover first (order_now → order_soon → ok → unknown)
+  const sev = (s: PackStatus) => SEV[s];
+  return out.sort((a, b) => sev(b.status) - sev(a.status) || ((a.fulfillable ?? 1e9) - (b.fulfillable ?? 1e9)));
+}
+
 export async function getCustomPackaging(): Promise<CustomPack[]> {
-  const { data } = await supabaseLogistics.from('packaging').select('*').not('kind', 'in', '("pouch","srp")').eq('active', true).order('name');
+  const { data } = await supabaseLogistics.from('packaging').select('*').not('kind', 'in', '("pouch","srp","shipper")').eq('active', true).order('name');
   return (data ?? []).map((p: any): CustomPack => {
     const on_hand = p.manual_on_hand ?? null;
     let status: PackStatus = 'unset';

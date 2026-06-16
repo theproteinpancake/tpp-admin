@@ -1,5 +1,5 @@
 import { Boxes, Package2, Mail, AlertTriangle } from 'lucide-react';
-import { getPouchTracking, getSrpTracking, getCustomPackaging, PACK_STATUS_META } from '@/lib/packaging';
+import { getPouchTracking, getSrpTracking, getShipperTracking, getCustomPackaging, PACK_STATUS_META } from '@/lib/packaging';
 import { flavourColor } from '@/lib/flavours';
 import { setPouchBaseline, deletePackaging } from '@/lib/packagingActions';
 import CustomPackagingForm from '@/components/packaging/CustomPackagingForm';
@@ -14,8 +14,9 @@ function Pill({ status }: { status: keyof typeof PACK_STATUS_META }) {
 const fmt = (n: number | null) => (n == null ? '—' : n.toLocaleString('en-AU'));
 
 export default async function PackagingPage() {
-  const [pouches, srp, custom] = await Promise.all([getPouchTracking(), getSrpTracking(), getCustomPackaging()]);
+  const [pouches, srp, shippers, custom] = await Promise.all([getPouchTracking(), getSrpTracking(), getShipperTracking(), getCustomPackaging()]);
   const srpAlerts = srp.filter((s) => s.status === 'order_now' || s.status === 'order_soon').length;
+  const shipperAlerts = shippers.filter((s) => s.status === 'order_now' || s.status === 'order_soon').length;
   const pouchAlerts = pouches.filter((p) => p.status === 'order_now' || p.status === 'order_soon').length;
   const pouchSet = pouches.filter((p) => p.baseline_qty != null).length;
   const customAlerts = custom.filter((c) => c.status === 'order_now' || c.status === 'order_soon').length;
@@ -30,19 +31,19 @@ export default async function PackagingPage() {
       {/* Summary */}
       <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
-          <p className="text-sm font-semibold text-caramel">Pouch SKUs tracked</p>
-          <div className="mt-2 text-2xl font-bold text-caramel">{pouchSet}<span className="text-sm font-normal text-gray-400"> / {pouches.length}</span></div>
-          <p className="text-xs text-gray-400">baselines entered</p>
-        </div>
-        <div className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
           <p className="text-sm font-semibold text-caramel">Pouches to reorder</p>
           <div className={`mt-2 text-2xl font-bold ${pouchAlerts ? 'text-red-600' : 'text-emerald-600'}`}>{pouchAlerts}</div>
-          <p className="text-xs text-gray-400">within lead time</p>
+          <p className="text-xs text-gray-400">{pouchSet}/{pouches.length} baselines · within lead time</p>
         </div>
         <div className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
           <p className="text-sm font-semibold text-caramel">SRP cartons to reorder</p>
           <div className={`mt-2 text-2xl font-bold ${srpAlerts ? 'text-red-600' : 'text-emerald-600'}`}>{srpAlerts}</div>
-          <p className="text-xs text-gray-400">shelf-ready for wholesale</p>
+          <p className="text-xs text-gray-400">shelf-ready · VISY → ABC</p>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
+          <p className="text-sm font-semibold text-caramel">Shipping cartons to reorder</p>
+          <div className={`mt-2 text-2xl font-bold ${shipperAlerts ? 'text-red-600' : 'text-emerald-600'}`}>{shipperAlerts}</div>
+          <p className="text-xs text-gray-400">live ShipBob · VISY → Altona</p>
         </div>
         <div className="rounded-xl border border-gray-200 bg-paper p-5 shadow-sm">
           <p className="text-sm font-semibold text-caramel">Custom packaging to reorder</p>
@@ -145,6 +146,42 @@ export default async function PackagingPage() {
               </tbody>
             </table>
           </div>
+        </section>
+      )}
+
+      {/* Shipping cartons at ShipBob Altona — live stock, ordered from VISY with a WRO label */}
+      {shippers.length > 0 && (
+        <section className="mb-10">
+          <div className="mb-3 flex items-center gap-2">
+            <Boxes className="h-5 w-5 text-caramel" />
+            <h2 className="text-lg font-semibold text-caramel">Shipping cartons (ShipBob Altona)</h2>
+          </div>
+          <p className="mb-3 text-xs text-gray-500">Custom shipping cartons held at ShipBob Altona — stock is live from ShipBob. Order from VISY via WhatsApp (&ldquo;order more PANSMALL&rdquo;); they ship to Altona with a WRO label on the pallet so ShipBob can receive them. MOQ 1,000 (increments of 1,000).</p>
+          <div className="overflow-x-auto rounded-xl border border-gray-200 bg-paper shadow-sm">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  {['Carton', 'VISY code', 'Fulfillable', 'On hand', 'Reorder pt', 'Std order', 'Status'].map((h) => (
+                    <th key={h} className="whitespace-nowrap px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {shippers.map((s) => (
+                  <tr key={s.id} className="hover:bg-cream/30">
+                    <td className="px-4 py-3 text-sm font-medium text-caramel">{s.name}</td>
+                    <td className="px-4 py-3 text-sm text-gray-500">{s.visy_code}</td>
+                    <td className="px-4 py-3 text-sm font-semibold text-caramel">{s.fulfillable != null ? fmt(s.fulfillable) : <span className="text-gray-300" title="ShipBob live count unavailable">—</span>}</td>
+                    <td className="px-4 py-3 text-sm text-gray-600">{fmt(s.onhand)}</td>
+                    <td className="px-4 py-3 text-sm text-gray-600">{fmt(s.reorder_point)}</td>
+                    <td className="px-4 py-3 text-sm text-gray-600">{fmt(s.min_order)}</td>
+                    <td className="px-4 py-3"><Pill status={s.status} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-2 text-[11px] text-gray-400">Reorder points are starting thresholds — tell me to tune any of them. Live ShipBob fulfillable count; &ldquo;—&rdquo; means ShipBob didn&apos;t return a level for that item.</p>
         </section>
       )}
 

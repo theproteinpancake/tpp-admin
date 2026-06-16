@@ -185,3 +185,23 @@ export async function getWRO(site: string, id: number): Promise<any> {
   if (!res.ok) throw new Error(`ShipBob get WRO failed: ${res.status}`);
   return res.json();
 }
+
+// Live fulfillable/on-hand for a set of inventory ids (e.g. shipping cartons at Altona).
+// Returns a map id → { fulfillable, onhand }; ids that error are simply absent.
+export async function getInventoryLevels(site: string, ids: number[]): Promise<Map<number, { fulfillable: number; onhand: number }>> {
+  const token = TOKENS[site];
+  const out = new Map<number, { fulfillable: number; onhand: number }>();
+  if (!token || !ids.length) return out;
+  await Promise.all(ids.map(async (id) => {
+    try {
+      const res = await fetch(`https://api.shipbob.com/1.0/inventory/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return;
+      const inv = await res.json();
+      out.set(id, {
+        fulfillable: Number(inv.total_fulfillable_quantity) || 0,
+        onhand: Number(inv.total_onhand_quantity) || 0,
+      });
+    } catch { /* skip ids that error */ }
+  }));
+  return out;
+}
