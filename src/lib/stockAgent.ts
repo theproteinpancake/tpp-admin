@@ -7,6 +7,7 @@ import { proposeFlavourPOs, proposeOneFlavour } from './poBuilder';
 import { draftWhatsAppPO, approveLatestWhatsAppDraft, sendLatestPOEmail } from './poActions';
 import { markPOReceived } from './poReconcile';
 import { findLatestDocket, parseDocket, createWROFromParsed, draftSharonReply } from './wroFlow';
+import { resolveVisyItem, draftVisyOrder } from './visyOrder';
 import { gmailSendDraft, gmailCreateDraft, gmailSearch, gmailGetBody, gmailGetAllAttachments } from './google';
 import { getLots, expiryStatus, EXPIRY_META } from './lots';
 import { getShippingData } from './shipping';
@@ -37,7 +38,7 @@ const MUTATING_TOOLS = new Set([
   'update_transfer_status', 'mark_po_received', 'create_wholesale_order', 'process_po_email',
   'send_influencer_gift', 'update_influencer_status', 'save_collab', 'update_collab',
   'mark_brief_done', 'set_restock_eta', 'update_logistics_brief_excludes',
-  'schedule_followup', 'cancel_followup', 'draft_po',
+  'schedule_followup', 'cancel_followup', 'draft_po', 'order_packaging',
 ]);
 
 const tools: Anthropic.Tool[] = [
@@ -145,6 +146,11 @@ const tools: Anthropic.Tool[] = [
     name: 'draft_transfer_email',
     description: 'Draft (NOT send) an email to Jordan at Maersk to start/progress a transfer, with links to the Commercial Invoice + Packing List. Show the user the draft; only send_email_draft when they explicitly approve.',
     input_schema: { type: 'object', properties: { reference: { type: 'string' } }, required: ['reference'] },
+  },
+  {
+    name: 'order_packaging',
+    description: "Draft (NOT send) a VISY packaging order to Amanda when we're low on SRP cartons or shipping cartons. Pass `item` as a flavour, pouch SKU (e.g. BMS), carton name, or VISY code; optionally `qty` (defaults to the item's standard order quantity, usually 1000 for SRP). SRP cartons deliver to ABC Blending (packing line — no WRO). ShipBob shipping cartons deliver to ShipBob Altona and a WRO label is generated for the pallet. Always show the user the drafted email + quantity + destination and only call send_email_draft once they approve.",
+    input_schema: { type: 'object', properties: { item: { type: 'string', description: 'flavour / pouch SKU / carton name / VISY code, e.g. "BMS", "Buttermilk SRP", "PANSMALL"' }, qty: { type: 'number', description: 'units to order (optional; defaults to the standard order qty)' } }, required: ['item'] },
   },
   {
     name: 'update_transfer_status',
@@ -812,6 +818,14 @@ Luke`;
       return await draftSharonReply(String(input.to), (input.docket_ref as string) || null, Number(input.wro_id));
     } catch (e) { return { error: String(e).slice(0, 160) }; }
   }
+  if (name === 'order_packaging') {
+    try {
+      const { item, candidates } = await resolveVisyItem(String(input.item || ''));
+      if (candidates) return { ambiguous: candidates.map((c) => ({ name: c.name, visy_code: c.visy_code, destination: c.destination })), note: 'Which one? Reply with the flavour or VISY code.' };
+      if (!item) return { error: `Couldn't find a VISY-orderable packaging item matching "${input.item}".` };
+      return await draftVisyOrder({ item, qty: input.qty != null ? Number(input.qty) : undefined });
+    } catch (e) { return { error: String(e).slice(0, 160) }; }
+  }
   if (name === 'send_email_draft') {
     try { await gmailSendDraft(String(input.draft_id)); return { sent: true }; }
     catch (e) { return { error: String(e).slice(0, 160) }; }
@@ -921,6 +935,8 @@ INFLUENCER GIFTING (wired): the user sends an influencer's details — usually S
 - update_influencer_status (order_processing→shipped→delivered→posted→completed); the user sets posted/completed, often via a screenshot of the post. get_influencers lists them.
 
 COLLABS: when the user describes a business collab/partnership (often a chat screenshot) — call save_collab (partner, handle, email, address, type, due_date, expecting_samples + qty, description). update_collab to mark samples received / completed. get_collabs lists them.
+
+PACKAGING ORDERS (VISY → Amanda): when we're low on SRP cartons or shipping cartons (the Packaging page flags these; Sharon's stock-takes feed the counts), the user orders empties from VISY. On "order more BMS [boxes/cartons/SRP]" or "we're low on Buttermilk SRP, order some" → call order_packaging(item, qty?). item can be a flavour, pouch SKU (BMS), carton name or VISY code; qty defaults to the standard order (usually 1000 for SRP) — only override if the user gives a number. It DRAFTS an email to Amanda and returns the draft (subject, body, destination, qty). ALWAYS show the user the destination + quantity + the email body and ask them to confirm; only call send_email_draft after they approve. DESTINATIONS differ: SRP cartons + ABC-line packaging go to ABC Blending (packing line, delivered as-is, NO WRO). ShipBob shipping cartons (PANSMALL etc.) go to ShipBob Altona and a WRO label is auto-generated + attached for the pallet — mention the WRO #/label in your summary. If order_packaging returns an "ambiguous" list, ask which item. If it returns "notes", relay them (e.g. missing VISY contact email, or WRO couldn't be made).
 `;
 
 const KATE_PREFACE = `YOU ARE MESSAGING KATE — TPP's wholesale & marketing manager (NOT the founder Luke). Address her as Kate; lead with wholesale + marketing. Wherever the instructions below say "the user", that's Kate.
@@ -937,6 +953,7 @@ const WHOLESALE_EXCLUDED_TOOLS = new Set([
   'suggest_transfer', 'create_transfer', 'update_transfer_status', 'send_transfer_docs', 'draft_transfer_email',
   'get_uk_pallet_contacts', 'check_docket', 'parse_docket', 'create_wro', 'draft_sharon_reply', 'send_email_draft',
   'mark_po_received', 'get_action_center', 'mark_brief_done', 'get_shipping_billing', 'update_logistics_brief_excludes',
+  'order_packaging',
 ]);
 export function toolsForRole(role: 'wholesale' | 'owner') {
   return role === 'wholesale' ? tools.filter((t) => !WHOLESALE_EXCLUDED_TOOLS.has(t.name)) : tools;
