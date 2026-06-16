@@ -210,6 +210,36 @@ export async function getShipperTracking(): Promise<ShipperRow[]> {
   return out.sort((a, b) => sev(b.status) - sev(a.status) || ((a.fulfillable ?? 1e9) - (b.fulfillable ?? 1e9)));
 }
 
+// Plain-English packaging snapshot for the WhatsApp agent: what ABC holds (empty pouches +
+// shelf-ready SRP cartons) vs what ShipBob Altona holds (shipping cartons, live). Clearly
+// labelled by location so the agent never confuses empties at ABC with finished goods at Altona.
+export async function getPackagingSummary() {
+  const [pouches, srp, shippers] = await Promise.all([getPouchTracking(), getSrpTracking(), getShipperTracking()]);
+  const tracked = pouches.filter((p) => p.baseline_qty != null);
+  const abc_empties = tracked.map((p) => ({
+    item: `${p.flavour} ${p.size}`, sku: p.sku,
+    empty_pouches_remaining: p.remaining,
+    srp_cartons_remaining: p.srp ? p.srp.boxes_remaining : null,   // 320g only (4 bags/carton)
+    packable_4packs_in_bags: p.srp ? p.srp.packable_bags : null,
+    carton_limited: p.srp?.binding ?? false,
+    status: p.status, days_cover: p.days_cover,
+  }));
+  const abc_srp_discontinued = srp.map((s) => ({ item: s.name.replace('SRP Box (small) — ', ''), cartons_remaining: s.remaining, note: 'discontinued 320g size — held, not drawn down' }));
+  const altona_shippers = shippers.map((s) => ({
+    carton: s.name, visy_code: s.visy_code, fulfillable: s.fulfillable, onhand: s.onhand, reorder_point: s.reorder_point, status: s.status, live: s.live,
+  }));
+  const reorder_now = [
+    ...abc_empties.filter((e) => e.status === 'order_now').map((e) => `${e.item} (ABC — ${e.carton_limited ? 'SRP cartons' : 'pouches'})`),
+    ...altona_shippers.filter((s) => s.status === 'order_now').map((s) => `${s.carton} (Altona shipping carton, ${s.fulfillable} left)`),
+  ];
+  return {
+    note: 'ABC holds EMPTY pouches + SRP cartons (used on the packing line). ShipBob Altona holds the shipping cartons. 320g sells only as 4-packs, so its usable count = min(pouches, SRP cartons × 4).',
+    abc_on_hand: { empty_pouches_and_srp_cartons: abc_empties, discontinued_srp: abc_srp_discontinued },
+    altona_shipping_cartons: altona_shippers,
+    reorder_now: reorder_now.length ? reorder_now : ['nothing urgent'],
+  };
+}
+
 export async function getCustomPackaging(): Promise<CustomPack[]> {
   const { data } = await supabaseLogistics.from('packaging').select('*').not('kind', 'in', '("pouch","srp","shipper")').eq('active', true).order('name');
   return (data ?? []).map((p: any): CustomPack => {

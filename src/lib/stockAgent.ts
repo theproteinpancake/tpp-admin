@@ -9,6 +9,7 @@ import { markPOReceived } from './poReconcile';
 import { findLatestDocket, parseDocket, createWROFromParsed, draftSharonReply } from './wroFlow';
 import { resolveVisyItem, draftVisyOrder } from './visyOrder';
 import { findContacts } from './contacts';
+import { getPackagingSummary } from './packaging';
 import { gmailSendDraft, gmailCreateDraft, gmailSearch, gmailGetBody, gmailGetAllAttachments } from './google';
 import { getLots, expiryStatus, EXPIRY_META } from './lots';
 import { getShippingData } from './shipping';
@@ -147,6 +148,11 @@ const tools: Anthropic.Tool[] = [
     name: 'draft_transfer_email',
     description: 'Draft (NOT send) an email to Jordan at Maersk to start/progress a transfer, with links to the Commercial Invoice + Packing List. Show the user the draft; only send_email_draft when they explicitly approve.',
     input_schema: { type: 'object', properties: { reference: { type: 'string' } }, required: ['reference'] },
+  },
+  {
+    name: 'get_packaging_stock',
+    description: "Our PACKAGING stock — empty pouches + shelf-ready SRP cartons that ABC holds (used on the packing line) and the shipping cartons ShipBob Altona holds (live). Use this for ANY packaging/carton/pouch/SRP question, 'how is our packaging looking', or 'what does ABC have on hand' (ABC holds EMPTIES, not finished product). This is the Packaging-page data. Do NOT use get_stock for packaging — that's finished goods.",
+    input_schema: { type: 'object', properties: {}, required: [] },
   },
   {
     name: 'find_contact',
@@ -420,8 +426,17 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
       const s = String(input.search).toLowerCase();
       rows = rows.filter((r) => (r.flavour || '').toLowerCase().includes(s) || r.sku.toLowerCase().includes(s));
     }
+    // Accessories/syrups have no `flavour` in the stock view — surface the real product NAME so
+    // the agent never guesses a name from the SKU letters (e.g. ACCS = The Scraper, not "Acai...").
+    const noFlavour = rows.filter((r) => !r.flavour).map((r) => r.sku);
+    const nameBySku = new Map<string, string>();
+    if (noFlavour.length) {
+      const { data: prods } = await supabaseLogistics.from('products').select('sku, name').in('sku', noFlavour);
+      for (const p of (prods ?? []) as any[]) if (p.name) nameBySku.set(p.sku, p.name);
+    }
     let out = rows.map((r) => ({
-      sku: r.sku, flavour: r.flavour, size: r.unit_size_g >= 1000 ? `${r.unit_size_g / 1000}kg` : `${r.unit_size_g}g`,
+      sku: r.sku, flavour: r.flavour || nameBySku.get(r.sku) || r.sku,
+      size: r.unit_size_g ? (r.unit_size_g >= 1000 ? `${r.unit_size_g / 1000}kg` : `${r.unit_size_g}g`) : '',
       tier: r.tier, site: r.location_code, on_hand: r.on_hand, available: r.available, inbound: r.inbound,
       days_of_cover: r.days_of_cover, daily_sales: r.avg_daily_units_30d, status: STATUS_META[computeStatus(r)].label,
     }));
@@ -824,6 +839,10 @@ Luke`;
       return await draftSharonReply(String(input.to), (input.docket_ref as string) || null, Number(input.wro_id));
     } catch (e) { return { error: String(e).slice(0, 160) }; }
   }
+  if (name === 'get_packaging_stock') {
+    try { return await getPackagingSummary(); }
+    catch (e) { return { error: String(e).slice(0, 160) }; }
+  }
   if (name === 'find_contact') {
     try {
       const cs = await findContacts(String(input.query || ''));
@@ -862,7 +881,8 @@ CRITICAL RULE — never say you can't do something logistics-related without FIR
 
 Your full toolkit:
 - get_action_center — the proactive cross-site priority list (transfers due, POs, packaging, expiry, billing). Lead with this for "what needs my attention" and when opening a proactive check-in; then offer to action the top items. It returns the items NUMBERED (and saves that numbering); when the user replies with numbers about them ("1, 3 done", "disregard 2 and 5", "8 — I provisioned Manildra so it's underway"), call mark_brief_done with those numbers + any note/decision so they clear and won't resurface. Confirm what you cleared. (Only treat a bare-number reply as this if you actually showed the numbered list recently.)
-- get_stock — live on-hand, available, days of cover, inbound, velocity, status, per SKU per site.
+- get_stock — live on-hand, available, days of cover, inbound, velocity, status, per SKU per site (FINISHED goods/syrup/accessories). NEVER invent a product name from its SKU letters — use the name/flavour the tool returns (ACCS=The Scraper, ACCP=The Pancake Pan, ACCF=The Flipper, TWM=The Waffle Maker); if a row's name is just the SKU, say the SKU, don't guess.
+- get_packaging_stock — our PACKAGING: empty pouches + shelf-ready SRP cartons ABC holds, and the shipping cartons ShipBob Altona holds (live). Use this for ANY packaging/pouch/SRP/carton question and for "what does ABC have on hand" — ABC holds EMPTIES (pouches + SRP cartons), NOT finished product. Don't answer packaging questions from get_stock. 320g is carton-limited when SRP cartons × 4 < pouches — call that out.
 - get_expiring_stock — batch/lot best-before dates, days left, soonest-expiring stock (BOTH sites). This covers ALL expiry / shortest-dated / batch / best-before questions.
 - get_purchase_orders — POs: supplier, status, expected date, outstanding units.
 - get_po_forecast — the 3-month rolling ABC order schedule (what to order each month). Use for "PO schedule / plan / what to order over the next months".
@@ -972,7 +992,7 @@ export function toolsForRole(role: 'wholesale' | 'owner') {
   return role === 'wholesale' ? tools.filter((t) => !WHOLESALE_EXCLUDED_TOOLS.has(t.name)) : tools;
 }
 
-const KATE_STOCK_BLURB = `STOCK & LOGISTICS (read-only for you): get_stock for live stock/cover per SKU per site; get_expiring_stock for best-before questions; get_purchase_orders / get_internal_transfers to answer "when is X back in stock / when does the UK pallet land" (use status_meaning — never say something has landed unless status is received); set_restock_eta when Luke/ABC confirm a restock date (it flows into OOS customer emails). Ordering stock, transfers, receiving and billing are Luke's — if asked, say you'll flag it with Luke rather than claiming you can't help.
+const KATE_STOCK_BLURB = `STOCK & LOGISTICS (read-only for you): get_stock for live stock/cover per SKU per site; get_packaging_stock for packaging (empty pouches + SRP cartons ABC holds, shipping cartons at Altona) — use it for any packaging/carton/SRP question; get_expiring_stock for best-before questions; get_purchase_orders / get_internal_transfers to answer "when is X back in stock / when does the UK pallet land" (use status_meaning — never say something has landed unless status is received); set_restock_eta when Luke/ABC confirm a restock date (it flows into OOS customer emails). Ordering stock, transfers, receiving and billing are Luke's — if asked, say you'll flag it with Luke rather than claiming you can't help.
 FOLLOW-UPS: schedule_followup / list_followups / cancel_followup for "remind me…" and your own promised check-backs.
 Voice: friendly, sharp, emoji-light. Lead with the answer. Use tools for every number.`;
 
