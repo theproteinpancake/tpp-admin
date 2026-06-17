@@ -128,5 +128,34 @@ export async function draftVisyOrder(opts: { item: VisyItem; qty?: number }): Pr
 
   if (!contact.email) notes.push("VISY contact email isn't set yet — the draft has no recipient. Set it in settings (config key `visy_contact`) or tell me Amanda's email.");
   const draft_id = await gmailCreateDraft(contact.email || '', subject, body, attachment);
+  // Record the order so the VISY scour can track its status as Amanda replies.
+  await supabaseLogistics.from('visy_orders').insert({
+    visy_code: item.visy_code, item: item.name, qty, destination: item.destination,
+    draft_id, wro_id: wro_id ?? null, subject, status: 'drafted',
+  }).then(() => {}, () => {});
   return { draft_id, to: contact.email || '(no recipient set)', subject, body, destination: item.destination, qty, visy_code: item.visy_code, wro_id, wro_attached, notes };
+}
+
+// When a VISY order draft is actually sent, flip it drafted → ordered (called from send_email_draft).
+export async function markVisyOrderSent(draftId: string): Promise<boolean> {
+  if (!draftId) return false;
+  const { data } = await supabaseLogistics.from('visy_orders')
+    .update({ status: 'ordered', sent_at: new Date().toISOString() })
+    .eq('draft_id', draftId).eq('status', 'drafted').select('id');
+  return !!(data && data.length);
+}
+
+export interface VisyOrderRow {
+  id: string; visy_code: string | null; item: string | null; qty: number | null; destination: string | null;
+  wro_id: number | null; status: string; eta: string | null; last_update: string | null;
+  last_email_at: string | null; ordered_at: string | null;
+}
+// Open/recent VISY orders for the agent ("what's the status of my VISY orders").
+export async function getVisyOrders(opts: { openOnly?: boolean } = {}): Promise<VisyOrderRow[]> {
+  let q = supabaseLogistics.from('visy_orders')
+    .select('id, visy_code, item, qty, destination, wro_id, status, eta, last_update, last_email_at, ordered_at')
+    .order('ordered_at', { ascending: false }).limit(40);
+  if (opts.openOnly) q = q.not('status', 'in', '("delivered","cancelled")');
+  const { data } = await q;
+  return (data ?? []) as VisyOrderRow[];
 }

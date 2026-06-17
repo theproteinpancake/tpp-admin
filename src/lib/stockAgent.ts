@@ -7,7 +7,7 @@ import { proposeFlavourPOs, proposeOneFlavour } from './poBuilder';
 import { draftWhatsAppPO, approveLatestWhatsAppDraft, sendLatestPOEmail } from './poActions';
 import { markPOReceived } from './poReconcile';
 import { findLatestDocket, parseDocket, createWROFromParsed, draftSharonReply } from './wroFlow';
-import { resolveVisyItem, draftVisyOrder } from './visyOrder';
+import { resolveVisyItem, draftVisyOrder, markVisyOrderSent, getVisyOrders } from './visyOrder';
 import { findContacts } from './contacts';
 import { getPackagingSummary } from './packaging';
 import { gmailSendDraft, gmailCreateDraft, gmailSearch, gmailGetBody, gmailGetAllAttachments } from './google';
@@ -153,6 +153,11 @@ const tools: Anthropic.Tool[] = [
     name: 'get_packaging_stock',
     description: "Our PACKAGING stock — empty pouches + shelf-ready SRP cartons that ABC holds (used on the packing line) and the shipping cartons ShipBob Altona holds (live). Use this for ANY packaging/carton/pouch/SRP question, 'how is our packaging looking', or 'what does ABC have on hand' (ABC holds EMPTIES, not finished product). This is the Packaging-page data. Do NOT use get_stock for packaging — that's finished goods.",
     input_schema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'get_visy_orders',
+    description: "List our VISY packaging orders and their live status (drafted → ordered → confirmed → dispatched → delivered, plus invoices/queries) — updated automatically by scanning Amanda's emails. Use for 'what's the status of my VISY orders', 'has the Buttermilk SRP shipped', 'any updates from VISY'. Pass open_only:true to hide delivered/cancelled.",
+    input_schema: { type: 'object', properties: { open_only: { type: 'boolean' } }, required: [] },
   },
   {
     name: 'find_contact',
@@ -843,6 +848,10 @@ Luke`;
     try { return await getPackagingSummary(); }
     catch (e) { return { error: String(e).slice(0, 160) }; }
   }
+  if (name === 'get_visy_orders') {
+    try { return await getVisyOrders({ openOnly: input.open_only === true }); }
+    catch (e) { return { error: String(e).slice(0, 160) }; }
+  }
   if (name === 'find_contact') {
     try {
       const cs = await findContacts(String(input.query || ''));
@@ -859,8 +868,12 @@ Luke`;
     } catch (e) { return { error: String(e).slice(0, 160) }; }
   }
   if (name === 'send_email_draft') {
-    try { await gmailSendDraft(String(input.draft_id)); return { sent: true }; }
-    catch (e) { return { error: String(e).slice(0, 160) }; }
+    try {
+      const draftId = String(input.draft_id);
+      await gmailSendDraft(draftId);
+      const visySent = await markVisyOrderSent(draftId).catch(() => false); // flip a VISY order drafted→ordered
+      return { sent: true, ...(visySent ? { visy_order: 'now tracking — I\'ll update you as VISY confirms/ships it' } : {}) };
+    } catch (e) { return { error: String(e).slice(0, 160) }; }
   }
   if (name === 'set_restock_eta') {
     if (!input.flavour) return { error: 'Which flavour?' };
@@ -969,7 +982,7 @@ INFLUENCER GIFTING (wired): the user sends an influencer's details — usually S
 
 COLLABS: when the user describes a business collab/partnership (often a chat screenshot) — call save_collab (partner, handle, email, address, type, due_date, expecting_samples + qty, description). update_collab to mark samples received / completed. get_collabs lists them.
 
-PACKAGING ORDERS (VISY → Amanda): when we're low on SRP cartons or shipping cartons (the Packaging page flags these; Sharon's stock-takes feed the counts), the user orders empties from VISY. On "order more BMS [boxes/cartons/SRP]" or "we're low on Buttermilk SRP, order some" → call order_packaging(item, qty?). item can be a flavour, pouch SKU (BMS), carton name or VISY code; qty defaults to the standard order (usually 1000 for SRP) — only override if the user gives a number. It DRAFTS an email to Amanda and returns the draft (subject, body, destination, qty). ALWAYS show the user the destination + quantity + the email body and ask them to confirm; only call send_email_draft after they approve. DESTINATIONS differ: SRP cartons + ABC-line packaging go to ABC Blending (packing line, delivered as-is, NO WRO). ShipBob shipping cartons (PANSMALL etc.) go to ShipBob Altona and a WRO label is auto-generated + attached for the pallet — mention the WRO #/label in your summary. If order_packaging returns an "ambiguous" list, ask which item. If it returns "notes", relay them (e.g. missing VISY contact email, or WRO couldn't be made).
+PACKAGING ORDERS (VISY → Amanda): when we're low on SRP cartons or shipping cartons (the Packaging page flags these; Sharon's stock-takes feed the counts), the user orders empties from VISY. On "order more BMS [boxes/cartons/SRP]" or "we're low on Buttermilk SRP, order some" → call order_packaging(item, qty?). item can be a flavour, pouch SKU (BMS), carton name or VISY code; qty defaults to the standard order (usually 1000 for SRP) — only override if the user gives a number. It DRAFTS an email to Amanda and returns the draft (subject, body, destination, qty). ALWAYS show the user the destination + quantity + the email body and ask them to confirm; only call send_email_draft after they approve. DESTINATIONS differ: SRP cartons + ABC-line packaging go to ABC Blending (packing line, delivered as-is, NO WRO). ShipBob shipping cartons (PANSMALL etc.) go to ShipBob Altona and a WRO label is auto-generated + attached for the pallet — mention the WRO #/label in your summary. If order_packaging returns an "ambiguous" list, ask which item. If it returns "notes", relay them (e.g. missing VISY contact email, or WRO couldn't be made). ORDER TRACKING: once a VISY order is sent it's tracked automatically — I scan Amanda's emails and advance each order (confirmed → dispatched → delivered) and flag invoices/queries, pinging you on changes. For "what's the status of my VISY orders / has the BMS shipped / any VISY updates" call get_visy_orders.
 `;
 
 const KATE_PREFACE = `YOU ARE MESSAGING KATE — TPP's wholesale & marketing manager (NOT the founder Luke). Address her as Kate; lead with wholesale + marketing. Wherever the instructions below say "the user", that's Kate.
@@ -986,7 +999,7 @@ const WHOLESALE_EXCLUDED_TOOLS = new Set([
   'suggest_transfer', 'create_transfer', 'update_transfer_status', 'send_transfer_docs', 'draft_transfer_email',
   'get_uk_pallet_contacts', 'check_docket', 'parse_docket', 'create_wro', 'draft_sharon_reply', 'send_email_draft',
   'mark_po_received', 'get_action_center', 'mark_brief_done', 'get_shipping_billing', 'update_logistics_brief_excludes',
-  'order_packaging',
+  'order_packaging', 'get_visy_orders',
 ]);
 export function toolsForRole(role: 'wholesale' | 'owner') {
   return role === 'wholesale' ? tools.filter((t) => !WHOLESALE_EXCLUDED_TOOLS.has(t.name)) : tools;

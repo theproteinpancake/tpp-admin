@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runScour } from '@/lib/gmailScour';
+import { runVisyScour } from '@/lib/visyScour';
 import { reconcilePOsFromWROs } from '@/lib/poReconcile';
 import { refreshInfluencerTracking } from '@/lib/marketing';
 import { recordJobRun } from '@/lib/settings';
@@ -23,7 +24,11 @@ async function handle(req: NextRequest) {
   let tracking: Awaited<ReturnType<typeof refreshInfluencerTracking>> | { error: string };
   try { tracking = await refreshInfluencerTracking(); }
   catch (e) { tracking = { error: String(e) }; }
-  return NextResponse.json({ ok: true, ...res, bills_synced: billsSynced, po_reconcile: reconcile, influencer_tracking: tracking });
+  // track VISY packaging orders from Amanda's emails (confirm → dispatch → deliver)
+  let visy: Awaited<ReturnType<typeof runVisyScour>> | { error: string };
+  try { visy = await runVisyScour(); }
+  catch (e) { visy = { error: String(e) }; }
+  return NextResponse.json({ ok: true, ...res, bills_synced: billsSynced, po_reconcile: reconcile, influencer_tracking: tracking, visy });
 }
 
 export const POST = handle;
