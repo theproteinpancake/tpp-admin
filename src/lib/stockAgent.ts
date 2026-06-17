@@ -385,7 +385,7 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: 'parse_docket',
-    description: 'Read & parse the docket PDF → SKUs, lots, best-before dates, qty, linked PO. Use messageId from check_docket. ALWAYS show the user the lots + best-befores and ask them to confirm before creating a WRO.',
+    description: 'Read & parse the docket PDF → SKUs, lots, best-before dates, qty, linked PO. Use messageId from check_docket. Call this ONCE to show the lots + best-befores and ask the user to confirm. Do NOT call it a second time — if the user has ALREADY confirmed (yes/correct/go ahead), skip straight to create_wro instead of re-parsing. Re-showing the same docket after a yes is a bug.',
     input_schema: { type: 'object', properties: { messageId: { type: 'string' } }, required: ['messageId'] },
   },
   {
@@ -829,8 +829,18 @@ Luke`;
     return d ?? { error: 'No recent ABC docket email found.' };
   }
   if (name === 'parse_docket') {
-    try { return await parseDocket(String(input.messageId)); }
-    catch (e) { return { error: String(e).slice(0, 160) }; }
+    try {
+      const parsed = await parseDocket(String(input.messageId));
+      // Pin the messageId + next step so a "yes" NEXT turn goes straight to create_wro instead of
+      // re-parsing and re-asking (the confirm-loop fix). WhatsApp history keeps text, not tool
+      // results, so without this the messageId is lost and the agent re-derives + re-prompts.
+      if (_phone && !(parsed as any)?.error) {
+        await recordProactiveContext(_phone,
+          `PENDING WRO CONFIRMATION — I just showed the user docket ${(parsed as any)?.docket_ref || ''} (messageId="${String(input.messageId)}") and asked them to confirm the lots/best-befores. If their NEXT message confirms (yes / correct / looks good / go ahead / create it), call create_wro with messageId="${String(input.messageId)}" IMMEDIATELY — do NOT call parse_docket again or re-show the same docket summary. Then offer draft_sharon_reply.`
+        ).catch(() => {});
+      }
+      return parsed;
+    } catch (e) { return { error: String(e).slice(0, 160) }; }
   }
   if (name === 'create_wro') {
     try {
@@ -925,8 +935,7 @@ Inbound accuracy (CRITICAL — don't hallucinate inbound): "inbound" = OPEN POs 
 
 Receiving (WRO) flow — TWO distinct steps, decided by the conversation so far:
 A) FIRST time the user mentions a docket/packing slip from Sharon/ABC: check_docket → parse_docket → show the parsed lines (LOT NUMBERS + BEST-BEFORE dates) and ask them to confirm. Then STOP and wait.
-B) When the user then CONFIRMS (e.g. "yes", "correct", "looks good", "go ahead", "create it") in reply to that confirmation request: DO NOT parse or re-show the docket again — go straight to create_wro. (Call check_docket first ONLY to get the messageId, then create_wro with it.) Report the WRO number, then offer the Sharon reply.
-Look at the recent conversation: if your previous message already showed the parsed docket and asked them to confirm, a "yes" means CREATE — never show the confirmation a second time or ask them to confirm the same docket twice.
+B) When the user then CONFIRMS (e.g. "yes", "correct", "looks good", "go ahead", "create it"): call create_wro NOW. If the conversation contains a "PENDING WRO CONFIRMATION" note, it has the exact messageId — use it: create_wro(messageId) straight away. (No pending note? call check_docket ONLY to get the messageId, then create_wro.) Report the WRO number, then offer the Sharon reply. NEVER call parse_docket or re-show the docket summary on a confirmation turn — re-displaying the same "say yes" prompt after they already said yes is the exact loop bug we must never do.
 Then offer to reply to Sharon: draft_sharon_reply → show the exact draft → send_email_draft only when they say send. Never create a WRO or send an email without explicit confirmation.
 
 Email drafts: when a draft_* tool returns a subject + body, show the user that EXACT subject and body verbatim (quote it as-is — never rewrite, embellish or summarise it) so what they approve is exactly what gets sent. Mention if a file is attached. Only send after explicit approval.
