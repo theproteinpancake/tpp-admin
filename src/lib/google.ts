@@ -295,15 +295,55 @@ export async function gmailSend(to: string, subject: string, body: string, opts:
   return sent.id;
 }
 
-// Send an existing draft.
-export async function gmailSendDraft(draftId: string): Promise<void> {
+// Send a draft, but VERIFY it's real: the draft must exist AND have a recipient (a To-less
+// draft "sends" as a silent no-op), and the response must confirm a SENT message. Returns the
+// sent message id + recipient so callers can report a grounded confirmation (never a false "sent").
+export async function gmailSendDraft(draftId: string): Promise<{ id: string; to: string }> {
   const token = await getGoogleToken();
   if (!token) throw new Error('Gmail not connected');
+  // pre-flight: the draft must still exist and actually have a recipient
+  const pre = await fetch(`${GMAIL}/drafts/${draftId}?format=metadata`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!pre.ok) throw new Error(`Draft not found (${pre.status}) — it was already sent or deleted, so nothing to send.`);
+  const draft = await pre.json();
+  const headers = (draft.message?.payload?.headers || []) as { name: string; value: string }[];
+  const to = (headers.find((h) => h.name?.toLowerCase() === 'to')?.value || '').trim();
+  if (!to) throw new Error('Draft has no recipient — refusing to send (this would be a silent no-op). Re-draft with a To address.');
+
   const res = await fetch(`${GMAIL}/drafts/send`, {
     method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ id: draftId }),
   });
   if (!res.ok) throw new Error(`Gmail send failed: ${res.status} ${await res.text()}`);
-  const sent = await res.json().catch(() => null);
-  await applyControlLabel(sent?.id);
+  const sent = await res.json();
+  if (!sent?.id || !(sent.labelIds || []).includes('SENT')) throw new Error('Send not confirmed — Gmail did not return a SENT message.');
+  await applyControlLabel(sent.id);
+  return { id: sent.id, to };
+}
+
+// Delete a draft by id (best-effort).
+export async function gmailDeleteDraft(draftId: string): Promise<boolean> {
+  const token = await getGoogleToken();
+  if (!token) return false;
+  const res = await fetch(`${GMAIL}/drafts/${draftId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+  return res.ok;
+}
+
+// Delete every existing draft whose Subject matches exactly — used to supersede prior un-sent
+// copies of the SAME order so duplicate drafts never pile up. Returns how many were removed.
+export async function gmailDeleteDraftsBySubject(subject: string): Promise<number> {
+  const token = await getGoogleToken();
+  if (!token) return 0;
+  const want = subject.trim().toLowerCase();
+  let deleted = 0;
+  try {
+    const list = await (await fetch(`${GMAIL}/drafts?maxResults=50`, { headers: { Authorization: `Bearer ${token}` } })).json();
+    for (const d of (list.drafts || []) as { id: string }[]) {
+      try {
+        const m = await (await fetch(`${GMAIL}/drafts/${d.id}?format=metadata`, { headers: { Authorization: `Bearer ${token}` } })).json();
+        const subj = ((m.message?.payload?.headers || []) as { name: string; value: string }[]).find((h) => h.name?.toLowerCase() === 'subject')?.value || '';
+        if (subj.trim().toLowerCase() === want) { if (await gmailDeleteDraft(d.id)) deleted++; }
+      } catch { /* skip */ }
+    }
+  } catch { /* listing failed — nothing deleted */ }
+  return deleted;
 }

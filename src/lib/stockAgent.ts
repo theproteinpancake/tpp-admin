@@ -400,7 +400,7 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: 'send_email_draft',
-    description: 'Send a Gmail draft. ONLY when the user explicitly approves sending (e.g. "send it to Sharon").',
+    description: 'Send a Gmail draft. ONLY when the user explicitly approves sending (e.g. "send it to Sharon"). Pass the draft_id from the SAME draft you just showed them (the most recent one) — never an older draft_id from earlier in the chat. It returns {sent:true, to, sent_message_id} on a CONFIRMED send, or {sent:false, error} if the draft was missing/had no recipient. NEVER tell the user it was sent unless you got sent:true — if sent:false, tell them it did NOT send and why.',
     input_schema: { type: 'object', properties: { draft_id: { type: 'string' } }, required: ['draft_id'] },
   },
   {
@@ -870,10 +870,10 @@ Luke`;
   if (name === 'send_email_draft') {
     try {
       const draftId = String(input.draft_id);
-      await gmailSendDraft(draftId);
+      const sent = await gmailSendDraft(draftId); // throws if the draft is gone or has no recipient
       const visySent = await markVisyOrderSent(draftId).catch(() => false); // flip a VISY order drafted→ordered
-      return { sent: true, ...(visySent ? { visy_order: 'now tracking — I\'ll update you as VISY confirms/ships it' } : {}) };
-    } catch (e) { return { error: String(e).slice(0, 160) }; }
+      return { sent: true, sent_message_id: sent.id, to: sent.to, ...(visySent ? { visy_order: 'now tracking — I\'ll update you as VISY confirms/ships it' } : {}) };
+    } catch (e) { return { sent: false, error: String(e).slice(0, 200) }; }
   }
   if (name === 'set_restock_eta') {
     if (!input.flavour) return { error: 'Which flavour?' };

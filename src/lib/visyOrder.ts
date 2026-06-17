@@ -3,7 +3,7 @@
 //  ShipBob shipping cartons → email to Amanda, deliver to ShipBob Altona WITH a WRO label on
 //  the pallet (so ShipBob can receive it). The agent drafts; Luke approves; then send_email_draft.
 import { supabaseLogistics } from './supabase-logistics';
-import { gmailCreateDraft } from './google';
+import { gmailCreateDraft, gmailDeleteDraftsBySubject } from './google';
 import { getConfig } from './settings';
 import { createWRO, getWROLabels } from './shipbob';
 import { deliveryBlock, VISY_SIGNATURE } from './visyConstants';
@@ -127,6 +127,13 @@ export async function draftVisyOrder(opts: { item: VisyItem; qty?: number }): Pr
   ].join('\n');
 
   if (!contact.email) notes.push("VISY contact email isn't set yet — the draft has no recipient. Set it in settings (config key `visy_contact`) or tell me Amanda's email.");
+  // Supersede any earlier un-sent copy of THIS order so duplicate drafts never pile up
+  // (a stale duplicate is what caused a no-op "send" before). Then mark stale DB rows cancelled.
+  const supersededDrafts = await gmailDeleteDraftsBySubject(subject).catch(() => 0);
+  if (supersededDrafts) {
+    await supabaseLogistics.from('visy_orders').update({ status: 'cancelled' }).eq('subject', subject).eq('status', 'drafted').then(() => {}, () => {});
+    notes.push(`Replaced ${supersededDrafts} earlier un-sent draft${supersededDrafts > 1 ? 's' : ''} for this order so there's only one to send.`);
+  }
   const draft_id = await gmailCreateDraft(contact.email || '', subject, body, attachment);
   // Record the order so the VISY scour can track its status as Amanda replies.
   await supabaseLogistics.from('visy_orders').insert({
