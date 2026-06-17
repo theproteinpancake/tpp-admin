@@ -24,10 +24,17 @@ export interface VisyItem {
   linked_sku: string | null; linked_flavour: string | null;
 }
 
-// Resolve a VISY-orderable item from free text (flavour, pouch SKU, carton name, or VISY code).
-// Returns the single match, or a list of candidates when ambiguous.
+// Words that describe packaging in general but don't identify WHICH item — stripped before matching
+// so "the BMS SRP cartons", "Buttermilk boxes", "order more PANSMALL shippers" all resolve.
+const FILLER = new Set(['srp', 'carton', 'cartons', 'box', 'boxes', 'pouch', 'pouches', 'shipper', 'shippers',
+  'shipping', 'wholesale', 'empty', 'empties', 'the', 'a', 'an', 'for', 'our', 'of', 'unit', 'units', 'please',
+  'more', 'some', 'order', 'orders', 'visy', 'to', 'from', 'send', 'get', 'and', 'my', 'we', 'are', 'on', 'stock']);
+const toks = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9#/ ]/g, ' ').split(/\s+/).filter(Boolean);
+
+// Resolve a VISY-orderable item from free text — robust to natural phrasing (flavour, pouch SKU,
+// carton name, VISY code, with or without "SRP"/"cartons"/etc.). Single match, or candidates if tied.
 export async function resolveVisyItem(query: string): Promise<{ item?: VisyItem; candidates?: VisyItem[] }> {
-  const q = query.trim().toLowerCase();
+  const raw = query.trim().toLowerCase();
   const { data } = await supabaseLogistics.from('packaging')
     .select('*, linked:linked_product_id(sku, flavour)')
     .not('visy_code', 'is', null).eq('active', true);
@@ -37,17 +44,32 @@ export async function resolveVisyItem(query: string): Promise<{ item?: VisyItem;
     baseline_qty: p.baseline_qty, shipbob_inventory_id: p.shipbob_inventory_id ?? null,
     linked_sku: p.linked?.sku ?? null, linked_flavour: p.linked?.flavour ?? null,
   }));
-  // 1) exact VISY code or pouch/carton SKU or linked SKU
+
+  // 1) exact VISY code / carton SKU / linked pouch SKU (e.g. "PANSMALL", "VP54448", "BMS")
   const exact = items.find((i) =>
-    i.visy_code?.toLowerCase() === q || i.sku?.toLowerCase() === q || i.linked_sku?.toLowerCase() === q);
+    [i.visy_code, i.sku, i.linked_sku].some((x) => x && x.toLowerCase() === raw));
   if (exact) return { item: exact };
-  // 2) substring on flavour / name / sku / linked sku
-  const matches = items.filter((i) =>
-    [i.linked_flavour, i.name, i.sku, i.linked_sku, i.visy_code].filter(Boolean)
-      .some((s) => String(s).toLowerCase().includes(q)));
-  if (matches.length === 1) return { item: matches[0] };
-  if (matches.length > 1) return { candidates: matches };
-  return {};
+
+  // 2) meaningful tokens only (strip the "srp/cartons/order/the…" noise)
+  const qTokens = toks(query).filter((t) => !FILLER.has(t));
+  if (!qTokens.length) return {};
+  const qPhrase = qTokens.join(' ');
+
+  // exact flavour-phrase match wins outright ("buttermilk" → Buttermilk, not GF Buttermilk)
+  const flavExact = items.filter((i) => (i.linked_flavour || '').toLowerCase() === qPhrase);
+  if (flavExact.length === 1) return { item: flavExact[0] };
+
+  // 3) score by token overlap across flavour / name / sku / code
+  const scored = items.map((i) => {
+    const hay = new Set(toks(`${i.linked_flavour || ''} ${i.name || ''} ${i.sku || ''} ${i.linked_sku || ''} ${i.visy_code || ''}`));
+    let score = qTokens.filter((t) => hay.has(t)).length;
+    if ((i.linked_flavour || '').toLowerCase() === qPhrase) score += 5;
+    return { i, score };
+  }).filter((x) => x.score > 0).sort((a, b) => b.score - a.score);
+  if (!scored.length) return {};
+  const top = scored[0].score;
+  const best = scored.filter((x) => x.score === top).map((x) => x.i);
+  return best.length === 1 ? { item: best[0] } : { candidates: best };
 }
 
 export interface VisyDraft {
