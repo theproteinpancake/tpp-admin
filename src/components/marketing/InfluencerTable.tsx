@@ -49,17 +49,20 @@ function Cell({ id, field, value, options, colors }: { id: string; field: string
   );
 }
 
-function Notes({ id, value }: { id: string; value: string }) {
+// Inline-editable free-text field (notes, handle, email) — saves on blur.
+function EditText({ id, field, value, placeholder, className }: { id: string; field: string; value: string; placeholder: string; className?: string }) {
   const [val, setVal] = useState(value);
   const [dirty, setDirty] = useState(false);
+  const router = useRouter();
   const save = async () => {
     if (!dirty) return;
-    await fetch('/api/marketing/influencer', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, field: 'notes', value: val }) });
+    await fetch('/api/marketing/influencer', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, field, value: val.trim() || null }) });
     setDirty(false);
+    router.refresh();
   };
   return (
     <input value={val} onChange={(e) => { setVal(e.target.value); setDirty(true); }} onBlur={save}
-      placeholder="add note…" className="w-full rounded border border-transparent bg-transparent px-1 py-1 text-xs text-gray-600 hover:border-gray-200 focus:border-caramel focus:outline-none" />
+      placeholder={placeholder} className={className || 'w-full rounded border border-transparent bg-transparent px-1 py-1 text-xs text-gray-600 hover:border-gray-200 focus:border-caramel focus:outline-none'} />
   );
 }
 
@@ -167,7 +170,12 @@ export default function InfluencerTable({ influencers }: { influencers: Inf[] })
               {g.rows.map((i) => (
                 <tr key={i.id} className="border-b border-gray-50 align-top hover:bg-cream/20">
                   <td className="px-3 py-2 font-medium text-caramel">{i.name}{i.followers ? <span className="block text-[10px] text-gray-400">{i.followers.toLocaleString()} followers</span> : ''}</td>
-                  <td className="px-3 py-2 text-gray-500">{i.handle ? <a className="text-blue-600 hover:underline" href={`https://instagram.com/${(i.handle || '').replace('@', '')}`} target="_blank">{i.handle}</a> : '—'}</td>
+                  <td className="px-3 py-2 text-gray-500">
+                    <div className="flex items-center gap-1">
+                      <EditText id={i.id} field="handle" value={i.handle || ''} placeholder="add handle…" className="w-28 rounded border border-transparent bg-transparent px-1 py-1 text-xs text-blue-600 placeholder:text-gray-300 hover:border-gray-200 focus:border-caramel focus:outline-none" />
+                      {i.handle && <a href={`https://instagram.com/${i.handle.replace('@', '')}`} target="_blank" title="open Instagram"><ExternalLink className="h-3 w-3 shrink-0 text-gray-400 hover:text-blue-600" /></a>}
+                    </div>
+                  </td>
                   <td className="max-w-[180px] truncate px-3 py-2 text-xs">{i.email ? <a className="text-blue-600 hover:underline" href={`mailto:${i.email}`} title={i.email}>{i.email}</a> : <span className="text-gray-300">—</span>}</td>
                   <td className="px-3 py-2 text-xs text-gray-600">{i.flavour_sent || '—'}</td>
                   <td className="px-3 py-2 text-gray-400">{fmtDate(i.date_initiated)}</td>
@@ -175,7 +183,7 @@ export default function InfluencerTable({ influencers }: { influencers: Inf[] })
                   <td className="px-3 py-2"><Cell id={i.id} field="post_type" value={POST.includes(i.post_type || '') ? (i.post_type as string) : 'None'} options={POST.map((p) => ({ v: p, label: p }))} colors={POST_COLOR} /></td>
                   <td className="px-3 py-2 text-xs text-gray-600" title={i.parcel_cost != null ? `COGS ${ccy(i.cost_cogs, i.cost_currency)} + fulfilment ${ccy(i.cost_fulfilment, i.cost_currency)}` : ''}>{ccy(i.parcel_cost, i.cost_currency)}</td>
                   <td className="px-3 py-2 text-xs">{i.tracking_url ? <a href={i.tracking_url} target="_blank" className="inline-flex items-center gap-1 text-blue-600 hover:underline">{i.tracking_number || 'track'}<ExternalLink className="h-3 w-3" /></a> : (i.tracking_number || '—')}</td>
-                  <td className="px-3 py-2"><Notes id={i.id} value={i.notes || ''} /></td>
+                  <td className="px-3 py-2"><EditText id={i.id} field="notes" value={i.notes || ''} placeholder="add note…" /></td>
                   <td className="sticky right-0 bg-paper/95 px-2 py-2 backdrop-blur-sm"><DeleteBtn id={i.id} name={i.name} /></td>
                 </tr>
               ))}

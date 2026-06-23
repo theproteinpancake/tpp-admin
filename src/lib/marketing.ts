@@ -1,6 +1,20 @@
 // Marketing: influencer gifting (ShipBob B2C) + collab tracking.
 import { supabaseLogistics } from './supabase-logistics';
-import { createB2COrder, getOrderTracking, type B2CRecipient } from './shipbob';
+import { createB2COrder, getOrderTracking, getInventoryLevels, type B2CRecipient } from './shipbob';
+
+// LIVE ShipBob fulfillable for a SKU at a site (not the once-a-day v_stock_current snapshot).
+// Returns null only if we can't resolve the inventory id / ShipBob doesn't answer.
+export async function liveAvailable(site: string, sku: string): Promise<number | null> {
+  const { data } = await supabaseLogistics
+    .from('products').select('id, product_locations(shipbob_inventory_id, active, location:location_id(code))')
+    .eq('sku', sku).maybeSingle();
+  const locs = ((data as any)?.product_locations ?? []) as any[];
+  const inv = locs.find((l) => l.active && (l.location?.code || '').toUpperCase() === site.toUpperCase())?.shipbob_inventory_id;
+  if (!inv) return null;
+  const levels = await getInventoryLevels(site, [Number(inv)]).catch(() => new Map());
+  const lvl = levels.get(Number(inv));
+  return lvl ? lvl.fulfillable : null;
+}
 
 export const INFLUENCER_STATUSES = ['order_processing', 'shipped', 'delivered', 'completed'] as const;
 export const COLLAB_STATUSES = ['planned', 'samples_incoming', 'active', 'completed', 'cancelled'] as const;
@@ -48,8 +62,26 @@ export interface GiftInput {
 
 // Create the ShipBob gifting order AND save the influencer to the dashboard.
 export async function sendInfluencerGift(input: GiftInput):
-  Promise<{ ok: true; order_id: number; summary: string; box: string; sku: string } | { oos: true; sku: string; label: string; available: number; site: string; note: string } | { error: string }> {
+  Promise<{ ok: true; order_id: number; summary: string; box: string; sku: string } | { needs: string[]; note: string } | { oos: true; sku: string; label: string; available: number; site: string; note: string } | { error: string }> {
   const qty = input.qty && input.qty > 0 ? input.qty : 1;
+
+  // FINAL VALIDATION — never create a ShipBob order or influencer record with missing fields.
+  // (ShipBob silently rejects addresses with no state/postcode; a missing handle was creating
+  // half-formed creator records.) Collect everything missing and ask Kate before doing anything.
+  const needs: string[] = [];
+  if (!input.name?.trim()) needs.push('name');
+  if (!input.address1?.trim()) needs.push('street address');
+  if (!input.city?.trim()) needs.push('city/suburb');
+  if (!input.state?.trim()) needs.push('state (e.g. NSW)');
+  if (!input.zip_code?.trim()) needs.push('postcode');
+  if (!input.country?.trim()) needs.push('country');
+  if (!input.flavour?.trim()) needs.push('flavour');
+  if (!input.size_g) needs.push('size');
+  if (!input.handle?.trim() && !input.force) needs.push('Instagram handle');
+  if (needs.length) {
+    return { needs, note: `Can't send yet — missing ${needs.join(', ')}. Ask Kate for ${needs.length > 1 ? 'these' : 'this'} before creating anything. (If the creator genuinely has no Instagram handle, Kate can say "no handle, send anyway" and you call again with force:true.)` };
+  }
+
   // site: explicit override, else inferred from the address country (AU/NZ→Altona,
   // UK→Manchester). Other countries must be specified.
   const site = (input.site || siteFromCountry(input.country) || '').toUpperCase();
@@ -57,15 +89,21 @@ export async function sendInfluencerGift(input: GiftInput):
   const prod = await resolveSku(input.flavour, input.size_g);
   if (!prod) return { error: `Couldn't match "${input.flavour} ${input.size_g}g" to a product SKU.` };
 
-  // Stock check — don't silently create a backorder. If OOS, return for Kate's call.
+  // Stock check — LIVE from ShipBob (not the daily snapshot), so a fresh restock is seen
+  // immediately. Falls back to the snapshot only if ShipBob can't be reached. If OOS, return
+  // for Kate's call AND echo the creator details so a "swap flavour" reuses them (no re-asking).
   if (!input.force) {
-    const { data: stock } = await supabaseLogistics.from('v_stock_current')
-      .select('available').eq('location_code', site).eq('sku', prod.sku).maybeSingle();
-    const available = Number((stock as any)?.available ?? 0);
+    let available = await liveAvailable(site, prod.sku);
+    if (available == null) {
+      const { data: stock } = await supabaseLogistics.from('v_stock_current')
+        .select('available').eq('location_code', site).eq('sku', prod.sku).maybeSingle();
+      available = Number((stock as any)?.available ?? 0);
+    }
     if (available < qty) {
       const sz = input.size_g >= 1000 ? `${input.size_g / 1000}kg` : `${input.size_g}g`;
+      const who = `${input.name}${input.handle ? ` (${input.handle})` : ''} — ${[input.address1, input.city, input.state, input.zip_code, input.country].filter(Boolean).join(', ')}${input.email ? `, ${input.email}` : ''}`;
       return { oos: true, sku: prod.sku, label: prod.label, available, site,
-        note: `${prod.label} is OUT OF STOCK at ${site} (${available} available). Ask Kate: (1) load it anyway — it'll sit as a backorder and auto-fulfil once restocked, or (2) swap to another ${sz} flavour. Then call send_influencer_gift again with force:true (to proceed) or the new flavour (to swap).` };
+        note: `${prod.label} is OUT OF STOCK at ${site} (live: ${available} available). KEEP THESE CREATOR DETAILS for this gift — do NOT re-ask for them: ${who}. Ask Kate: (1) load it anyway — backorder, auto-fulfils on restock, or (2) swap to another ${sz} flavour. Then call send_influencer_gift again with the SAME creator details + force:true (to proceed) OR the new flavour (to swap).` };
     }
   }
 

@@ -67,6 +67,6 @@ export async function POST(req: NextRequest) {
     }
   });
 
-  // Images (vision + possible order) and heavy tasks get a quick ack; fast reads don't.
-  return (mediaUrls.length > 0 || pdfUrls.length > 0 || SLOW.test(body)) ? reply('brb 👀') : empty();
+  // The full reply is sent from the async task above; no interim ack (Kate found "brb 👀" noisy).
+  return empty();
 }

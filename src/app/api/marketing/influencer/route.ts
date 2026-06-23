@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseLogistics } from '@/lib/supabase-logistics';
 
-const FIELDS = new Set(['status', 'post_type', 'region', 'notes', 'flavour_sent']);
+const FIELDS = new Set(['status', 'post_type', 'region', 'notes', 'flavour_sent', 'handle', 'email']);
 
 // Inline edits on the Influencers dashboard (dashboard-auth gated by middleware).
 export async function PATCH(req: NextRequest) {
