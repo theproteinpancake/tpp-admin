@@ -847,12 +847,23 @@ Luke`;
     try {
       const parsed = await parseDocket(String(input.messageId));
       const res = await createWROFromParsed(parsed);
-      return { ...res, docket_ref: parsed.docket_ref, po_ref: parsed.po_ref };
+      const note = (res as any).already_existed
+        ? `WRO ${res.wro_id} was ALREADY created for this docket/PO — not duplicated. Go straight to draft_sharon_reply with wro_id=${res.wro_id}.`
+        : `WRO ${res.wro_id} created. Offer to draft Sharon's reply (draft_sharon_reply, wro_id=${res.wro_id}).`;
+      return { ...res, docket_ref: parsed.docket_ref, po_ref: parsed.po_ref, note };
     } catch (e) { return { error: String(e).slice(0, 160) }; }
   }
   if (name === 'draft_sharon_reply') {
     try {
-      return await draftSharonReply(String(input.to), (input.docket_ref as string) || null, Number(input.wro_id));
+      const res = await draftSharonReply(String(input.to), (input.docket_ref as string) || null, Number(input.wro_id));
+      // Pin the draft_id so "send" NEXT turn sends THIS email — never re-runs create_wro (the WRO
+      // already exists; re-creating it 422s). WhatsApp history loses tool results between turns.
+      if (_phone && (res as any)?.draft_id) {
+        await recordProactiveContext(_phone,
+          `PENDING SHARON REPLY — I drafted the labels email to Sharon (draft_id="${(res as any).draft_id}", WRO ${input.wro_id} already created). If the user's NEXT message says send / yes / go, call send_email_draft with draft_id="${(res as any).draft_id}" IMMEDIATELY. Do NOT call create_wro again — that WRO already exists and re-creating it errors.`
+        ).catch(() => {});
+      }
+      return res;
     } catch (e) { return { error: String(e).slice(0, 160) }; }
   }
   if (name === 'get_packaging_stock') {
@@ -937,7 +948,7 @@ Inbound accuracy (CRITICAL — don't hallucinate inbound): "inbound" = OPEN POs 
 Receiving (WRO) flow — TWO distinct steps, decided by the conversation so far:
 A) FIRST time the user mentions a docket/packing slip from Sharon/ABC: check_docket → parse_docket → show the parsed lines (LOT NUMBERS + BEST-BEFORE dates) and ask them to confirm. Then STOP and wait.
 B) When the user then CONFIRMS (e.g. "yes", "correct", "looks good", "go ahead", "create it"): call create_wro NOW. If the conversation contains a "PENDING WRO CONFIRMATION" note, it has the exact messageId — use it: create_wro(messageId) straight away. (No pending note? call check_docket ONLY to get the messageId, then create_wro.) Report the WRO number, then offer the Sharon reply. NEVER call parse_docket or re-show the docket summary on a confirmation turn — re-displaying the same "say yes" prompt after they already said yes is the exact loop bug we must never do.
-Then offer to reply to Sharon: draft_sharon_reply → show the exact draft → send_email_draft only when they say send. Never create a WRO or send an email without explicit confirmation.
+Then offer to reply to Sharon: draft_sharon_reply → show the exact draft → send_email_draft only when they say send. After you've drafted Sharon's reply, a "send"/"yes"/"go" means call send_email_draft with that draft_id (the "PENDING SHARON REPLY" note has it) — the WRO is ALREADY created, so NEVER call create_wro again on a send (re-creating it errors 422 "PO reference already exists"). If create_wro ever returns already_existed, that's fine — the WRO exists; just proceed to draft/send Sharon's reply. Never create a WRO or send an email without explicit confirmation.
 
 Email drafts: when a draft_* tool returns a subject + body, show the user that EXACT subject and body verbatim (quote it as-is — never rewrite, embellish or summarise it) so what they approve is exactly what gets sent. Mention if a file is attached. Only send after explicit approval.
 

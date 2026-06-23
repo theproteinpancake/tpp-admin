@@ -61,6 +61,17 @@ Qty is units shipped. "Your Reference: NN" maps to po_ref "PO-00NN" (zero-pad to
 
 // Create the WRO in ShipBob (Altona), record lots, link the PO.
 export async function createWROFromParsed(parsed: ParsedDocket, site = 'ALTONA') {
+  // IDEMPOTENT: if this PO already has a WRO, return it instead of creating a duplicate.
+  // ShipBob rejects a repeated PO reference with a 422 ("PO reference already exists"), so the
+  // agent calling create_wro a second time (e.g. when the user says "send") must NOT blow up —
+  // the WRO is already made; just hand it back so the flow can proceed to Sharon's reply.
+  if (parsed.po_ref) {
+    const { data: existingPo } = await supabaseLogistics.from('purchase_orders')
+      .select('shipbob_wro_id, wro_status').eq('po_number', parsed.po_ref).maybeSingle();
+    if ((existingPo as any)?.shipbob_wro_id) {
+      return { wro_id: Number((existingPo as any).shipbob_wro_id), status: (existingPo as any).wro_status || 'AwaitingArrival', lines: parsed.lines.length, already_existed: true };
+    }
+  }
   const { data: loc } = await supabaseLogistics.from('locations').select('id').eq('code', site).single();
   const { data: pls } = await supabaseLogistics.from('product_locations')
     .select('shipbob_inventory_id, product_id, products(sku)').eq('location_id', loc!.id);
@@ -79,11 +90,23 @@ export async function createWROFromParsed(parsed: ParsedDocket, site = 'ALTONA')
   const tomorrow = new Date(Date.now() + 86400_000).toISOString().slice(0, 10);
   const expected_arrival_date = parsed.expected_date && parsed.expected_date > today ? parsed.expected_date : tomorrow;
 
-  const wro = await createWRO({
-    site, expected_arrival_date,
-    tracking_ref: parsed.docket_ref || 'ABC docket', purchase_order_number: parsed.po_ref || undefined,
-    package_type: 'Pallet', items,
-  });
+  let wro;
+  try {
+    wro = await createWRO({
+      site, expected_arrival_date,
+      tracking_ref: parsed.docket_ref || 'ABC docket', purchase_order_number: parsed.po_ref || undefined,
+      package_type: 'Pallet', items,
+    });
+  } catch (e) {
+    // Backstop: ShipBob says the PO reference already exists → a WRO was already made for it
+    // (but we didn't have it linked). Don't fail the flow; surface it as already-existing.
+    if (/already exists|unique value|422/i.test(String(e)) && parsed.po_ref) {
+      const { data: po } = await supabaseLogistics.from('purchase_orders').select('shipbob_wro_id, wro_status').eq('po_number', parsed.po_ref).maybeSingle();
+      if ((po as any)?.shipbob_wro_id) return { wro_id: Number((po as any).shipbob_wro_id), status: (po as any).wro_status || 'AwaitingArrival', lines: parsed.lines.length, already_existed: true };
+      throw new Error(`A WRO for PO ${parsed.po_ref} already exists at ShipBob — open Receiving in ShipBob to get its number, then I can draft Sharon's reply with the labels.`);
+    }
+    throw e;
+  }
 
   // record lots + link PO
   for (const l of parsed.lines) {
