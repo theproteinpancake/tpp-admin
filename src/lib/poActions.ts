@@ -6,9 +6,10 @@ import { gmailCreateDraft, gmailSendDraft } from './google';
 
 const APP_URL = process.env.PUBLIC_APP_URL || 'https://admin.theproteinpancake.co';
 
-// Where approved POs are emailed (ABC Blending). Overridable via env.
-const ABC_PO_TO = process.env.ABC_PO_TO || 'sharon.driscoll@abcblending.com.au';
-const ABC_PO_CC = process.env.ABC_PO_CC || 'stephen@abcblending.com.au';
+// Where ABC Blending emails go (POs AND WRO/labels replies — Sharon to, Stephen cc).
+// Single source of truth so no flow can mis-route to an unmonitored alias. Overridable via env.
+export const ABC_PO_TO = process.env.ABC_PO_TO || 'sharon.driscoll@abcblending.com.au';
+export const ABC_PO_CC = process.env.ABC_PO_CC || 'stephen@abcblending.com.au';
 const PO_SIGNATURE = 'Luke Rolls\nOwner | The Protein Pancake\nP: +61 0412 474 330\nE: luke@theproteinpancake.co';
 
 // Build the ABC PO email (To: Sharon, CC: Stephen, Xero PDF attached).

@@ -4,6 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { supabaseLogistics } from './supabase-logistics';
 import { gmailSearch, gmailGetPdfAttachment, gmailCreateDraft } from './google';
 import { createWRO, getWROLabels } from './shipbob';
+import { ABC_PO_TO, ABC_PO_CC } from './poActions';
 
 const MODEL = 'claude-sonnet-4-6';
 const ABC_QUERY = 'from:abcblending.com.au has:attachment newer_than:30d';
@@ -129,7 +130,12 @@ const SIGNATURE = 'Luke Rolls\nOwner | The Protein Pancake\nP: +61 0412 474 330\
 
 // Draft the reply to Sharon with the WRO box labels attached (does not send).
 // Returns the EXACT draft so the agent can show it verbatim before sending.
-export async function draftSharonReply(to: string, docketRef: string | null, wroId: number, site = 'ALTONA') {
+// ALWAYS goes to the canonical ABC address (Sharon to, Stephen cc) — NOT the docket sender,
+// which can be an unmonitored alias (a labels reply once went to sharon@ instead of
+// sharon.driscoll@ and stalled a shipment). The `to` arg is kept for signature compat but ignored.
+export async function draftSharonReply(_to: string, docketRef: string | null, wroId: number, site = 'ALTONA') {
+  const to = ABC_PO_TO;
+  const cc = ABC_PO_CC;
   const subject = 'Pallet labels';
   const body = `Hi Sharon,\n\nThanks for that. Labels attached!\n\n${SIGNATURE}`;
   let attached = false;
@@ -138,6 +144,6 @@ export async function draftSharonReply(to: string, docketRef: string | null, wro
     const labels = await getWROLabels(site, wroId);
     if (labels) { attachment = { filename: `WRO-${wroId}-labels.pdf`, base64: labels }; attached = true; }
   } catch { /* labels optional — draft still useful */ }
-  const draft_id = await gmailCreateDraft(to, subject, body, attachment);
-  return { draft_id, to, subject, body, attached };
+  const draft_id = await gmailCreateDraft(to, subject, body, attachment, cc);
+  return { draft_id, to, cc, subject, body, attached };
 }
