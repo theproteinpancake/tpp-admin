@@ -247,6 +247,16 @@ export async function POST(request: Request) {
     if (claudeError && hasAnthropicKey) console.warn('[Nutrition] Claude failed:', claudeError);
     if (geminiError && hasGeminiKey) console.warn('[Nutrition] Gemini failed:', geminiError);
 
+    // Surface WHY when nothing came back — "Both models failed" alone is undiagnosable.
+    if (!claudeResult && !geminiResult) {
+      const parts: string[] = [];
+      if (hasAnthropicKey) parts.push(`Claude: ${claudeError || 'no result'}`);
+      else parts.push('Claude: no ANTHROPIC_API_KEY');
+      if (hasGeminiKey) parts.push(`Gemini: ${geminiError || 'no result'}`);
+      else parts.push('Gemini: no GEMINI_API_KEY (expected — Claude is the primary)');
+      return NextResponse.json({ error: `Nutrition analysis failed — ${parts.join(' · ')}` }, { status: 502 });
+    }
+
     const { nutrition, method, confidence } = crossValidate(claudeResult, geminiResult);
 
     return NextResponse.json({
