@@ -744,22 +744,7 @@ export default function EditRecipePage() {
         sodium: Math.round(n.sodium),
       }));
 
-      const meta = result.meta;
-      const methodLabel = meta?.method === 'dual_model_average' ? 'Claude + Gemini (averaged)'
-        : meta?.method === 'claude_only' ? 'Claude only'
-        : meta?.method === 'gemini_only' ? 'Gemini only'
-        : 'AI';
-      const confidenceLabel = meta?.confidence === 'high' ? '✅ High confidence'
-        : meta?.confidence === 'medium' ? '⚠️ Medium confidence'
-        : '⚠️ Low confidence — review recommended';
-
-      const errors = [
-        meta?.claude_error ? `Claude: ${meta.claude_error}` : null,
-        meta?.gemini_error ? `Gemini: ${meta.gemini_error}` : null,
-      ].filter(Boolean);
-      const errorInfo = errors.length > 0 ? `\n\nModel errors:\n${errors.join('\n')}` : '';
-
-      alert(`Nutrition generated via ${methodLabel}\n${confidenceLabel}\n\nReview the values and save when ready.${errorInfo}`);
+      alert('Nutrition generated ✨\n\nReview the values and save when ready.');
     } catch (error) {
       console.error('Nutrition generation error:', error);
       alert(`Failed to generate nutrition: ${error instanceof Error ? error.message : 'Unknown error'}`);

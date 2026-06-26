@@ -27,7 +27,7 @@ const REQUIRED_FIELDS: (keyof NutritionResult)[] = [
 ];
 
 /**
- * Build the shared nutrition analysis prompt with TPP reference data
+ * Build the nutrition analysis prompt with TPP reference data.
  */
 function buildPrompt(title: string, servings: number, ingredientsList: string): string {
   const tppReference = getTPPReferenceContext();
@@ -54,230 +54,74 @@ CRITICAL RULES:
 5. Account for cooking method (e.g., oil/butter for frying adds fat).
 6. Be conservative and precise — do NOT overestimate calories.
 
-You MUST respond with ONLY a JSON object in this exact format, no other text:
-{
-  "calories": <number in kcal, whole number>,
-  "protein": <number in grams, 1 decimal>,
-  "fat": <number in grams, 1 decimal>,
-  "saturated_fat": <number in grams, 1 decimal>,
-  "carbs": <number in grams, 1 decimal>,
-  "sugars": <number in grams, 1 decimal>,
-  "fiber": <number in grams, 1 decimal>,
-  "sodium": <number in milligrams, whole number>
-}`;
+Respond with ONLY a JSON object in this exact shape (numbers only, no units, no other text):
+{"calories": <kcal whole number>, "protein": <g, 1 decimal>, "fat": <g, 1 decimal>, "saturated_fat": <g, 1 decimal>, "carbs": <g, 1 decimal>, "sugars": <g, 1 decimal>, "fiber": <g, 1 decimal>, "sodium": <mg whole number>}`;
 }
 
 /**
- * Parse a JSON nutrition result from model text output
+ * Parse + validate the nutrition JSON. Accepts the model's raw text (the call prefills the
+ * opening "{", so `text` is the continuation — we re-add it before extracting the object).
  */
 function parseNutritionJSON(text: string): NutritionResult {
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error('Could not parse nutrition JSON from response');
-  }
+  const candidate = `{${text}`;
+  const jsonMatch = candidate.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('no JSON object in response');
 
   const parsed = JSON.parse(jsonMatch[0]);
-
+  const result = {} as NutritionResult;
   for (const field of REQUIRED_FIELDS) {
-    if (typeof parsed[field] !== 'number') {
-      throw new Error(`Missing or invalid field: ${field}`);
-    }
+    const n = Number(parsed[field]);
+    if (!Number.isFinite(n)) throw new Error(`missing/invalid field: ${field}`);
+    result[field] = field === 'calories' || field === 'sodium' ? Math.round(n) : parseFloat(n.toFixed(1));
   }
-
-  return parsed as NutritionResult;
+  return result;
 }
 
 /**
- * Call Claude (Anthropic) for nutrition analysis
+ * Single-model nutrition analysis via Claude. Prefilling the assistant turn with "{" forces the
+ * model to emit pure JSON (no preamble/markdown), which is what previously broke the parse.
  */
 async function analyzeWithClaude(prompt: string): Promise<NutritionResult> {
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
   const message = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 500,
-    messages: [{ role: 'user', content: prompt }],
+    messages: [
+      { role: 'user', content: prompt },
+      { role: 'assistant', content: '{' }, // prefill → response continues valid JSON
+    ],
   });
-
-  const textContent = message.content.find(c => c.type === 'text');
-  if (!textContent || textContent.type !== 'text') {
-    throw new Error('No text response from Claude');
-  }
-
+  const textContent = message.content.find((c) => c.type === 'text');
+  if (!textContent || textContent.type !== 'text') throw new Error('no text response from Claude');
   return parseNutritionJSON(textContent.text);
-}
-
-/**
- * Call Gemini (Google) for nutrition analysis
- */
-async function analyzeWithGemini(prompt: string): Promise<NutritionResult> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('Gemini API key not configured');
-
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.1,    // Low temperature for consistency
-          maxOutputTokens: 500,
-        },
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Gemini API error (${response.status}): ${err}`);
-  }
-
-  const data = await response.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) {
-    throw new Error('No text response from Gemini');
-  }
-
-  return parseNutritionJSON(text);
-}
-
-/**
- * Cross-validate two nutrition results.
- * Returns a merged result that averages the values, with a confidence score.
- * If only one model succeeded, returns that result.
- */
-function crossValidate(
-  claudeResult: NutritionResult | null,
-  geminiResult: NutritionResult | null,
-): { nutrition: NutritionResult; method: string; confidence: string } {
-  // If only one model succeeded, return it
-  if (!claudeResult && !geminiResult) {
-    throw new Error('Both models failed to produce results');
-  }
-  if (!claudeResult) {
-    return { nutrition: geminiResult!, method: 'gemini_only', confidence: 'medium' };
-  }
-  if (!geminiResult) {
-    return { nutrition: claudeResult, method: 'claude_only', confidence: 'medium' };
-  }
-
-  // Both models succeeded — cross-validate and average
-  const averaged: NutritionResult = {
-    calories: 0, protein: 0, fat: 0, saturated_fat: 0,
-    carbs: 0, sugars: 0, fiber: 0, sodium: 0,
-  };
-
-  let maxDeviation = 0;
-
-  for (const field of REQUIRED_FIELDS) {
-    const cVal = claudeResult[field];
-    const gVal = geminiResult[field];
-    const avg = (cVal + gVal) / 2;
-
-    // Track how far apart they are (as % of average)
-    if (avg > 0) {
-      const deviation = Math.abs(cVal - gVal) / avg;
-      maxDeviation = Math.max(maxDeviation, deviation);
-    }
-
-    // Round appropriately
-    if (field === 'calories' || field === 'sodium') {
-      averaged[field] = Math.round(avg);
-    } else {
-      averaged[field] = parseFloat(avg.toFixed(1));
-    }
-  }
-
-  // Confidence based on how close the models agree
-  let confidence: string;
-  if (maxDeviation < 0.15) {
-    confidence = 'high';      // Models agree within 15%
-  } else if (maxDeviation < 0.30) {
-    confidence = 'medium';    // Models differ 15-30%
-  } else {
-    confidence = 'low';       // Models differ >30% — review recommended
-  }
-
-  return { nutrition: averaged, method: 'dual_model_average', confidence };
 }
 
 export async function POST(request: Request) {
   try {
-    const hasAnthropicKey = !!process.env.ANTHROPIC_API_KEY;
-    const hasGeminiKey = !!process.env.GEMINI_API_KEY;
-
-    if (!hasAnthropicKey && !hasGeminiKey) {
+    if (!process.env.ANTHROPIC_API_KEY) {
       return NextResponse.json(
-        { error: 'No AI API keys configured. Add ANTHROPIC_API_KEY and/or GEMINI_API_KEY to your environment variables.' },
-        { status: 500 }
+        { error: 'ANTHROPIC_API_KEY not configured. Add it to your environment variables.' },
+        { status: 500 },
       );
     }
 
     const { ingredients, servings, title } = await request.json();
-
     if (!ingredients || !Array.isArray(ingredients) || ingredients.length === 0) {
-      return NextResponse.json(
-        { error: 'No ingredients provided' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'No ingredients provided' }, { status: 400 });
     }
 
     const ingredientsList = (ingredients as IngredientInput[])
-      .filter(i => i.item.trim())
-      .map(i => `${i.amount} ${i.unit} ${i.item}${i.notes ? ` (${i.notes})` : ''}`)
+      .filter((i) => i.item.trim())
+      .map((i) => `${i.amount} ${i.unit} ${i.item}${i.notes ? ` (${i.notes})` : ''}`)
       .join('\n');
 
     const prompt = buildPrompt(title, servings, ingredientsList);
+    const nutrition = await analyzeWithClaude(prompt);
 
-    // Run both models in parallel for speed and cross-validation
-    const results = await Promise.allSettled([
-      hasAnthropicKey ? analyzeWithClaude(prompt) : Promise.reject(new Error('No Anthropic key')),
-      hasGeminiKey ? analyzeWithGemini(prompt) : Promise.reject(new Error('No Gemini key')),
-    ]);
-
-    const claudeResult = results[0].status === 'fulfilled' ? results[0].value : null;
-    const geminiResult = results[1].status === 'fulfilled' ? results[1].value : null;
-
-    // Capture any individual model failures (non-fatal)
-    const claudeError = results[0].status === 'rejected' ? (results[0] as PromiseRejectedResult).reason?.message : null;
-    const geminiError = results[1].status === 'rejected' ? (results[1] as PromiseRejectedResult).reason?.message : null;
-
-    if (claudeError && hasAnthropicKey) console.warn('[Nutrition] Claude failed:', claudeError);
-    if (geminiError && hasGeminiKey) console.warn('[Nutrition] Gemini failed:', geminiError);
-
-    // Surface WHY when nothing came back — "Both models failed" alone is undiagnosable.
-    if (!claudeResult && !geminiResult) {
-      const parts: string[] = [];
-      if (hasAnthropicKey) parts.push(`Claude: ${claudeError || 'no result'}`);
-      else parts.push('Claude: no ANTHROPIC_API_KEY');
-      if (hasGeminiKey) parts.push(`Gemini: ${geminiError || 'no result'}`);
-      else parts.push('Gemini: no GEMINI_API_KEY (expected — Claude is the primary)');
-      return NextResponse.json({ error: `Nutrition analysis failed — ${parts.join(' · ')}` }, { status: 502 });
-    }
-
-    const { nutrition, method, confidence } = crossValidate(claudeResult, geminiResult);
-
-    return NextResponse.json({
-      success: true,
-      nutrition,
-      meta: {
-        method,
-        confidence,
-        claude: claudeResult ? 'ok' : 'failed',
-        gemini: geminiResult ? 'ok' : 'failed',
-        ...(claudeError && { claude_error: claudeError }),
-        ...(geminiError && { gemini_error: geminiError }),
-      },
-    });
-
+    return NextResponse.json({ success: true, nutrition, meta: { method: 'claude', confidence: 'medium' } });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('[Nutrition Analysis] Error:', message);
-    return NextResponse.json(
-      { error: `Nutrition analysis failed: ${message}` },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: `Nutrition analysis failed: ${message}` }, { status: 502 });
   }
 }
