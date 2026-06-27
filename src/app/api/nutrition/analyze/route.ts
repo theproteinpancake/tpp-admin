@@ -26,6 +26,26 @@ const REQUIRED_FIELDS: (keyof NutritionResult)[] = [
   'calories', 'protein', 'fat', 'saturated_fat', 'carbs', 'sugars', 'fiber', 'sodium',
 ];
 
+// Forced tool call → guaranteed structured JSON from the model (no prose, no prefill, no parsing).
+const NUTRITION_TOOL: Anthropic.Tool = {
+  name: 'record_nutrition',
+  description: 'Record the calculated per-serving nutrition values for the recipe.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      calories: { type: 'number', description: 'kcal per serving, whole number' },
+      protein: { type: 'number', description: 'grams per serving' },
+      fat: { type: 'number', description: 'grams per serving' },
+      saturated_fat: { type: 'number', description: 'grams per serving' },
+      carbs: { type: 'number', description: 'grams per serving' },
+      sugars: { type: 'number', description: 'grams per serving' },
+      fiber: { type: 'number', description: 'grams per serving' },
+      sodium: { type: 'number', description: 'milligrams per serving, whole number' },
+    },
+    required: REQUIRED_FIELDS,
+  },
+};
+
 /**
  * Build the nutrition analysis prompt with TPP reference data.
  */
@@ -54,46 +74,33 @@ CRITICAL RULES:
 5. Account for cooking method (e.g., oil/butter for frying adds fat).
 6. Be conservative and precise — do NOT overestimate calories.
 
-Respond with ONLY a JSON object in this exact shape (numbers only, no units, no other text):
-{"calories": <kcal whole number>, "protein": <g, 1 decimal>, "fat": <g, 1 decimal>, "saturated_fat": <g, 1 decimal>, "carbs": <g, 1 decimal>, "sugars": <g, 1 decimal>, "fiber": <g, 1 decimal>, "sodium": <mg whole number>}`;
+Call the record_nutrition tool with the per-serving values (numbers only, no units).`;
 }
 
 /**
- * Parse + validate the nutrition JSON. Accepts the model's raw text (the call prefills the
- * opening "{", so `text` is the continuation — we re-add it before extracting the object).
- */
-function parseNutritionJSON(text: string): NutritionResult {
-  const candidate = `{${text}`;
-  const jsonMatch = candidate.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error('no JSON object in response');
-
-  const parsed = JSON.parse(jsonMatch[0]);
-  const result = {} as NutritionResult;
-  for (const field of REQUIRED_FIELDS) {
-    const n = Number(parsed[field]);
-    if (!Number.isFinite(n)) throw new Error(`missing/invalid field: ${field}`);
-    result[field] = field === 'calories' || field === 'sodium' ? Math.round(n) : parseFloat(n.toFixed(1));
-  }
-  return result;
-}
-
-/**
- * Single-model nutrition analysis via Claude. Prefilling the assistant turn with "{" forces the
- * model to emit pure JSON (no preamble/markdown), which is what previously broke the parse.
+ * Nutrition analysis via Claude using a forced tool call for reliable structured output.
  */
 async function analyzeWithClaude(prompt: string): Promise<NutritionResult> {
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   const message = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 500,
-    messages: [
-      { role: 'user', content: prompt },
-      { role: 'assistant', content: '{' }, // prefill → response continues valid JSON
-    ],
+    max_tokens: 1000,
+    tools: [NUTRITION_TOOL],
+    tool_choice: { type: 'tool', name: 'record_nutrition' },
+    messages: [{ role: 'user', content: prompt }],
   });
-  const textContent = message.content.find((c) => c.type === 'text');
-  if (!textContent || textContent.type !== 'text') throw new Error('no text response from Claude');
-  return parseNutritionJSON(textContent.text);
+
+  const toolUse = message.content.find((c) => c.type === 'tool_use');
+  if (!toolUse || toolUse.type !== 'tool_use') throw new Error('model did not return the nutrition tool call');
+
+  const input = toolUse.input as Record<string, unknown>;
+  const result = {} as NutritionResult;
+  for (const field of REQUIRED_FIELDS) {
+    const n = Number(input[field]);
+    if (!Number.isFinite(n)) throw new Error(`missing/invalid field: ${field}`);
+    result[field] = field === 'calories' || field === 'sodium' ? Math.round(n) : parseFloat(n.toFixed(1));
+  }
+  return result;
 }
 
 export async function POST(request: Request) {
