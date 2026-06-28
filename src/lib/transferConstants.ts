@@ -72,10 +72,13 @@ export const UK_PALLET = {
   productKgPerPallet: 468,
 };
 
-// Maersk freight contact (commercial-invoice recipient to start a transfer)
+// Maersk freight contact to START a transfer (quote & booking).
+// Viviana replaced Jordan Burnes, who moved on (Jun 2026). For stage-by-stage contacts
+// (export, BL, finance, UK arrival, customs, delivery) see the maersk_contact_map config /
+// get_uk_pallet_contacts.
 export const MAERSK = {
-  name: 'Jordan Burnes',
-  email: 'jordan.burnes@maersk.com',
+  name: 'Viviana Diaz',
+  email: 'viviana.diaz@maersk.com',
 };
 
 export const sizeLabel = (g: number | null | undefined) =>
