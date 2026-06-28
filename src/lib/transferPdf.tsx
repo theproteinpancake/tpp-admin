@@ -3,6 +3,7 @@
 import { Document, Page, View, Text, Image, StyleSheet, renderToBuffer } from '@react-pdf/renderer';
 import type { Transfer } from './transfers';
 import { TPP_LOGO } from './logo';
+import { TPP_SIGNATURE } from './signature';
 import {
   EXPORTER, IMPORTER, SHIPMENT_DEFAULTS, CUSTOMS_NOTES, declaredValue, originFor, hsFor, sizeLabel,
 } from './transferConstants';
@@ -43,6 +44,21 @@ const s = StyleSheet.create({
   sign: { marginTop: 18, flexDirection: 'row', justifyContent: 'space-between' },
   signLine: { borderTopWidth: 1, borderColor: INK, width: 180, marginTop: 24, paddingTop: 3, fontSize: 8 },
 });
+
+// Auto-signed + auto-dated signature block (Luke's signature image + today's date), so an
+// approved doc can send straight to Maersk with no manual signing step.
+function SignBlock({ label, detail }: { label: string; detail: string }) {
+  const today = fmtDate(new Date().toISOString().slice(0, 10));
+  return (
+    <View style={{ marginTop: 18 }}>
+      <Image src={TPP_SIGNATURE} style={{ width: 52, height: 54, marginLeft: 4 }} />
+      <View style={{ borderTopWidth: 1, borderColor: INK, width: 240, marginTop: 1, paddingTop: 3 }}>
+        <Text style={{ fontSize: 8 }}>{label}</Text>
+        <Text style={{ fontSize: 8, marginTop: 2 }}>{detail}   Date: {today}</Text>
+      </View>
+    </View>
+  );
+}
 
 function Head({ title }: { title: string }) {
   return (
@@ -151,10 +167,7 @@ function CommercialInvoiceDoc({ t }: { t: Transfer }) {
         <Text style={s.notesTitle}>Customs &amp; Import Notes</Text>
         {CUSTOMS_NOTES.map((n, i) => <Text key={i} style={s.note}>• {n}</Text>)}
 
-        <View style={s.sign}>
-          <Text style={s.signLine}>Signature (Exporter)</Text>
-          <Text style={s.signLine}>Name: Luke Rolls    Date: ____/____/____</Text>
-        </View>
+        <SignBlock label="Signature (Exporter)" detail="Name: Luke Rolls" />
       </Page>
     </Document>
   );
@@ -317,10 +330,7 @@ function CertificateOfOriginDoc({ t }: { t: Transfer }) {
         <Text style={ls.p}>PSR (product-specific rule, Annex 4B): non-originating materials undergo the required change in tariff classification in Australia. The Flipper is of Chinese origin and is not claimed under AU-UK FTA preference (UK MFN rate 0% for HS 4419.90).</Text>
         <Text style={ls.h2}>7. Declaration</Text>
         <Text style={ls.p}>I (the exporter) declare that the goods qualify as originating and the information is true and accurate. I assume responsibility for proving such representations and agree to maintain and present supporting documentation upon request or during a verification visit.</Text>
-        <View style={s.sign}>
-          <Text style={s.signLine}>Signature</Text>
-          <Text style={s.signLine}>Name: Luke Rolls   Position: Director   Date: __/__/____</Text>
-        </View>
+        <SignBlock label="Signature" detail="Name: Luke Rolls   Position: Director" />
       </Page>
     </Document>
   );
@@ -359,10 +369,7 @@ function SliDoc({ t, carrierForm }: { t: Transfer; carrierForm?: boolean }) {
         <Text style={ls.h2}>Charges &amp; Standing Instructions</Text>
         <Text style={ls.p}>Freight charges: PREPAID. Attached: Commercial Invoice · Certificate of Origin · Packing List. Pickup from 21-27 Marshall Court, Altona VIC 3018. Keep dry; non-DG; no temperature control.</Text>
         <Text style={ls.p}>DDP, door-to-door. On clearance PROCEED IMMEDIATELY with delivery — do NOT await further instruction. Clear under GB EORI {IMPORTER.eori}; claim AU–UK FTA preference (PSR — duty 0%); import VAT via PVA. Maersk authorised as indirect representative (letter attached). UK inland = zero. Deliver to: The Protein Pancake C/O ShipBob, Unit P6 Parklands, Heywood Distribution Park, OL10 2TT.</Text>
-        <View style={s.sign}>
-          <Text style={s.signLine}>Signature</Text>
-          <Text style={s.signLine}>Name: Luke Rolls   Company: Rolls Trading Trust t/a The Protein Pancake</Text>
-        </View>
+        <SignBlock label="Signature" detail="Name: Luke Rolls   Company: Rolls Trading Trust t/a The Protein Pancake" />
       </Page>
     </Document>
   );
@@ -374,7 +381,7 @@ function IndirectRepDoc({ t }: { t: Transfer }) {
       <Page size="A4" style={s.page}>
         <Head title="AUTHORISATION LETTER" />
         <Text style={ls.h2}>Indirect Representation — UK Import Customs Clearance</Text>
-        <Text style={ls.p}>Date: ____ / ____ / ______</Text>
+        <Text style={ls.p}>Date: {fmtDate(new Date().toISOString().slice(0, 10))}</Text>
         <Text style={ls.p}>To: Maersk Logistics and Services UK Ltd (Customs Services), as agent of Maersk A/S{'\n'}Unit 5, Wilders Way, East Midlands Gateway, Derby, DE74 2BB, United Kingdom</Text>
         <Text style={ls.p}>Dear Customs Team,</Text>
         <Text style={ls.p}>We, Rolls Trading Trust trading as The Protein Pancake (GB EORI {IMPORTER.eori}, VAT {IMPORTER.vat}), hereby authorise Maersk Logistics and Services UK Ltd, acting as agent of Maersk A/S, to act as our INDIRECT REPRESENTATIVE for the purpose of making import customs declarations on our behalf into the United Kingdom.</Text>
@@ -387,10 +394,7 @@ function IndirectRepDoc({ t }: { t: Transfer }) {
         ].map((n, i) => <Text key={i} style={ls.li}>• {n}</Text>)}
         <Text style={ls.p}>We confirm that the information provided to support these declarations is true, accurate and complete, and we accept liability for any customs debt arising. We understand that, under indirect representation, the representative is jointly and severally liable with us for such customs debt.</Text>
         <Text style={ls.p}>Yours faithfully,</Text>
-        <View style={s.sign}>
-          <Text style={s.signLine}>Signature</Text>
-          <Text style={s.signLine}>Name: Luke Rolls   Position: Director</Text>
-        </View>
+        <SignBlock label="Signature" detail="Name: Luke Rolls   Position: Director" />
         <Text style={[ls.p, { marginTop: 6 }]}>For and on behalf of Rolls Trading Trust t/a The Protein Pancake</Text>
       </Page>
     </Document>
