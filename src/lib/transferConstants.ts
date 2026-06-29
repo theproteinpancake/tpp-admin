@@ -44,6 +44,14 @@ export const UNIT_VALUE: Record<string, number> = {
 
 export const declaredValue = (sku: string, fallback?: number) => UNIT_VALUE[sku] ?? fallback ?? 0;
 
+// AUD → GBP for the commercial-invoice GBP column. Indicative (HMRC's published customs rate for
+// the period is the one that legally applies); matches the rate used on INTERNAL2.
+export const AUD_TO_GBP = 0.527;
+
+// UK import VAT rate by SKU: only The Flipper (wooden tool, HS 4419.90) is standard-rated 20%;
+// all food (mix/syrup) is zero-rated (VATZ).
+export const vatRateFor = (sku: string) => (sku === 'ACCF' ? 0.20 : 0);
+
 // Country of origin: most products AU; The Flipper (wooden tool) is CN.
 export const originFor = (sku: string) => (sku === 'ACCF' ? 'CN' : 'AU');
 export const hsFor = (category: string, sku: string) =>
@@ -52,7 +60,7 @@ export const hsFor = (category: string, sku: string) =>
 export const CUSTOMS_NOTES = [
   'Declaration of Origin — UK–Australia FTA (A-UKFTA): Protein Pancake Mix (HS 1901.20) and Sugar Free Maple Flavoured Syrup (HS 2106.90) are of Australian preferential origin (PSR — product-specific rule). The Flipper (HS 4419.90) is of Chinese origin and is NOT claimed under AU-UK FTA preference.',
   'Y930 — Exempt from veterinary controls under Decision 2007/275/EC (composite shelf-stable product, <50% dairy). No health certificate or IPAFFS notification required.',
-  'VATZ — Food products zero-rated for UK VAT. Import VAT on the Flipper accounted via Postponed VAT Accounting (PVA) under EORI GB493661850000.',
+  'Import VAT: account via Postponed VAT Accounting (PVA) under EORI GB493661850000 where available. For smooth customs clearance, please use our CDS Cash Account: 10099858329 (or immediate payment to HMRC via CDSI). Avoid using a third-party deferment account.',
   'Importer / IOR: Rolls Trading Trust t/a The Protein Pancake — GB EORI GB493661850000 | VAT 493661850. Maersk acts as indirect representative (authorisation on file).',
   'Incoterms DDP; inland (UK) transport costs declared as zero. GST: NIL (export sale, zero-rated).',
 ];

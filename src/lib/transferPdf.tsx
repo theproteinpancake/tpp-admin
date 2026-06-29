@@ -6,6 +6,7 @@ import { TPP_LOGO } from './logo';
 import { TPP_SIGNATURE } from './signature';
 import {
   EXPORTER, IMPORTER, SHIPMENT_DEFAULTS, CUSTOMS_NOTES, declaredValue, originFor, hsFor, sizeLabel,
+  AUD_TO_GBP, vatRateFor,
 } from './transferConstants';
 
 const CARAMEL = '#C4814A';
@@ -14,6 +15,8 @@ const MUTE = '#6b7280';
 const LINE = '#e5e7eb';
 
 const money = (n: number) => n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const gbp = (n: number) => '£' + n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const pct = (r: number) => `${Math.round(r * 100)}%`;
 const fmtDate = (d: string | null) => (d ? new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
 
 const s = StyleSheet.create({
@@ -127,12 +130,15 @@ function Meta({ t, invoiceDate }: { t: Transfer; invoiceDate: string }) {
 
 function CommercialInvoiceDoc({ t }: { t: Transfer }) {
   const today = fmtDate(new Date().toISOString().slice(0, 10));
-  let units = 0, total = 0;
+  let units = 0, totalAud = 0, totalGbp = 0, vatDue = 0;
   const rows = t.lines.map((l) => {
     const uv = l.unit_value ?? declaredValue(l.sku);
-    const lineTotal = uv * l.qty;
-    units += l.qty; total += lineTotal;
-    return { ...l, uv, lineTotal };
+    const aud = uv * l.qty;
+    const gbpVal = aud * AUD_TO_GBP;
+    const rate = vatRateFor(l.sku);
+    const vat = gbpVal * rate;
+    units += l.qty; totalAud += aud; totalGbp += gbpVal; vatDue += vat;
+    return { ...l, aud, gbpVal, rate, vat };
   });
   return (
     <Document>
@@ -142,27 +148,38 @@ function CommercialInvoiceDoc({ t }: { t: Transfer }) {
         <Meta t={t} invoiceDate={today} />
 
         <View style={s.th}>
-          <Text style={[s.thc, { width: '8%' }]}>Qty</Text>
-          <Text style={[s.thc, { width: '8%' }]}>COO</Text>
-          <Text style={[s.thc, { width: '20%' }]}>HS Code</Text>
-          <Text style={[s.thc, { width: '40%' }]}>Product</Text>
-          <Text style={[s.thc, { width: '12%', textAlign: 'right' }]}>Unit</Text>
-          <Text style={[s.thc, { width: '12%', textAlign: 'right' }]}>Total</Text>
+          <Text style={[s.thc, { width: '6%' }]}>Qty</Text>
+          <Text style={[s.thc, { width: '6%' }]}>COO</Text>
+          <Text style={[s.thc, { width: '15%' }]}>HS Code</Text>
+          <Text style={[s.thc, { width: '30%' }]}>Product</Text>
+          <Text style={[s.thc, { width: '13%', textAlign: 'right' }]}>Total (AUD)</Text>
+          <Text style={[s.thc, { width: '12%', textAlign: 'right' }]}>Total (GBP)</Text>
+          <Text style={[s.thc, { width: '8%', textAlign: 'right' }]}>VAT Rate</Text>
+          <Text style={[s.thc, { width: '10%', textAlign: 'right' }]}>VAT Due (GBP)</Text>
         </View>
         {rows.map((r, i) => (
           <View key={i} style={s.tr}>
-            <Text style={[s.td, { width: '8%' }]}>{r.qty}</Text>
-            <Text style={[s.td, { width: '8%' }]}>{r.coo || originFor(r.sku)}</Text>
-            <Text style={[s.td, { width: '20%' }]}>{r.hs_code || hsFor(r.category, r.sku)}</Text>
-            <Text style={[s.td, { width: '40%' }]}>{sizeLabel(r.unit_size_g)} {r.flavour || r.name}</Text>
-            <Text style={[s.td, { width: '12%', textAlign: 'right' }]}>{money(r.uv)}</Text>
-            <Text style={[s.td, { width: '12%', textAlign: 'right' }]}>{money(r.lineTotal)}</Text>
+            <Text style={[s.td, { width: '6%' }]}>{r.qty}</Text>
+            <Text style={[s.td, { width: '6%' }]}>{r.coo || originFor(r.sku)}</Text>
+            <Text style={[s.td, { width: '15%' }]}>{r.hs_code || hsFor(r.category, r.sku)}</Text>
+            <Text style={[s.td, { width: '30%' }]}>{sizeLabel(r.unit_size_g)} {r.flavour || r.name}</Text>
+            <Text style={[s.td, { width: '13%', textAlign: 'right' }]}>{money(r.aud)}</Text>
+            <Text style={[s.td, { width: '12%', textAlign: 'right' }]}>{gbp(r.gbpVal)}</Text>
+            <Text style={[s.td, { width: '8%', textAlign: 'right' }]}>{pct(r.rate)}</Text>
+            <Text style={[s.td, { width: '10%', textAlign: 'right' }]}>{gbp(r.vat)}</Text>
           </View>
         ))}
-        <View style={s.totalRow}>
-          <Text style={s.totalLabel}>TOTAL {units.toLocaleString()} units</Text>
-          <Text style={s.totalVal}>{t.currency || 'AUD'} {money(total)}</Text>
+        <View style={[s.th, { borderTopWidth: 0 }]}>
+          <Text style={[s.thc, { width: '27%' }]}>TOTAL · {units.toLocaleString()} units</Text>
+          <Text style={[s.thc, { width: '30%' }]}> </Text>
+          <Text style={[s.thc, { width: '13%', textAlign: 'right', color: CARAMEL }]}>AUD {money(totalAud)}</Text>
+          <Text style={[s.thc, { width: '12%', textAlign: 'right', color: CARAMEL }]}>{gbp(totalGbp)}</Text>
+          <Text style={[s.thc, { width: '8%' }]}> </Text>
+          <Text style={[s.thc, { width: '10%', textAlign: 'right', color: CARAMEL }]}>{gbp(vatDue)}</Text>
         </View>
+        <Text style={[s.note, { marginTop: 6 }]}>
+          GST: NIL (export sale). GBP values converted at AUD 1 = GBP {AUD_TO_GBP} (indicative — HMRC&apos;s published customs rate for the period applies). VAT due is shown on the goods value; the customs value for import VAT additionally includes freight/insurance to the UK border. Only The Flipper (HS 4419.90) is standard-rated at 20%; all food products (HS 1901.20 &amp; 2106.90) are zero-rated for UK VAT (VATZ).
+        </Text>
 
         <Text style={s.notesTitle}>Customs &amp; Import Notes</Text>
         {CUSTOMS_NOTES.map((n, i) => <Text key={i} style={s.note}>• {n}</Text>)}
