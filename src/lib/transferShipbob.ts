@@ -5,6 +5,7 @@
 import { supabaseLogistics } from './supabase-logistics';
 import { getTransfer, transferUnits } from './transfers';
 import { IMPORTER } from './transferConstants';
+import { createWRO, getWROLabels } from './shipbob';
 
 const FC_ID: Record<string, number> = { ALTONA: 28, MANCHESTER: 32 };
 // UK transit is ~75 days; flag any chosen lot expiring within ~5 months as too short for the journey.
@@ -119,4 +120,48 @@ export async function previewTransferShipbob(reference: string): Promise<Transfe
       ],
     },
   };
+}
+
+// Generate the UK (Manchester) receiving WRO from the AU order's units + lots + best-befores.
+// The WRO's label then gets attached to the AU B2B order before the pallet leaves AU, so
+// Manchester can receive it on arrival. Idempotent: returns the existing WRO if already made.
+export async function createTransferWro(reference: string, auOrderRef?: string):
+  Promise<{ wro_id: number; status: string; already_existed?: boolean; lines: { sku: string; qty: number; lots: LotPick[] }[]; label_path: string; warnings: string[] } | { error: string }> {
+  const t = await getTransfer(reference);
+  if (!t) return { error: `No transfer found with reference ${reference}.` };
+  if (t.shipbob_wro_id) return { wro_id: Number(t.shipbob_wro_id), status: t.shipbob_wro_status || 'AwaitingArrival', already_existed: true, lines: [], label_path: `/api/transfers/${reference}/wro-label`, warnings: [`WRO ${t.shipbob_wro_id} already exists for ${reference}.`] };
+
+  const preview = await previewTransferShipbob(reference);
+  if ('error' in preview) return preview;
+
+  // Manchester inventory ids per SKU (the WRO is created at the destination FC)
+  const { data: pls } = await supabaseLogistics.from('product_locations')
+    .select('shipbob_inventory_id, active, products(sku), location:location_id(code)');
+  const manInv = (sku: string) => (pls ?? []).find((p: any) => p.products?.sku === sku && (p.location?.code || '').toUpperCase() === 'MANCHESTER' && p.active)?.shipbob_inventory_id;
+
+  const items: { inventory_id: number; quantity: number; lot_number: string; expiration_date: string }[] = [];
+  const warnings = [...preview.warnings];
+  const lines: { sku: string; qty: number; lots: LotPick[] }[] = [];
+  for (const l of preview.au_order.lines) {
+    const inv = manInv(l.sku);
+    if (!inv) { warnings.push(`${l.sku}: no Manchester inventory id — can't add to WRO.`); continue; }
+    for (const lot of l.lots) items.push({ inventory_id: Number(inv), quantity: lot.qty, lot_number: lot.lot_number, expiration_date: lot.expiration_date });
+    lines.push({ sku: l.sku, qty: l.allocated, lots: l.lots });
+  }
+  if (!items.length) return { error: 'No lines could be mapped to Manchester inventory — WRO not created.' };
+
+  const today = new Date().toISOString().slice(0, 10);
+  const eta = t.eta && t.eta > today ? t.eta : new Date(Date.now() + 75 * 864e5).toISOString().slice(0, 10);
+  let wro;
+  try {
+    wro = await createWRO({ site: 'MANCHESTER', expected_arrival_date: eta, tracking_ref: t.bl_ref || reference, purchase_order_number: auOrderRef || t.shipbob_order_ref || reference, package_type: 'Pallet', items });
+  } catch (e) { return { error: `Manchester WRO create failed: ${String(e).slice(0, 160)}` }; }
+
+  await supabaseLogistics.from('internal_transfers')
+    .update({ shipbob_wro_id: String(wro.id), shipbob_wro_status: wro.status, ...(auOrderRef ? { shipbob_order_ref: auOrderRef } : {}) })
+    .eq('reference', reference).then(() => {}, () => {});
+
+  const label = await getWROLabels('MANCHESTER', wro.id).catch(() => null);
+  if (!label) warnings.push('WRO created but its label PDF isn\'t available yet — re-fetch the label link shortly.');
+  return { wro_id: wro.id, status: wro.status, lines, label_path: `/api/transfers/${reference}/wro-label`, warnings };
 }

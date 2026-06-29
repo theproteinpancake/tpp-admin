@@ -11,6 +11,7 @@ export interface Transfer {
   carrier: string | null; bl_ref: string | null; shipment_ref: string | null; container_ref: string | null;
   currency: string | null; total_value: number | null; cartons: number | null; gross_kg: number | null;
   notes: string | null; origin_code: string | null; destination_code: string | null;
+  shipbob_wro_id: string | null; shipbob_wro_status: string | null; shipbob_order_ref: string | null;
   lines: TransferLine[];
 }
 
@@ -37,6 +38,7 @@ function mapTransfer(t: any): Transfer {
     carrier: t.carrier, bl_ref: t.bl_ref, shipment_ref: t.shipment_ref, container_ref: t.container_ref,
     currency: t.currency, total_value: t.total_value, cartons: t.cartons, gross_kg: t.gross_kg,
     notes: t.notes, origin_code: t.origin?.code ?? null, destination_code: t.destination?.code ?? null,
+    shipbob_wro_id: t.shipbob_wro_id ?? null, shipbob_wro_status: t.shipbob_wro_status ?? null, shipbob_order_ref: t.shipbob_order_ref ?? null,
     lines: (t.items ?? []).map((i: any): TransferLine => ({
       product_id: i.product_id, sku: i.product?.sku ?? '', name: i.product?.name ?? '',
       flavour: i.product?.flavour ?? null, unit_size_g: i.product?.unit_size_g ?? null,

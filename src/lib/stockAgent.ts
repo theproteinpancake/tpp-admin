@@ -22,7 +22,7 @@ import { melbMidnightUtc } from './tz';
 import { getPoForecast } from './poForecast';
 import { MAERSK, IMPORTER } from './transferConstants';
 import { renderCommercialInvoice, renderPackingList } from './transferPdf';
-import { previewTransferShipbob } from './transferShipbob';
+import { previewTransferShipbob, createTransferWro } from './transferShipbob';
 import { sendWhatsApp, senderRole, waAddr } from './whatsapp';
 import { processWholesalePO, processWholesalePOMulti, oosReplyBody } from './wholesalePO';
 import { createWholesaleOrder, sendWholesaleInvoice } from './wholesaleActions';
@@ -42,7 +42,7 @@ const MUTATING_TOOLS = new Set([
   'update_transfer_status', 'mark_po_received', 'create_wholesale_order', 'process_po_email',
   'send_influencer_gift', 'update_influencer_status', 'save_collab', 'update_collab',
   'mark_brief_done', 'set_restock_eta', 'update_logistics_brief_excludes',
-  'schedule_followup', 'cancel_followup', 'draft_po', 'order_packaging',
+  'schedule_followup', 'cancel_followup', 'draft_po', 'order_packaging', 'create_transfer_wro',
 ]);
 
 const tools: Anthropic.Tool[] = [
@@ -150,6 +150,11 @@ const tools: Anthropic.Tool[] = [
     name: 'preview_transfer_shipbob',
     description: "PREVIEW (creates nothing) the ShipBob side of an AU→UK transfer: the AU B2B order out of Altona to the Manchester FC, and the Manchester WRO to receive it — with the recommended LOT allocation per SKU (longest best-before dates, single-lot-preferred, so UK stock isn't short-dated). Use for 'generate/preview the shipbob items', 'AU B2B order + UK WRO', 'what lots would we send'. Returns the plan + any warnings (short-dated lots, shortfalls, unmapped SKUs). Creating them for real isn't wired up yet — show the user this preview and the lot picks.",
     input_schema: { type: 'object', properties: { reference: { type: 'string', description: 'transfer reference e.g. INTERNAL4' } }, required: ['reference'] },
+  },
+  {
+    name: 'create_transfer_wro',
+    description: "Create the UK (Manchester) receiving WRO for a transfer from the AU order's units + selected lots + best-befores, and WhatsApp the user its label to attach to the AU B2B order before the pallet ships. Call this AFTER the user has placed the AU B2B order in ShipBob (pass au_order_ref if they give the order number). It uses the same recommended long-dated lots as preview_transfer_shipbob. Idempotent (won't duplicate). Report the WRO # + that the label's been sent.",
+    input_schema: { type: 'object', properties: { reference: { type: 'string', description: 'transfer reference e.g. INTERNAL4' }, au_order_ref: { type: 'string', description: 'the AU B2B ShipBob order number, if known' } }, required: ['reference'] },
   },
   {
     name: 'draft_transfer_email',
@@ -561,6 +566,16 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
     try { return await previewTransferShipbob(String(input.reference || '')); }
     catch (e) { return { error: String(e).slice(0, 200) }; }
   }
+  if (name === 'create_transfer_wro') {
+    try {
+      const ref = String(input.reference || '');
+      const res = await createTransferWro(ref, input.au_order_ref ? String(input.au_order_ref) : undefined);
+      if ('error' in res) return res;
+      // send the WRO label to the user (WhatsApp media) so they attach it to the AU B2B order
+      if (_phone) await sendWhatsApp(_phone, `📦 WRO ${res.wro_id} label — ${ref}\nDownload + attach this to the AU B2B order in ShipBob before the pallet ships, so Manchester can receive it.`, `${APP_URL}${res.label_path}`).catch(() => {});
+      return { ...res, note: `Manchester WRO ${res.wro_id} created from the AU lots/best-befores. I've sent you the label on WhatsApp — attach it to the AU B2B order before it ships. ${res.warnings.length ? 'Warnings: ' + res.warnings.join(' | ') : ''}` };
+    } catch (e) { return { error: String(e).slice(0, 200) }; }
+  }
   if (name === 'draft_transfer_email') {
     const ref = String(input.reference || '');
     const t = await getTransfer(ref);
@@ -960,7 +975,8 @@ Your full toolkit:
 - get_shipping_billing — shipping cost trends, monthly spend, MoM change, cost OUTLIERS/overcharges, invoices.
 - get_internal_transfers — AU→UK stock transfers (pallets) in transit; their units already feed the destination site's inbound. Use for "what's on the way to the UK", "the pallet", "INTERNAL2".
 - suggest_transfer → create_transfer — propose a UK restock transfer (520g medium bags ONLY; LEAD-TIME-AWARE: covers ~75d transit + 180d after arrival, so in-flight inbound is discounted by transit-period sales; best-seller pallet-fill, Altona-capped). When presenting, lead with uk_cover_at_arrival_days (cover WHEN IT LANDS, not now) and call out any SKU that stocks out before arrival. Show the preview, confirm, then create the draft. send_transfer_docs — WhatsApp the Commercial Invoice + Packing List PDFs for a transfer to the user to preview. The docs are AUTO-SIGNED (Luke's signature) and AUTO-DATED (today) — they are fully send-ready, the user does NOT need to sign or add a date manually. So once the user previews them and is happy ("looks good, send them" / "draft the maersk email" / "draft the booking email"), call draft_transfer_email ONCE — it attaches the (signed) Commercial Invoice + Packing List to the email itself. Do NOT re-run send_transfer_docs when asked to draft/send the email (the docs were already previewed; re-sending them is the looping bug). Then send_email_draft only after the user approves. draft_transfer_email — draft (not send) the Maersk booking email (to Viviana Diaz, who replaced Jordan Burnes) to start the transfer. For sending the email, use send_email_draft only after explicit approval. For chasing later stages (BL, customs chokepoint, UK delivery) use get_uk_pallet_contacts to name the right person.
-SHIPBOB TRANSFER ITEMS: when the user asks to "generate the shipbob items / AU B2B order + UK WRO / what lots would we send", call preview_transfer_shipbob(reference). Present, clearly: (1) the recommended LOTS per SKU (longest best-before — call out any ⚠ short-dated lots or shortfalls so they're reviewed before going to the UK), and (2) the place_in_shipbob recipe as a numbered checklist (Business → Manchester contact → Freight → Upload your own → attach CI + Packing List → add items + select THESE lots). Be honest: ShipBob B2B freight orders are a separate flow with no API yet, so the agent CANNOT create the order itself — the user places it in the ShipBob UI using this recipe (it takes ~2 min and guarantees the right lots). Do NOT claim you created it, and do NOT re-run draft_transfer_email instead. The Manchester WRO / receiving step isn't automated yet either — note that it's the piece we're still ironing out.
+SHIPBOB TRANSFER ITEMS: when the user asks to "generate the shipbob items / AU B2B order + UK WRO / what lots would we send", call preview_transfer_shipbob(reference). Present, clearly: (1) the recommended LOTS per SKU (longest best-before — call out any ⚠ short-dated lots or shortfalls so they're reviewed before going to the UK), and (2) the place_in_shipbob recipe as a numbered checklist (Business → Manchester contact → Freight → Upload your own → attach CI + Packing List → add items + select THESE lots). Be honest: ShipBob B2B freight orders are a separate flow with no API yet, so the agent CANNOT create the AU order itself — the user places it in the ShipBob UI using this recipe (it takes ~2 min and guarantees the right lots). Do NOT claim you created it, and do NOT re-run draft_transfer_email instead.
+THE UK RECEIVING WRO *IS* AUTOMATED: once the user has placed the AU B2B order, call create_transfer_wro(reference, au_order_ref if they gave the order #). It creates the Manchester receiving WRO from the same units/lots/best-befores and WhatsApps the user the WRO LABEL — they attach that label to the AU B2B order before the pallet ships so Manchester can receive it. So the flow is: preview_transfer_shipbob → user places the AU order in ShipBob (recipe + lots) → create_transfer_wro → user attaches the sent label to the AU order → send_email_draft the Maersk booking email.
 
 Transfer STATUS — never overstate it. in_transit = en route (not landed); customs = arrived in-country, CLEARING CUSTOMS (NOT landed/received, not sellable); arrived = at the ShipBob FC being put away (not sellable); received = in available stock. in_transit/customs/arrived all count as INBOUND (baked into cover) but are NOT "landed". Use get_internal_transfers' status_meaning field; describe the real stage (e.g. "INTERNAL2 is clearing UK customs"), don't say a transfer has "landed/arrived" unless status is received.
 MARKING RECEIVED (transfers AND POs) — stock is only "received" once ShipBob has ACTUALLY counted it into inventory, confirmed by the ShipBob receiving/goods-in EMAIL or the WRO receiving status = complete. NEVER mark received off an ETA, a customs update, or "it arrived in country". Use update_transfer_status(reference,'received') for transfers / mark_po_received for POs only when that ShipBob confirmation exists. If a ShipBob "received/goods-in" email appears (in the Gmail scour / action center), proactively offer to mark the matching transfer/PO received — but still wait for the user's go-ahead.
@@ -1058,6 +1074,7 @@ WHOLESALE & MARKETING — you can ALSO run ALL of Kate's wholesale + marketing t
 const WHOLESALE_EXCLUDED_TOOLS = new Set([
   'draft_po', 'approve_po', 'send_po_email', 'get_reorder_recommendations', 'get_po_forecast',
   'suggest_transfer', 'create_transfer', 'update_transfer_status', 'send_transfer_docs', 'draft_transfer_email',
+  'preview_transfer_shipbob', 'create_transfer_wro',
   'get_uk_pallet_contacts', 'check_docket', 'parse_docket', 'create_wro', 'draft_sharon_reply', 'send_email_draft',
   'mark_po_received', 'get_action_center', 'mark_brief_done', 'get_shipping_billing', 'update_logistics_brief_excludes',
   'order_packaging', 'get_visy_orders',
