@@ -65,6 +65,7 @@ export interface TransferShipbobPreview {
   uk_wro: { site: string; lines: { sku: string; qty: number }[] };
   warnings: string[];
   ready: boolean;
+  place_in_shipbob: { where: string; steps: string[] };
 }
 
 // Build the full preview for a transfer (no ShipBob writes).
@@ -104,5 +105,18 @@ export async function previewTransferShipbob(reference: string): Promise<Transfe
     uk_wro: { site: 'MANCHESTER', lines: lines.map((l) => ({ sku: l.sku, qty: l.allocated })) },
     warnings,
     ready: warnings.length === 0,
+    // ShipBob B2B orders are a separate freight flow (no API yet) — give the exact UI recipe so
+    // placing it is mechanical and the long-dated lots get selected correctly.
+    place_in_shipbob: {
+      where: 'ShipBob Altona → Orders → Create order → Add single order',
+      steps: [
+        'Ship to: BUSINESS',
+        'Recipient: "The Protein Pancake ShipBob, Inc." (saved Manchester contact — Unit P6, Heywood, OL10 2TT)',
+        'Shipping method: FREIGHT (it\'s a pallet)',
+        'Payment: UPLOAD YOUR OWN (Maersk handles the freight)',
+        'Packing instructions: attach the Commercial Invoice + Packing List (instructions can be left blank)',
+        'Add items + SELECT THE LOTS shown above for each SKU (longest-dated — do NOT accept ShipBob\'s default FEFO short-dated pick)',
+      ],
+    },
   };
 }
