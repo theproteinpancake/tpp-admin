@@ -60,6 +60,24 @@ function selectLots(lots: RawLot[], needed: number): { lots: LotPick[]; allocate
   return { lots: picks, allocated: needed - remaining, shortfall: Math.max(0, remaining) };
 }
 
+// Lightweight up-front date check for a PROPOSED manifest (used at draft time so short-dated
+// SKUs are caught before the transfer + CI are created). Per SKU: the best (longest) best-before
+// available for the qty, whether the best available is still short-dated, and any shortfall.
+export async function lotDateCheck(lines: { sku: string; units: number }[]): Promise<Record<string, { best_before: string | null; short: boolean; shortfall: number }>> {
+  const { data: pls } = await supabaseLogistics.from('product_locations')
+    .select('shipbob_inventory_id, active, products(sku), location:location_id(code)');
+  const invBy = (sku: string) => (pls ?? []).find((p: any) => p.products?.sku === sku && (p.location?.code || '').toUpperCase() === 'ALTONA' && p.active)?.shipbob_inventory_id;
+  const out: Record<string, { best_before: string | null; short: boolean; shortfall: number }> = {};
+  for (const l of lines) {
+    const inv = invBy(l.sku);
+    if (!inv) { out[l.sku] = { best_before: null, short: false, shortfall: l.units }; continue; }
+    const lots = await lotsForInventory('ALTONA', Number(inv));
+    const sel = selectLots(lots, l.units);
+    out[l.sku] = { best_before: sel.lots[0]?.expiration_date ?? null, short: sel.lots.some((x) => x.short), shortfall: sel.shortfall };
+  }
+  return out;
+}
+
 export interface TransferShipbobPreview {
   reference: string; total_units: number;
   au_order: { from: string; to: string; recipient: string[]; lines: TransferLinePlan[] };
