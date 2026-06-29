@@ -14,7 +14,7 @@ import { gmailSendDraft, gmailCreateDraft, gmailDeleteDraftsBySubject, gmailSear
 import { getLots, expiryStatus, EXPIRY_META } from './lots';
 import { getShippingData } from './shipping';
 import { getBillingData, buildHighlights } from './billing';
-import { getTransfer, transferUnits, transferValue, setTransferStatus } from './transfers';
+import { getTransfer, transferUnits, transferValue, setTransferStatus, updateTransferLines } from './transfers';
 import { suggestRestock, createDraftTransfer } from './transferBuilder';
 import { getActionCenter, dismissBriefItems } from './actionCenter';
 import { setConfig } from './settings';
@@ -43,6 +43,7 @@ const MUTATING_TOOLS = new Set([
   'send_influencer_gift', 'update_influencer_status', 'save_collab', 'update_collab',
   'mark_brief_done', 'set_restock_eta', 'update_logistics_brief_excludes',
   'schedule_followup', 'cancel_followup', 'draft_po', 'order_packaging', 'create_transfer_wro',
+  'update_transfer_lines',
 ]);
 
 const tools: Anthropic.Tool[] = [
@@ -145,6 +146,11 @@ const tools: Anthropic.Tool[] = [
     name: 'send_transfer_docs',
     description: 'Send a transfer\'s shipping documents (Commercial Invoice + Packing List PDFs) to the user on WhatsApp for review. Use when the user asks to see/send the docs for a transfer (e.g. "send me the INTERNAL2 docs").',
     input_schema: { type: 'object', properties: { reference: { type: 'string', description: 'transfer reference e.g. INTERNAL2' } }, required: ['reference'] },
+  },
+  {
+    name: 'update_transfer_lines',
+    description: "Amend a DRAFT transfer's manifest from chat — the SKUs + unit quantities — e.g. after seeing short-dated stock the user drops or changes lines. Pass the FULL desired line set as `lines` [{sku, units}]; it REPLACES all current lines and recomputes cartons + value. Use when the user changes transfer contents (\"remove CHM, GFBM, SCM; set CIM to 216, MAM to 156\"): work out the resulting full manifest and pass it. Afterwards the CI/Packing List regenerate from the new lines — offer send_transfer_docs.",
+    input_schema: { type: 'object', properties: { reference: { type: 'string' }, lines: { type: 'array', items: { type: 'object', properties: { sku: { type: 'string' }, units: { type: 'number' } }, required: ['sku', 'units'] } } }, required: ['reference', 'lines'] },
   },
   {
     name: 'preview_transfer_shipbob',
@@ -562,6 +568,14 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
     }
     return { reference: ref, sent, note: sent.length ? 'PDFs sent to the user on WhatsApp.' : 'Failed to send PDFs.' };
   }
+  if (name === 'update_transfer_lines') {
+    try {
+      const lines = (Array.isArray(input.lines) ? input.lines : []).map((l: any) => ({ sku: String(l.sku || ''), units: Number(l.units) || 0 }));
+      const res = await updateTransferLines(String(input.reference || ''), lines);
+      if ('error' in res) return res;
+      return { ...res, note: `INTERNAL manifest updated: ${res.lines} lines, ${res.units} units, ${res.cartons} cartons. The CI + Packing List now reflect this — offer to send the fresh docs (send_transfer_docs).` };
+    } catch (e) { return { error: String(e).slice(0, 200) }; }
+  }
   if (name === 'preview_transfer_shipbob') {
     try { return await previewTransferShipbob(String(input.reference || '')); }
     catch (e) { return { error: String(e).slice(0, 200) }; }
@@ -975,6 +989,8 @@ Your full toolkit:
 - get_shipping_billing — shipping cost trends, monthly spend, MoM change, cost OUTLIERS/overcharges, invoices.
 - get_internal_transfers — AU→UK stock transfers (pallets) in transit; their units already feed the destination site's inbound. Use for "what's on the way to the UK", "the pallet", "INTERNAL2".
 - suggest_transfer → create_transfer — propose a UK restock transfer (520g medium bags ONLY; LEAD-TIME-AWARE: covers ~75d transit + 180d after arrival, so in-flight inbound is discounted by transit-period sales; best-seller pallet-fill, Altona-capped). When presenting, lead with uk_cover_at_arrival_days (cover WHEN IT LANDS, not now) and call out any SKU that stocks out before arrival. Show the preview, confirm, then create the draft. send_transfer_docs — WhatsApp the Commercial Invoice + Packing List PDFs for a transfer to the user to preview. The docs are AUTO-SIGNED (Luke's signature) and AUTO-DATED (today) — they are fully send-ready, the user does NOT need to sign or add a date manually. So once the user previews them and is happy ("looks good, send them" / "draft the maersk email" / "draft the booking email"), call draft_transfer_email ONCE — it attaches the (signed) Commercial Invoice + Packing List to the email itself. Do NOT re-run send_transfer_docs when asked to draft/send the email (the docs were already previewed; re-sending them is the looping bug). Then send_email_draft only after the user approves. draft_transfer_email — draft (not send) the Maersk booking email (to Viviana Diaz, who replaced Jordan Burnes) to start the transfer. For sending the email, use send_email_draft only after explicit approval. For chasing later stages (BL, customs chokepoint, UK delivery) use get_uk_pallet_contacts to name the right person.
+AMENDING A TRANSFER MANIFEST: if the user changes a DRAFT transfer's contents in chat (e.g. "drop CHM/GFBM/SCM because they're short-dated, bump CIM to 216 and MAM to 156"), you CAN now save it — work out the full resulting line set and call update_transfer_lines(reference, lines:[{sku,units}]) (it REPLACES all lines + recomputes cartons/value). Then the CI + Packing List regenerate from the new lines — offer send_transfer_docs. Do NOT tell the user to edit it on the Transfers page; do it via this tool.
+
 SHIPBOB TRANSFER ITEMS: when the user asks to "generate the shipbob items / AU B2B order + UK WRO / what lots would we send", call preview_transfer_shipbob(reference). Present, clearly: (1) the recommended LOTS per SKU (longest best-before — call out any ⚠ short-dated lots or shortfalls so they're reviewed before going to the UK), and (2) the place_in_shipbob recipe as a numbered checklist (Business → Manchester contact → Freight → Upload your own → attach CI + Packing List → add items + select THESE lots). Be honest: ShipBob B2B freight orders are a separate flow with no API yet, so the agent CANNOT create the AU order itself — the user places it in the ShipBob UI using this recipe (it takes ~2 min and guarantees the right lots). Do NOT claim you created it, and do NOT re-run draft_transfer_email instead.
 THE UK RECEIVING WRO *IS* AUTOMATED: once the user has placed the AU B2B order, call create_transfer_wro(reference, au_order_ref if they gave the order #). It creates the Manchester receiving WRO from the same units/lots/best-befores and WhatsApps the user the WRO LABEL — they attach that label to the AU B2B order before the pallet ships so Manchester can receive it. So the flow is: preview_transfer_shipbob → user places the AU order in ShipBob (recipe + lots) → create_transfer_wro → user attaches the sent label to the AU order → send_email_draft the Maersk booking email.
 
@@ -1074,7 +1090,7 @@ WHOLESALE & MARKETING — you can ALSO run ALL of Kate's wholesale + marketing t
 const WHOLESALE_EXCLUDED_TOOLS = new Set([
   'draft_po', 'approve_po', 'send_po_email', 'get_reorder_recommendations', 'get_po_forecast',
   'suggest_transfer', 'create_transfer', 'update_transfer_status', 'send_transfer_docs', 'draft_transfer_email',
-  'preview_transfer_shipbob', 'create_transfer_wro',
+  'preview_transfer_shipbob', 'create_transfer_wro', 'update_transfer_lines',
   'get_uk_pallet_contacts', 'check_docket', 'parse_docket', 'create_wro', 'draft_sharon_reply', 'send_email_draft',
   'mark_po_received', 'get_action_center', 'mark_brief_done', 'get_shipping_billing', 'update_logistics_brief_excludes',
   'order_packaging', 'get_visy_orders',

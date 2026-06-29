@@ -1,5 +1,6 @@
 // Internal-transfer data access.
 import { supabaseLogistics } from './supabase-logistics';
+import { declaredValue, hsFor, originFor } from './transferConstants';
 
 export interface TransferLine {
   product_id: string; sku: string; name: string; flavour: string | null;
@@ -30,6 +31,38 @@ export async function getTransfer(reference: string): Promise<Transfer | null> {
     .eq('reference', reference)
     .maybeSingle();
   return data ? mapTransfer(data) : null;
+}
+
+// Replace a transfer's manifest from chat (e.g. after seeing short-dated stock, drop/adjust lines).
+// `lines` is the FULL desired set [{sku, units}]; recomputes cartons (12 units/520g carton) + value.
+// Docs (CI/Packing List) then regenerate from these lines. Draft transfers only.
+export async function updateTransferLines(reference: string, lines: { sku: string; units: number }[]):
+  Promise<{ ok: true; units: number; cartons: number; lines: number } | { error: string }> {
+  const t = await getTransfer(reference);
+  if (!t) return { error: `No transfer found with reference ${reference}.` };
+  if (t.status !== 'draft') return { error: `${reference} is "${t.status}", not a draft — amend the manifest before it ships, or update its status first.` };
+  const want = lines.map((l) => ({ sku: l.sku.toUpperCase().trim(), units: Math.round(Number(l.units) || 0) })).filter((l) => l.sku && l.units > 0);
+  if (!want.length) return { error: 'No valid lines provided.' };
+
+  const { data: prods } = await supabaseLogistics.from('products').select('id, sku, category').in('sku', want.map((l) => l.sku));
+  const bySku = new Map((prods ?? []).map((p: any) => [p.sku, p]));
+  const unknown = want.filter((l) => !bySku.has(l.sku)).map((l) => l.sku);
+  if (unknown.length) return { error: `Unknown SKU(s): ${unknown.join(', ')}.` };
+
+  const items = want.map((l) => {
+    const p: any = bySku.get(l.sku);
+    const cat = p.category || 'mix';
+    return { transfer_id: t.id, product_id: p.id, qty: l.units, unit_value: declaredValue(l.sku), hs_code: hsFor(cat, l.sku), coo: originFor(l.sku) };
+  });
+  const totalUnits = items.reduce((s, i) => s + i.qty, 0);
+  const cartons = items.reduce((s, i) => s + Math.ceil(i.qty / 12), 0); // 520g: 12 units/carton
+  const totalValue = Math.round(items.reduce((s, i) => s + i.qty * (i.unit_value ?? 0), 0) * 100) / 100;
+
+  await supabaseLogistics.from('internal_transfer_items').delete().eq('transfer_id', t.id);
+  const { error } = await supabaseLogistics.from('internal_transfer_items').insert(items);
+  if (error) return { error: error.message };
+  await supabaseLogistics.from('internal_transfers').update({ cartons, total_value: totalValue }).eq('id', t.id);
+  return { ok: true, units: totalUnits, cartons, lines: items.length };
 }
 
 function mapTransfer(t: any): Transfer {
