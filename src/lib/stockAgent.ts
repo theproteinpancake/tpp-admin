@@ -20,7 +20,8 @@ import { getActionCenter, dismissBriefItems } from './actionCenter';
 import { setConfig } from './settings';
 import { melbMidnightUtc } from './tz';
 import { getPoForecast } from './poForecast';
-import { MAERSK } from './transferConstants';
+import { MAERSK, IMPORTER } from './transferConstants';
+import { renderCommercialInvoice, renderPackingList } from './transferPdf';
 import { sendWhatsApp, senderRole, waAddr } from './whatsapp';
 import { processWholesalePO, processWholesalePOMulti, oosReplyBody } from './wholesalePO';
 import { createWholesaleOrder, sendWholesaleInvoice } from './wholesaleActions';
@@ -554,25 +555,45 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
     const ref = String(input.reference || '');
     const t = await getTransfer(ref);
     if (!t) return { error: `No transfer found with reference ${ref}.` };
-    const route = `${t.origin_code || 'AU'} → ${t.destination_code || 'UK'}`;
+    const route = `${t.origin_code || 'ALTONA'} → ${t.destination_code || 'MANCHESTER'}`;
     const subject = `The Protein Pancake — ${ref} ${route} pallet transfer`;
+    const cartons = t.cartons ? `, ${t.cartons} cartons` : '';
     const body =
 `Hi ${MAERSK.name.split(' ')[0]},
 
-We're booking our next LCL sea-freight pallet (${ref}), ${route} — we understand you're now our contact for quotes & booking (previously Jordan Burnes).
+We're booking our next LCL sea-freight pallet (${ref}), ${route}. Could you please quote for the following, then we can proceed with pickup this week!
 
-• Commercial Invoice: ${APP_URL}/api/transfers/${ref}/commercial-invoice
-• Packing List: ${APP_URL}/api/transfers/${ref}/packing-list
+Commercial invoice & packing list attached.
 
-Summary: ${transferUnits(t).toLocaleString()} units${t.cartons ? `, ${t.cartons} cartons` : ''}${t.gross_kg ? `, ~${t.gross_kg}kg gross` : ''}. Incoterms DDP Heywood (Altona VIC → Heywood OL10 2TT). Standing setup is on file: EORI GB493661850000, indirect-rep POA, AU–UK FTA preference (PSR, 0% duty), import VAT via our CDS cash account.
+* Summary: ${transferUnits(t).toLocaleString()} units${cartons}. Incoterms DDP Heywood (Altona VIC → Heywood OL10 2TT). Standing setup is on file: EORI ${IMPORTER.eori}, indirect-rep POA, AU–UK FTA preference (PSR, 0% duty), import VAT via our CDS cash account.
 
-Could you confirm the quote + booking process — and, since the job spans several teams, nominate a single point of contact to coordinate booking → export → customs → UK delivery? Let me know what else you need from my end.
+Pickup;
+The Protein Pancake C/O ShipBob, Inc
+21-27 Marshall Court
+Altona, VIC, 3018
 
-Thanks,
-Luke`;
+Dropoff;
+The Protein Pancake C/O ShipBob, Inc
+Unit P6, Parklands, Heywood Distribution Park
+Heywood Greater Manchester United Kingdom  OL10 2TT
+
+
+Flipping Regards,
+
+Luke | Founder
+The Protein Pancake
+P: +61 412 474 330
+E: luke@theproteinpancake.co
+W: theproteinpancake.co`;
     try {
-      const draftId = await gmailCreateDraft(MAERSK.email, subject, body);
-      return { draft_id: draftId, to: MAERSK.email, subject, note: 'Draft created — show the user and ask before sending.' };
+      // Attach the (auto-signed) Commercial Invoice + Packing List PDFs directly to the draft.
+      const [ci, pl] = await Promise.all([renderCommercialInvoice(t), renderPackingList(t)]);
+      const attachments = [
+        { filename: `Commercial Invoice — ${ref}.pdf`, base64: ci.toString('base64') },
+        { filename: `Packing List — ${ref}.pdf`, base64: pl.toString('base64') },
+      ];
+      const draftId = await gmailCreateDraft(MAERSK.email, subject, body, attachments);
+      return { draft_id: draftId, to: MAERSK.email, subject, attached: ['Commercial Invoice', 'Packing List'], note: 'Draft created with both PDFs attached — show the user the body verbatim and ask before sending. On "send", call send_email_draft with this draft_id; do NOT re-send the docs.' };
     } catch (e) { return { error: String(e).slice(0, 160) }; }
   }
   if (name === 'update_transfer_status') {
@@ -926,7 +947,7 @@ Your full toolkit:
 - get_reorder_recommendations — what to order & how many (velocity × lead+target − stock − inbound).
 - get_shipping_billing — shipping cost trends, monthly spend, MoM change, cost OUTLIERS/overcharges, invoices.
 - get_internal_transfers — AU→UK stock transfers (pallets) in transit; their units already feed the destination site's inbound. Use for "what's on the way to the UK", "the pallet", "INTERNAL2".
-- suggest_transfer → create_transfer — propose a UK restock transfer (520g medium bags ONLY; LEAD-TIME-AWARE: covers ~75d transit + 180d after arrival, so in-flight inbound is discounted by transit-period sales; best-seller pallet-fill, Altona-capped). When presenting, lead with uk_cover_at_arrival_days (cover WHEN IT LANDS, not now) and call out any SKU that stocks out before arrival. Show the preview, confirm, then create the draft. send_transfer_docs — WhatsApp the Commercial Invoice + Packing List PDFs for a transfer to the user to preview. The docs are AUTO-SIGNED (Luke's signature) and AUTO-DATED (today) — they are fully send-ready, the user does NOT need to sign or add a date manually. So once the user previews them and is happy ("looks good, send them"), proceed: draft_transfer_email then send_email_draft — no manual signing step. draft_transfer_email — draft (not send) the Maersk booking email (to Viviana Diaz, who replaced Jordan Burnes) to start the transfer. For sending the email, use send_email_draft only after explicit approval. For chasing later stages (BL, customs chokepoint, UK delivery) use get_uk_pallet_contacts to name the right person.
+- suggest_transfer → create_transfer — propose a UK restock transfer (520g medium bags ONLY; LEAD-TIME-AWARE: covers ~75d transit + 180d after arrival, so in-flight inbound is discounted by transit-period sales; best-seller pallet-fill, Altona-capped). When presenting, lead with uk_cover_at_arrival_days (cover WHEN IT LANDS, not now) and call out any SKU that stocks out before arrival. Show the preview, confirm, then create the draft. send_transfer_docs — WhatsApp the Commercial Invoice + Packing List PDFs for a transfer to the user to preview. The docs are AUTO-SIGNED (Luke's signature) and AUTO-DATED (today) — they are fully send-ready, the user does NOT need to sign or add a date manually. So once the user previews them and is happy ("looks good, send them" / "draft the maersk email" / "draft the booking email"), call draft_transfer_email ONCE — it attaches the (signed) Commercial Invoice + Packing List to the email itself. Do NOT re-run send_transfer_docs when asked to draft/send the email (the docs were already previewed; re-sending them is the looping bug). Then send_email_draft only after the user approves. draft_transfer_email — draft (not send) the Maersk booking email (to Viviana Diaz, who replaced Jordan Burnes) to start the transfer. For sending the email, use send_email_draft only after explicit approval. For chasing later stages (BL, customs chokepoint, UK delivery) use get_uk_pallet_contacts to name the right person.
 Transfer STATUS — never overstate it. in_transit = en route (not landed); customs = arrived in-country, CLEARING CUSTOMS (NOT landed/received, not sellable); arrived = at the ShipBob FC being put away (not sellable); received = in available stock. in_transit/customs/arrived all count as INBOUND (baked into cover) but are NOT "landed". Use get_internal_transfers' status_meaning field; describe the real stage (e.g. "INTERNAL2 is clearing UK customs"), don't say a transfer has "landed/arrived" unless status is received.
 MARKING RECEIVED (transfers AND POs) — stock is only "received" once ShipBob has ACTUALLY counted it into inventory, confirmed by the ShipBob receiving/goods-in EMAIL or the WRO receiving status = complete. NEVER mark received off an ETA, a customs update, or "it arrived in country". Use update_transfer_status(reference,'received') for transfers / mark_po_received for POs only when that ShipBob confirmation exists. If a ShipBob "received/goods-in" email appears (in the Gmail scour / action center), proactively offer to mark the matching transfer/PO received — but still wait for the user's go-ahead.
 - draft_po → approve_po — draft a PO (ABC → Altona) with a screenshot, then push to Xero on approval.

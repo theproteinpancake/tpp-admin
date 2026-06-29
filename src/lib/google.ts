@@ -222,30 +222,37 @@ function encHeader(s: string) {
   return /[^\x00-\x7F]/.test(s) ? `=?UTF-8?B?${Buffer.from(s, 'utf-8').toString('base64')}?=` : s;
 }
 
-function rawMessage(to: string, subject: string, body: string, attachment?: MailAttachment, cc?: string) {
+// Accepts a single attachment or an array (multiple PDFs, e.g. invoice + packing list).
+function rawMessage(to: string, subject: string, body: string, attachment?: MailAttachment | MailAttachment[], cc?: string) {
   subject = encHeader(subject);
   const ccLine = cc ? [`Cc: ${cc}`] : [];
-  if (!attachment) {
+  const atts = (Array.isArray(attachment) ? attachment : attachment ? [attachment] : []).filter(Boolean);
+  if (!atts.length) {
     const lines = [`To: ${to}`, ...ccLine, `Subject: ${subject}`, 'Content-Type: text/plain; charset=UTF-8', '', body].join('\r\n');
     return b64url(lines);
   }
   const boundary = 'tpp_' + Math.random().toString(36).slice(2);
-  const wrapped = attachment.base64.replace(/[\r\n]/g, '').replace(/(.{76})/g, '$1\r\n');
-  const lines = [
+  const parts: string[] = [
     `To: ${to}`, ...ccLine, `Subject: ${subject}`, 'MIME-Version: 1.0',
     `Content-Type: multipart/mixed; boundary="${boundary}"`, '',
     `--${boundary}`, 'Content-Type: text/plain; charset=UTF-8', '', body, '',
-    `--${boundary}`,
-    `Content-Type: ${attachment.mime || 'application/pdf'}; name="${attachment.filename}"`,
-    'Content-Transfer-Encoding: base64',
-    `Content-Disposition: attachment; filename="${attachment.filename}"`, '',
-    wrapped, '', `--${boundary}--`,
-  ].join('\r\n');
-  return b64url(lines);
+  ];
+  for (const a of atts) {
+    const wrapped = a.base64.replace(/[\r\n]/g, '').replace(/(.{76})/g, '$1\r\n');
+    parts.push(
+      `--${boundary}`,
+      `Content-Type: ${a.mime || 'application/pdf'}; name="${a.filename}"`,
+      'Content-Transfer-Encoding: base64',
+      `Content-Disposition: attachment; filename="${a.filename}"`, '',
+      wrapped, '',
+    );
+  }
+  parts.push(`--${boundary}--`);
+  return b64url(parts.join('\r\n'));
 }
 
-// Create a DRAFT (does not send), optionally with a PDF attachment + CC. Returns draft id.
-export async function gmailCreateDraft(to: string, subject: string, body: string, attachment?: MailAttachment, cc?: string): Promise<string> {
+// Create a DRAFT (does not send), optionally with PDF attachment(s) + CC. Returns draft id.
+export async function gmailCreateDraft(to: string, subject: string, body: string, attachment?: MailAttachment | MailAttachment[], cc?: string): Promise<string> {
   const token = await getGoogleToken();
   if (!token) throw new Error('Gmail not connected');
   const res = await fetch(`${GMAIL}/drafts`, {
