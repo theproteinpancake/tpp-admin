@@ -10,7 +10,7 @@ import { findLatestDocket, parseDocket, createWROFromParsed, draftSharonReply } 
 import { resolveVisyItem, draftVisyOrder, markVisyOrderSent, getVisyOrders } from './visyOrder';
 import { findContacts } from './contacts';
 import { getPackagingSummary } from './packaging';
-import { gmailSendDraft, gmailCreateDraft, gmailSearch, gmailGetBody, gmailGetAllAttachments } from './google';
+import { gmailSendDraft, gmailCreateDraft, gmailDeleteDraftsBySubject, gmailSearch, gmailGetBody, gmailGetAllAttachments } from './google';
 import { getLots, expiryStatus, EXPIRY_META } from './lots';
 import { getShippingData } from './shipping';
 import { getBillingData, buildHighlights } from './billing';
@@ -586,6 +586,8 @@ P: +61 412 474 330
 E: luke@theproteinpancake.co
 W: theproteinpancake.co`;
     try {
+      // Supersede any earlier un-sent draft for this transfer so stale/duplicate drafts don't pile up.
+      await gmailDeleteDraftsBySubject(subject).catch(() => 0);
       // Attach the (auto-signed) Commercial Invoice + Packing List PDFs directly to the draft.
       const [ci, pl] = await Promise.all([renderCommercialInvoice(t), renderPackingList(t)]);
       const attachments = [
