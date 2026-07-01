@@ -3,6 +3,7 @@
 // Jan at top), every metric across the columns (sticky Week column), colour-gradient heatmap,
 // the full year laid out (future weeks blank), and a year totals/average row at the bottom.
 import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 type Week = Record<string, any> & { week_start: string; derived: Record<string, number | null> };
 type Dir = 'high' | 'low' | 'none';
@@ -77,6 +78,39 @@ const fmt = (v: number | null | undefined, f: Fmt) => {
   if (f === 'x') return v.toFixed(2) + '×';
   return v.toLocaleString('en-AU');
 };
+// No live Amazon feed exists (no Seller/Ads API creds) — this cell is manually entered. The
+// backing /api/analytics/save endpoint already supports it (weeks lock a field once hand-set,
+// so autofill never overwrites it); this is just the missing UI wired onto it.
+function EditableCell({ weekStart, field, value, onSaved }: { weekStart: string; field: string; value: number | null; onSaved: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(value != null ? String(value) : '');
+  const save = async () => {
+    setEditing(false);
+    if (val.trim() === (value != null ? String(value) : '')) return; // no change
+    await fetch('/api/analytics/save', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ week_start: weekStart, field, value: val }),
+    });
+    onSaved();
+  };
+  if (editing) {
+    return (
+      <input
+        autoFocus type="number" defaultValue={val} onClick={(e) => e.stopPropagation()}
+        onChange={(e) => setVal(e.target.value)} onBlur={save}
+        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEditing(false); }}
+        className="w-20 rounded border border-caramel px-1 py-0.5 text-right text-[12px] tabular-nums focus:outline-none"
+      />
+    );
+  }
+  return (
+    <span onClick={(e) => { e.stopPropagation(); setEditing(true); }} title="Click to enter Amazon sales for this week"
+      className="cursor-text decoration-dotted decoration-gray-400 hover:underline">
+      {value == null ? '—' : fmt(value, 'money')}
+    </span>
+  );
+}
+
 const wk = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { day: '2-digit', month: 'short' });
 const valOf = (w: Week, m: Metric): number | null => { const v = m.derived ? w.derived?.[m.key] : w[m.key]; return v == null || v === '' ? null : Number(v); };
 
@@ -113,11 +147,12 @@ export default function SalesMaster({ weeks, year }: { weeks: Week[]; year: numb
   };
 
   const [sel, setSel] = useState<string | null>(null);
+  const router = useRouter();
 
   return (
     <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
       <table className="border-collapse text-[12px]">
-        <thead>
+        <thead className="sticky top-0 z-20">
           <tr>
             <th rowSpan={2} className="sticky left-0 z-10 border-b border-r border-white/20 px-2 py-2 text-left text-[12px] font-bold text-white" style={{ background: HEAD_BLUE }}>Week</th>
             {GROUPS.map((g, gi) => (
@@ -142,7 +177,9 @@ export default function SalesMaster({ weeks, year }: { weeks: Week[]; year: numb
                 return (
                   <td key={m.key} className={`whitespace-nowrap px-2 py-1.5 text-right tabular-nums text-gray-700 ${on ? 'border-y-2 border-caramel' : ''} ${gi && mi === 0 ? 'border-l-2 border-l-caramel/20' : ''} ${m.key === 'net_profit' ? 'font-bold text-caramel' : ''}`}
                     style={{ background: tint(v, m) }}>
-                    {fmt(v, m.fmt)}
+                    {m.key === 'amazon_sales'
+                      ? <EditableCell weekStart={w.week_start} field="amazon_sales" value={v} onSaved={() => router.refresh()} />
+                      : fmt(v, m.fmt)}
                   </td>
                 );
               }))}
