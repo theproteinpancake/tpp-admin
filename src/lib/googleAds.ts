@@ -5,8 +5,10 @@
 // fallback Meta uses when its incrementality data isn't available) — wired in analytics.ts.
 import { getGoogleToken } from './google';
 
-// Bump if Google deprecates this API version.
-const ADS_VERSION = 'v19';
+// Google sunsets each major version ~1 year after release (v19 died 11 Feb 2026 — the original
+// build shipped with it already dead, surfacing as an HTML 404 the JSON parse choked on).
+// Override via env when the next sunset lands; the error below says exactly when that happens.
+const ADS_VERSION = process.env.GOOGLE_ADS_API_VERSION || 'v23';
 
 export function googleAdsConfigured() {
   return !!process.env.GOOGLE_ADS_DEVELOPER_TOKEN && !!process.env.GOOGLE_ADS_CUSTOMER_ID;
@@ -40,8 +42,14 @@ export async function fetchGoogleAdsWeek(startIso: string, endIso: string): Prom
   const res = await fetch(`https://googleads.googleapis.com/${ADS_VERSION}/customers/${customerId}/googleAds:search`, {
     method: 'POST', headers, body: JSON.stringify({ query }),
   });
-  const j = await res.json();
-  if (!res.ok) throw new Error(`Google Ads ${res.status}: ${JSON.stringify(j).slice(0, 200)}`);
+  // Read as text first: a sunset API version returns an HTML 404 page, and res.json() on that
+  // produced the useless "Unexpected token '<'" error that hid the real cause.
+  const raw = await res.text();
+  if (!res.ok) {
+    const hint = res.status === 404 ? ` — Google Ads API ${ADS_VERSION} may be sunset; set GOOGLE_ADS_API_VERSION to a current version` : '';
+    throw new Error(`Google Ads ${res.status}${hint}: ${raw.slice(0, 200)}`);
+  }
+  const j = JSON.parse(raw);
 
   const row = (j.results || [])[0];
   if (!row) return { spend: 0, roas: null, purchases: 0, cpa: null };

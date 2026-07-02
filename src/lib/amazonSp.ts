@@ -67,7 +67,12 @@ export interface AmazonWeek { au: number; uk: number; orders: number; warnings: 
 export async function fetchAmazonSalesWeek(startIso: string, endIso: string, fxGbpAud: number): Promise<AmazonWeek | null> {
   if (!amazonSpConfigured()) return null;
   const createdAfter = `${startIso}T00:00:00Z`;
-  const createdBefore = `${endIso}T00:00:00Z`;
+  // SP-API rejects a CreatedBefore in the future (400 InvalidInput) — for the current,
+  // in-progress week the exclusive end is next Monday, so clamp to a couple of minutes ago
+  // (Amazon also requires it to be at least ~2 min before now). Past weeks pass through as-is.
+  const endMs = Math.min(new Date(`${endIso}T00:00:00Z`).getTime(), Date.now() - 3 * 60_000);
+  if (endMs <= new Date(createdAfter).getTime()) return { au: 0, uk: 0, orders: 0, warnings: [] }; // week hasn't started yet
+  const createdBefore = new Date(endMs).toISOString().replace(/\.\d{3}Z$/, 'Z');
 
   let au = 0, uk = 0, orders = 0;
   const warnings: string[] = [];
