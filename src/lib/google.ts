@@ -12,6 +12,13 @@ export const GOOGLE_SCOPES = [
   'openid', 'email',
 ].join(' ');
 
+// Read-only Google Ads reporting — separate scope so re-consenting Gmail never touches this,
+// and vice versa. Requested only on the account=ads connect flow (provider 'google_ads').
+export const GOOGLE_ADS_SCOPES = [
+  'https://www.googleapis.com/auth/adwords',
+  'openid', 'email',
+].join(' ');
+
 export function googleConfigured() {
   return !!process.env.GOOGLE_CLIENT_ID && !!process.env.GOOGLE_CLIENT_SECRET;
 }
@@ -21,12 +28,12 @@ export function googleConfigured() {
 export function googleRedirectUri(override?: string) {
   return override || process.env.GOOGLE_REDIRECT_URI || '';
 }
-export function googleAuthorizeUrl(state: string, redirectUri?: string) {
+export function googleAuthorizeUrl(state: string, redirectUri?: string, scope?: string) {
   const q = [
     `client_id=${encodeURIComponent(process.env.GOOGLE_CLIENT_ID || '')}`,
     `redirect_uri=${encodeURIComponent(googleRedirectUri(redirectUri))}`,
     `response_type=code`,
-    `scope=${encodeURIComponent(GOOGLE_SCOPES)}`,
+    `scope=${encodeURIComponent(scope || GOOGLE_SCOPES)}`,
     `access_type=offline`,      // get a refresh token
     `prompt=consent`,           // force refresh token on re-consent
     `state=${encodeURIComponent(state)}`,

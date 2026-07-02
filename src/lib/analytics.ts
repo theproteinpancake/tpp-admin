@@ -1,9 +1,10 @@
 // Sales & Data Master — weekly analytics. Auto-fills the API-owned fields (Shopify online
-// sales/orders/AOV/shipping + regional, ShipBob fulfilment charges, Xero wholesale invoices)
-// and computes the derived profit metrics. Ad-platform fields stay manual until Meta/Google
-// APIs are wired (Phase 2).
+// sales/orders/AOV/shipping + regional, ShipBob fulfilment charges, Xero wholesale invoices,
+// Meta + Google ad spend/ROAS) and computes the derived profit metrics. Amazon stays manual
+// (no Seller/Ads API credentials) — see EditableCell on the Sales & Data page.
 import { supabaseLogistics } from './supabase-logistics';
 import { fetchMetaWeek, metaConfigured } from './meta';
+import { fetchGoogleAdsWeek, googleAdsConfigured } from './googleAds';
 import { getShopifyToken, SHOPIFY_SHOP } from './shopifyToken';
 import { melbMidnightUtc } from './tz';
 
@@ -134,11 +135,12 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 export async function autofillWeek(weekStart: string) {
   const { startIso, endIso } = weekRange(weekStart);
   const a = await getAssumptions();
-  const [shop, sb, wh, meta, existing] = await Promise.all([
+  const [shop, sb, wh, meta, google, existing] = await Promise.all([
     shopifyOrders(startIso, endIso).catch((e) => ({ _err: String(e) } as any)),
     shipbobCharges(startIso, endIso, a.fx_gbp_aud).catch(() => null),
     wholesaleTotal(startIso, endIso).catch(() => null),
     metaConfigured() ? fetchMetaWeek(startIso, endIso).catch((e) => ({ _err: String(e) } as any)) : Promise.resolve(null),
+    googleAdsConfigured() ? fetchGoogleAdsWeek(startIso, endIso).catch((e) => ({ _err: String(e) } as any)) : Promise.resolve(null),
     supabaseLogistics.from('sales_week').select('locked, cogs').eq('week_start', weekStart).maybeSingle(),
   ]);
   const locked: string[] = (existing.data?.locked as string[]) || [];
@@ -176,8 +178,30 @@ export async function autofillWeek(weekStart: string) {
       } catch { /* attribution best-effort */ }
     }
   }
+  if (google && !google._err) {
+    set('google_spend', google.spend); set('google_roas', google.roas); set('google_purchases', google.purchases); set('google_cpa', google.cpa);
+    // Google Ads (Basic Access) has no native incrementality metric like Meta's — NC ROAS/CPA
+    // always come from our own click-based attribution (last_source='google', paid-medium only).
+    if (google.spend) {
+      try {
+        const fromTs = melbMidnightUtc(startIso);
+        const toTs = melbMidnightUtc(endIso);
+        const { data: roll } = await supabaseLogistics.rpc('attribution_rollup', { p_from: fromTs, p_to: toTs, p_model: 'last' });
+        const g = ((roll ?? []) as any[]).find((r) => r.source === 'google');
+        if (g) {
+          const ncRev = Number(g.nc_revenue) || 0, ncOrd = Number(g.nc_orders) || 0;
+          set('google_nc_roas', round2(ncRev / google.spend));
+          set('google_nc_cpa', ncOrd ? round2(google.spend / ncOrd) : null);
+        }
+      } catch { /* attribution best-effort */ }
+    }
+  }
   await supabaseLogistics.from('sales_week').upsert(row, { onConflict: 'week_start' });
-  return { week_start: weekStart, shopify: shop?._err ? `error: ${shop._err}` : 'ok', shipbob: sb, wholesale: wh, meta: meta?._err ? `error: ${meta._err}` : (meta ? 'ok' : 'not configured') };
+  return {
+    week_start: weekStart, shopify: shop?._err ? `error: ${shop._err}` : 'ok', shipbob: sb, wholesale: wh,
+    meta: meta?._err ? `error: ${meta._err}` : (meta ? 'ok' : 'not configured'),
+    google: google?._err ? `error: ${google._err}` : (google ? 'ok' : 'not configured'),
+  };
 }
 
 // Derived profit metrics for a stored row.

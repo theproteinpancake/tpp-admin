@@ -12,15 +12,16 @@ export async function GET(req: NextRequest) {
   // account is encoded as the prefix of state ("account~random")
   const accountRaw = (state || '').split('~')[0];
   const account = accountRaw && accountRaw !== 'primary' ? accountRaw : undefined;
+  const which = account === 'ads' ? '&which=ads' : '';
 
-  if (error) return back(`gmail=error&msg=${encodeURIComponent(error)}`);
-  if (!code) return back('gmail=error&msg=no_code');
-  if (!state || state !== cookieState) return back('gmail=error&msg=state_mismatch');
+  if (error) return back(`gmail=error${which}&msg=${encodeURIComponent(error)}`);
+  if (!code) return back(`gmail=error${which}&msg=no_code`);
+  if (!state || state !== cookieState) return back(`gmail=error${which}&msg=state_mismatch`);
   const redirectUri = req.cookies.get('google_oauth_redirect')?.value || undefined;
   try {
     const { email } = await googleExchangeCode(code, account, redirectUri);
-    return back(`gmail=connected&email=${encodeURIComponent(email || '')}`);
+    return back(`gmail=connected${which}&email=${encodeURIComponent(email || '')}`);
   } catch (e) {
-    return back(`gmail=error&msg=${encodeURIComponent(String(e).slice(0, 120))}`);
+    return back(`gmail=error${which}&msg=${encodeURIComponent(String(e).slice(0, 120))}`);
   }
 }

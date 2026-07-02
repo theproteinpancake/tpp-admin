@@ -30,12 +30,13 @@ const Card = ({ icon: Icon, title, desc, children }: any) => (
   </div>
 );
 
-export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ gmail?: string; email?: string }> }) {
+export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ gmail?: string; which?: string; email?: string }> }) {
   const sp = await searchParams;
   const [adminEmail, staff, integ, me] = await Promise.all([
     getConfig('admin_email'), listStaff(), integrationStatus(), getCurrentUser(),
   ]);
   const owner = isOwner(me);
+  const connLabel = sp.which === 'ads' ? 'Google Ads' : 'Gmail';
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
@@ -45,10 +46,10 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       </div>
 
       {sp.gmail === 'connected' && (
-        <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">Gmail connected{sp.email ? `: ${sp.email}` : ''} ✓</div>
+        <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{connLabel} connected{sp.email ? `: ${sp.email}` : ''} ✓</div>
       )}
       {sp.gmail === 'error' && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">Gmail connection failed. Try again.</div>
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">{connLabel} connection failed. Try again.</div>
       )}
 
       <div className="space-y-5">
@@ -85,6 +86,12 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
                 <span className="text-caramel">Gmail — Kate {(integ.gmail_kate as any).email ? <span className="ml-2 text-xs text-gray-400">{(integ.gmail_kate as any).email}</span> : ''}</span>
                 <a href="/api/google/connect?account=kate" className="rounded-lg bg-caramel px-3 py-1.5 text-xs font-medium text-white hover:bg-maple">
                   {integ.gmail_kate.connected ? 'Reconnect' : 'Connect Kate’s Gmail'}
+                </a>
+              </div>
+              <div className="flex items-center justify-between gap-2 py-2 text-sm">
+                <span className="text-caramel">Google Ads {(integ.google_ads as any).email ? <span className="ml-2 text-xs text-gray-400">{(integ.google_ads as any).email}</span> : ''}</span>
+                <a href="/api/google/connect?account=ads" className="rounded-lg bg-caramel px-3 py-1.5 text-xs font-medium text-white hover:bg-maple">
+                  {integ.google_ads.connected ? 'Reconnect' : 'Connect Google Ads'}
                 </a>
               </div>
               <Conn ok={integ.xero.connected} label="Xero" detail={(integ.xero as any).org} />

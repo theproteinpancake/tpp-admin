@@ -35,14 +35,16 @@ export async function twoFASecret(): Promise<string | null> {
 
 // Integration connection status for the Settings page.
 export async function integrationStatus() {
-  const [primary, kate, xero] = await Promise.all([
+  const [primary, kate, ads, xero] = await Promise.all([
     getGoogleConnection().catch(() => null),
     getGoogleConnection('kate').catch(() => null),
+    getGoogleConnection('ads').catch(() => null),
     getXeroConnection().catch(() => null),
   ]);
   return {
     gmail_primary: primary ? { connected: true, email: primary.tenant_name } : { connected: false },
     gmail_kate: kate ? { connected: true, email: kate.tenant_name } : { connected: false },
+    google_ads: ads ? { connected: true, email: ads.tenant_name } : { connected: false },
     xero: xero ? { connected: true, org: xero.tenant_name } : { connected: false },
     shipbob_au: { connected: !!process.env.SHIPBOB_API_TOKEN },
     shipbob_uk: { connected: !!process.env.SHIPBOB_API_TOKEN_UK },
