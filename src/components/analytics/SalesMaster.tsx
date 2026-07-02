@@ -9,7 +9,7 @@ type Week = Record<string, any> & { week_start: string; derived: Record<string, 
 type Dir = 'high' | 'low' | 'none';
 type Fmt = 'money' | 'money2' | 'num' | 'pct' | 'x';
 type Agg = 'sum' | 'avg';
-type Metric = { key: string; label: string; fmt: Fmt; dir: Dir; agg: Agg; derived?: boolean };
+type Metric = { key: string; label: string; fmt: Fmt; dir: Dir; agg: Agg; derived?: boolean; editable?: boolean };
 type Group = { label: string; metrics: Metric[] };
 
 const GROUPS: Group[] = [
@@ -25,9 +25,6 @@ const GROUPS: Group[] = [
     { key: 'orders_uk', label: 'UK ord', fmt: 'num', dir: 'high', agg: 'sum' },
     { key: 'uk_cr', label: 'UK CR', fmt: 'pct', dir: 'high', agg: 'avg' },
     { key: 'uk_aov', label: 'UK AOV', fmt: 'money2', dir: 'high', agg: 'avg' },
-    { key: 'amazon_sales_au', label: 'Amazon AU', fmt: 'money', dir: 'high', agg: 'sum' },
-    { key: 'amazon_sales_uk', label: 'Amazon UK', fmt: 'money', dir: 'high', agg: 'sum' },
-    { key: 'amazon_sales', label: 'Amazon total', fmt: 'money', dir: 'high', agg: 'sum', derived: true },
     { key: 'wholesale_invoices', label: 'Wholesale', fmt: 'money', dir: 'high', agg: 'sum' },
     { key: 'sales_total', label: 'Sales total', fmt: 'money', dir: 'high', agg: 'sum', derived: true },
   ] },
@@ -46,6 +43,17 @@ const GROUPS: Group[] = [
     { key: 'google_nc_roas', label: 'NC ROAS', fmt: 'x', dir: 'high', agg: 'avg' },
     { key: 'google_cpa', label: 'CPA', fmt: 'money2', dir: 'low', agg: 'avg' },
     { key: 'google_nc_cpa', label: 'NC CPA', fmt: 'money2', dir: 'low', agg: 'avg' },
+  ] },
+  // Own channel group like Meta/Google: sales (SP-API autofilled) + ads. Spend/ROAS are
+  // click-to-edit (hand-entered from the Amazon Ads console) until the Amazon Ads API — a
+  // separate registration from SP-API — is connected; autofill will take over the same columns.
+  { label: 'Amazon', metrics: [
+    { key: 'amazon_sales_au', label: 'AU sales', fmt: 'money', dir: 'high', agg: 'sum', editable: true },
+    { key: 'amazon_sales_uk', label: 'UK sales', fmt: 'money', dir: 'high', agg: 'sum', editable: true },
+    { key: 'amazon_sales', label: 'Total sales', fmt: 'money', dir: 'high', agg: 'sum', derived: true },
+    { key: 'amazon_purchases', label: 'Orders', fmt: 'num', dir: 'high', agg: 'sum' },
+    { key: 'amazon_spend', label: 'Ad spend', fmt: 'money', dir: 'none', agg: 'sum', editable: true },
+    { key: 'amazon_roas', label: 'ROAS', fmt: 'x', dir: 'high', agg: 'avg', editable: true },
   ] },
   { label: 'Totals & profits', metrics: [
     { key: 'total_ad_spend', label: 'Ad spend', fmt: 'money', dir: 'none', agg: 'sum', derived: true },
@@ -68,6 +76,7 @@ const GROUP_STYLE: Record<string, { bg: string; fg: string }> = {
   'Sales channels': { bg: '#bd6930', fg: '#ffffff' }, // caramel (brand)
   'Meta': { bg: '#1877f2', fg: '#ffffff' },            // Meta blue
   'Google': { bg: '#e8930c', fg: '#3a2400' },          // amber (dark text for contrast)
+  'Amazon': { bg: '#232f3e', fg: '#ff9900' },          // Amazon squid-ink + smile orange
   'Totals & profits': { bg: '#025c46', fg: '#ffffff' },// profit green
 };
 const HEAD_BLUE = '#2f5f8a'; // deeper brand blue — readable with white text
@@ -80,10 +89,11 @@ const fmt = (v: number | null | undefined, f: Fmt) => {
   if (f === 'x') return v.toFixed(2) + '×';
   return v.toLocaleString('en-AU');
 };
-// Amazon AU/UK sales auto-fill from SP-API once connected (Settings); this cell stays editable
-// as a manual override either way — /api/analytics/save locks a field once hand-set so
-// autofill never overwrites it. Amazon TOTAL is a derived (AU+UK) column, not editable here.
-function EditableCell({ weekStart, field, value, onSaved }: { weekStart: string; field: string; value: number | null; onSaved: () => void }) {
+// Click-to-edit manual cell (marked `editable` in GROUPS) — used for values with no API feed
+// yet (e.g. Amazon ad spend/ROAS until the Ads API is connected) or as a manual override of an
+// autofilled one. /api/analytics/save locks a field once hand-set so autofill never overwrites
+// it; clearing the value unlocks it again. Derived columns are never editable.
+function EditableCell({ weekStart, metric, value, onSaved }: { weekStart: string; metric: Metric; value: number | null; onSaved: () => void }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(value != null ? String(value) : '');
   const save = async () => {
@@ -91,14 +101,14 @@ function EditableCell({ weekStart, field, value, onSaved }: { weekStart: string;
     if (val.trim() === (value != null ? String(value) : '')) return; // no change
     await fetch('/api/analytics/save', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ week_start: weekStart, field, value: val }),
+      body: JSON.stringify({ week_start: weekStart, field: metric.key, value: val }),
     });
     onSaved();
   };
   if (editing) {
     return (
       <input
-        autoFocus type="number" defaultValue={val} onClick={(e) => e.stopPropagation()}
+        autoFocus type="number" step="any" defaultValue={val} onClick={(e) => e.stopPropagation()}
         onChange={(e) => setVal(e.target.value)} onBlur={save}
         onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEditing(false); }}
         className="w-20 rounded border border-caramel px-1 py-0.5 text-right text-[12px] tabular-nums focus:outline-none"
@@ -106,9 +116,9 @@ function EditableCell({ weekStart, field, value, onSaved }: { weekStart: string;
     );
   }
   return (
-    <span onClick={(e) => { e.stopPropagation(); setEditing(true); }} title={`Click to enter Amazon ${field.endsWith('_uk') ? 'UK' : 'AU'} sales for this week`}
+    <span onClick={(e) => { e.stopPropagation(); setEditing(true); }} title={`Click to enter ${metric.label} for this week`}
       className="cursor-text decoration-dotted decoration-gray-400 hover:underline">
-      {value == null ? '—' : fmt(value, 'money')}
+      {value == null ? '—' : fmt(value, metric.fmt)}
     </span>
   );
 }
@@ -189,8 +199,8 @@ export default function SalesMaster({ weeks, year }: { weeks: Week[]; year: numb
                 return (
                   <td key={m.key} className={`whitespace-nowrap px-2 py-1.5 text-right tabular-nums text-gray-700 ${on ? 'border-y-2 border-caramel' : ''} ${gi && mi === 0 ? 'border-l-2 border-l-caramel/20' : ''} ${m.key === 'net_profit' ? 'font-bold text-caramel' : ''}`}
                     style={{ background: tint(v, m) }}>
-                    {(m.key === 'amazon_sales_au' || m.key === 'amazon_sales_uk')
-                      ? <EditableCell weekStart={w.week_start} field={m.key} value={v} onSaved={() => router.refresh()} />
+                    {m.editable
+                      ? <EditableCell weekStart={w.week_start} metric={m} value={v} onSaved={() => router.refresh()} />
                       : fmt(v, m.fmt)}
                   </td>
                 );
