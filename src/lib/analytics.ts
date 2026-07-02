@@ -1,10 +1,11 @@
 // Sales & Data Master — weekly analytics. Auto-fills the API-owned fields (Shopify online
 // sales/orders/AOV/shipping + regional, ShipBob fulfilment charges, Xero wholesale invoices,
-// Meta + Google ad spend/ROAS) and computes the derived profit metrics. Amazon stays manual
-// (no Seller/Ads API credentials) — see EditableCell on the Sales & Data page.
+// Meta + Google ad spend/ROAS, Amazon AU+UK order sales/count) and computes the derived profit
+// metrics. Amazon ad spend/ROAS (Sponsored Products) is still manual — Ads API not wired yet.
 import { supabaseLogistics } from './supabase-logistics';
 import { fetchMetaWeek, metaConfigured } from './meta';
 import { fetchGoogleAdsWeek, googleAdsConfigured } from './googleAds';
+import { fetchAmazonSalesWeek, amazonSpConfigured } from './amazonSp';
 import { getShopifyToken, SHOPIFY_SHOP } from './shopifyToken';
 import { melbMidnightUtc } from './tz';
 
@@ -135,12 +136,13 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 export async function autofillWeek(weekStart: string) {
   const { startIso, endIso } = weekRange(weekStart);
   const a = await getAssumptions();
-  const [shop, sb, wh, meta, google, existing] = await Promise.all([
+  const [shop, sb, wh, meta, google, amazon, existing] = await Promise.all([
     shopifyOrders(startIso, endIso).catch((e) => ({ _err: String(e) } as any)),
     shipbobCharges(startIso, endIso, a.fx_gbp_aud).catch(() => null),
     wholesaleTotal(startIso, endIso).catch(() => null),
     metaConfigured() ? fetchMetaWeek(startIso, endIso).catch((e) => ({ _err: String(e) } as any)) : Promise.resolve(null),
     googleAdsConfigured() ? fetchGoogleAdsWeek(startIso, endIso).catch((e) => ({ _err: String(e) } as any)) : Promise.resolve(null),
+    amazonSpConfigured() ? fetchAmazonSalesWeek(startIso, endIso, a.fx_gbp_aud).catch((e) => ({ _err: String(e) } as any)) : Promise.resolve(null),
     supabaseLogistics.from('sales_week').select('locked, cogs').eq('week_start', weekStart).maybeSingle(),
   ]);
   const locked: string[] = (existing.data?.locked as string[]) || [];
@@ -196,11 +198,15 @@ export async function autofillWeek(weekStart: string) {
       } catch { /* attribution best-effort */ }
     }
   }
+  if (amazon && !amazon._err) {
+    set('amazon_sales', amazon.sales); set('amazon_purchases', amazon.orders);
+  }
   await supabaseLogistics.from('sales_week').upsert(row, { onConflict: 'week_start' });
   return {
     week_start: weekStart, shopify: shop?._err ? `error: ${shop._err}` : 'ok', shipbob: sb, wholesale: wh,
     meta: meta?._err ? `error: ${meta._err}` : (meta ? 'ok' : 'not configured'),
     google: google?._err ? `error: ${google._err}` : (google ? 'ok' : 'not configured'),
+    amazon: amazon?._err ? `error: ${amazon._err}` : (amazon ? `ok${amazon.warnings?.length ? ` (${amazon.warnings.join('; ')})` : ''}` : 'not configured'),
   };
 }
 
