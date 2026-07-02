@@ -1,37 +1,43 @@
 // Amazon Selling Partner API (SP-API) — read-only order totals for the weekly analytics.
-// Self-authorized PRIVATE app (Seller Central → Apps & Services → Develop Apps) — the refresh
-// token is generated once in that UI directly, no OAuth-redirect flow needed (unlike Ads API
-// or Google). AU and UK sit in DIFFERENT SP-API regions (AU = Far East, UK = Europe); both
-// marketplaces are queried and summed into one weekly total, matching the single "Amazon"
-// column in Sales & Data. UK order totals (GBP) are converted to AUD before summing.
+// Self-authorized PRIVATE app (Seller Central → Apps & Services → Develop Apps) — refresh tokens
+// are generated once in that UI directly, no OAuth-redirect flow needed (unlike Ads API or
+// Google). AU and UK sit in DIFFERENT SP-API regions (AU = Far East, UK = Europe) AND each
+// marketplace authorization mints its OWN refresh token (confirmed in Seller Central's "Manage
+// Authorisations" screen — one row per marketplace, each with its own "Authorise app" button) —
+// so unlike the Client ID/Secret (shared), the refresh token is per-region, not shared.
 const LWA_TOKEN_URL = 'https://api.amazon.com/auth/o2/token';
 
-interface Market { region: string; endpoint: string; marketplaceId: string; label: string; currency: 'AUD' | 'GBP' }
+interface Market { region: string; endpoint: string; marketplaceId: string; label: string; currency: 'AUD' | 'GBP'; refreshTokenEnv: string }
 const MARKETS: Market[] = [
-  { region: 'fe', endpoint: 'https://sellingpartnerapi-fe.amazon.com', marketplaceId: 'A39IBJ37TRP1C6', label: 'AU', currency: 'AUD' },
-  { region: 'eu', endpoint: 'https://sellingpartnerapi-eu.amazon.com', marketplaceId: 'A1F83G8C2ARO7P', label: 'UK', currency: 'GBP' },
+  { region: 'fe', endpoint: 'https://sellingpartnerapi-fe.amazon.com', marketplaceId: 'A39IBJ37TRP1C6', label: 'AU', currency: 'AUD', refreshTokenEnv: 'AMAZON_SP_REFRESH_TOKEN_AU' },
+  { region: 'eu', endpoint: 'https://sellingpartnerapi-eu.amazon.com', marketplaceId: 'A1F83G8C2ARO7P', label: 'UK', currency: 'GBP', refreshTokenEnv: 'AMAZON_SP_REFRESH_TOKEN_UK' },
 ];
 
 export function amazonSpConfigured() {
-  return !!process.env.AMAZON_SP_CLIENT_ID && !!process.env.AMAZON_SP_CLIENT_SECRET && !!process.env.AMAZON_SP_REFRESH_TOKEN;
+  return !!process.env.AMAZON_SP_CLIENT_ID && !!process.env.AMAZON_SP_CLIENT_SECRET
+    && MARKETS.some((m) => !!process.env[m.refreshTokenEnv]); // at least one region authorised
 }
 
-let cachedToken: { token: string; expires: number } | null = null;
-async function getAccessToken(): Promise<string> {
-  if (cachedToken && cachedToken.expires > Date.now()) return cachedToken.token;
+const tokenCache = new Map<string, { token: string; expires: number }>();
+async function getAccessToken(refreshTokenEnv: string): Promise<string> {
+  const cached = tokenCache.get(refreshTokenEnv);
+  if (cached && cached.expires > Date.now()) return cached.token;
+  const refreshToken = process.env[refreshTokenEnv];
+  if (!refreshToken) throw new Error(`${refreshTokenEnv} not set`);
   const res = await fetch(LWA_TOKEN_URL, {
     method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       grant_type: 'refresh_token',
-      refresh_token: process.env.AMAZON_SP_REFRESH_TOKEN || '',
+      refresh_token: refreshToken,
       client_id: process.env.AMAZON_SP_CLIENT_ID || '',
       client_secret: process.env.AMAZON_SP_CLIENT_SECRET || '',
     }),
   });
   if (!res.ok) throw new Error(`Amazon SP-API token failed: ${res.status} ${await res.text()}`);
   const tok = await res.json();
-  cachedToken = { token: tok.access_token, expires: Date.now() + (tok.expires_in - 60) * 1000 };
-  return cachedToken.token;
+  const entry = { token: tok.access_token, expires: Date.now() + (tok.expires_in - 60) * 1000 };
+  tokenCache.set(refreshTokenEnv, entry);
+  return entry.token;
 }
 
 // One market's order total + count for the week (Canceled orders excluded), paginated via NextToken.
@@ -60,7 +66,6 @@ export interface AmazonWeek { au: number; uk: number; orders: number; warnings: 
 // startIso inclusive, endIso exclusive — same contract as fetchMetaWeek/fetchGoogleAdsWeek.
 export async function fetchAmazonSalesWeek(startIso: string, endIso: string, fxGbpAud: number): Promise<AmazonWeek | null> {
   if (!amazonSpConfigured()) return null;
-  const token = await getAccessToken();
   const createdAfter = `${startIso}T00:00:00Z`;
   const createdBefore = `${endIso}T00:00:00Z`;
 
@@ -68,6 +73,7 @@ export async function fetchAmazonSalesWeek(startIso: string, endIso: string, fxG
   const warnings: string[] = [];
   for (const m of MARKETS) {
     try {
+      const token = await getAccessToken(m.refreshTokenEnv);
       const r = await marketWeek(m, token, createdAfter, createdBefore);
       const converted = m.currency === 'GBP' ? r.sales * fxGbpAud : r.sales;
       if (m.label === 'UK') uk += converted; else au += converted;
