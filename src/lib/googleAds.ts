@@ -48,19 +48,42 @@ async function adsSearch(customerId: string, query: string, token: string, login
   return JSON.parse(raw);
 }
 
-// Find the (single) enabled non-manager client account under the manager id.
-async function resolveClientAccount(managerId: string, token: string): Promise<string> {
-  const j = await adsSearch(
-    managerId,
-    'SELECT customer_client.id, customer_client.status, customer_client.manager FROM customer_client WHERE customer_client.level <= 1',
-    token,
-    managerId,
-  );
-  const clients = (j.results || [])
-    .map((r: any) => r.customerClient)
-    .filter((c: any) => c && !c.manager && c.status === 'ENABLED' && digits(String(c.id)) !== managerId);
-  if (!clients.length) throw new Error(`Google Ads: ${managerId} is a manager account with no enabled client accounts visible to it`);
-  return digits(String(clients[0].id));
+// Find the enabled non-manager ad account to query metrics against. Two paths, because the
+// account can hang off the manager OR just be directly accessible to the OAuth login:
+// 1) customer_client children of the manager (to depth 2, covers sub-managers)
+// 2) listAccessibleCustomers — every account the OAuth user can reach directly
+async function resolveClientAccount(managerId: string, token: string): Promise<{ id: string; viaManager: boolean }> {
+  const notes: string[] = [];
+  try {
+    const j = await adsSearch(
+      managerId,
+      'SELECT customer_client.id, customer_client.status, customer_client.manager FROM customer_client WHERE customer_client.level <= 2',
+      token,
+      managerId,
+    );
+    const all = (j.results || []).map((r: any) => r.customerClient).filter(Boolean);
+    const clients = all.filter((c: any) => !c.manager && c.status === 'ENABLED' && digits(String(c.id)) !== managerId);
+    if (clients.length) return { id: digits(String(clients[0].id)), viaManager: true };
+    notes.push(`manager children: ${all.map((c: any) => `${c.id}(${c.status}${c.manager ? ',mgr' : ''})`).join(', ') || 'none'}`);
+  } catch (e) { notes.push(`customer_client lookup failed: ${String(e).slice(0, 120)}`); }
+
+  const res = await fetch(`https://googleads.googleapis.com/${ADS_VERSION}/customers:listAccessibleCustomers`, {
+    headers: { Authorization: `Bearer ${token}`, 'developer-token': process.env.GOOGLE_ADS_DEVELOPER_TOKEN || '' },
+  });
+  if (res.ok) {
+    const ids = (((await res.json()).resourceNames || []) as string[]).map((n) => digits(n.split('/')[1] || '')).filter((id) => id && id !== managerId);
+    for (const id of ids) {
+      try {
+        const j = await adsSearch(id, 'SELECT customer.id, customer.manager, customer.status FROM customer', token);
+        const c = j.results?.[0]?.customer;
+        if (c && !c.manager && c.status === 'ENABLED') return { id, viaManager: false };
+        notes.push(`${id}: ${c ? `${c.status}${c.manager ? ',mgr' : ''}` : 'no row'}`);
+      } catch (e) { notes.push(`${id}: ${String(e).slice(0, 80)}`); }
+    }
+    if (!ids.length) notes.push('listAccessibleCustomers: only the manager itself');
+  } else notes.push(`listAccessibleCustomers ${res.status}`);
+
+  throw new Error(`Google Ads: no enabled ad account found (${managerId} is a manager; metrics need the client account). ${notes.join(' | ')}`.slice(0, 500));
 }
 
 export interface GoogleWeek { spend: number; roas: number | null; purchases: number; cpa: number | null }
@@ -75,22 +98,29 @@ export async function fetchGoogleAdsWeek(startIso: string, endIso: string): Prom
   const envId = digits(process.env.GOOGLE_ADS_CUSTOMER_ID);
   if (!envId) return null;
   const envLogin = digits(process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID);
-  const cachedId = digits((await getConfig(EFFECTIVE_ID_KEY).catch(() => null)) || '');
+  // Cache holds {id, viaManager} — viaManager decides whether login-customer-id is sent
+  // (required when access goes through the MCC, a 403 when the account is direct-access).
+  let cached: { id: string; viaManager: boolean } | null = null;
+  try {
+    const s = await getConfig(EFFECTIVE_ID_KEY);
+    if (s) cached = s.startsWith('{') ? JSON.parse(s) : { id: digits(s), viaManager: true };
+  } catch { /* re-resolve below */ }
 
   const until = new Date(new Date(endIso + 'T00:00:00').getTime() - 86400_000).toISOString().slice(0, 10);
   // FROM customer = one account-level aggregated row for the whole date range (no per-campaign
   // summing needed), same spirit as Meta's level=account insights call.
   const query = `SELECT metrics.cost_micros, metrics.conversions, metrics.conversions_value FROM customer WHERE segments.date BETWEEN '${startIso}' AND '${until}'`;
 
-  let customerId = cachedId || envId;
+  let customerId = cached?.id || envId;
   let j: any;
   try {
-    j = await adsSearch(customerId, query, token, envLogin || (customerId !== envId ? envId : undefined));
+    j = await adsSearch(customerId, query, token, envLogin || (cached?.viaManager ? envId : undefined));
   } catch (e) {
     if (!String(e).includes('REQUESTED_METRICS_FOR_MANAGER')) throw e;
-    customerId = await resolveClientAccount(envId, token);
-    await setConfig(EFFECTIVE_ID_KEY, customerId).catch(() => { /* cache miss just means re-resolving next run */ });
-    j = await adsSearch(customerId, query, token, envId);
+    const resolved = await resolveClientAccount(envId, token);
+    customerId = resolved.id;
+    await setConfig(EFFECTIVE_ID_KEY, JSON.stringify(resolved)).catch(() => { /* cache miss just means re-resolving next run */ });
+    j = await adsSearch(customerId, query, token, resolved.viaManager ? envId : undefined);
   }
 
   const row = (j.results || [])[0];
