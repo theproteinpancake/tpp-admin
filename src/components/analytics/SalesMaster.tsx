@@ -25,7 +25,9 @@ const GROUPS: Group[] = [
     { key: 'orders_uk', label: 'UK ord', fmt: 'num', dir: 'high', agg: 'sum' },
     { key: 'uk_cr', label: 'UK CR', fmt: 'pct', dir: 'high', agg: 'avg' },
     { key: 'uk_aov', label: 'UK AOV', fmt: 'money2', dir: 'high', agg: 'avg' },
-    { key: 'amazon_sales', label: 'Amazon', fmt: 'money', dir: 'high', agg: 'sum' },
+    { key: 'amazon_sales_au', label: 'Amazon AU', fmt: 'money', dir: 'high', agg: 'sum' },
+    { key: 'amazon_sales_uk', label: 'Amazon UK', fmt: 'money', dir: 'high', agg: 'sum' },
+    { key: 'amazon_sales', label: 'Amazon total', fmt: 'money', dir: 'high', agg: 'sum', derived: true },
     { key: 'wholesale_invoices', label: 'Wholesale', fmt: 'money', dir: 'high', agg: 'sum' },
     { key: 'sales_total', label: 'Sales total', fmt: 'money', dir: 'high', agg: 'sum', derived: true },
   ] },
@@ -78,9 +80,9 @@ const fmt = (v: number | null | undefined, f: Fmt) => {
   if (f === 'x') return v.toFixed(2) + '×';
   return v.toLocaleString('en-AU');
 };
-// No live Amazon feed exists (no Seller/Ads API creds) — this cell is manually entered. The
-// backing /api/analytics/save endpoint already supports it (weeks lock a field once hand-set,
-// so autofill never overwrites it); this is just the missing UI wired onto it.
+// Amazon AU/UK sales auto-fill from SP-API once connected (Settings); this cell stays editable
+// as a manual override either way — /api/analytics/save locks a field once hand-set so
+// autofill never overwrites it. Amazon TOTAL is a derived (AU+UK) column, not editable here.
 function EditableCell({ weekStart, field, value, onSaved }: { weekStart: string; field: string; value: number | null; onSaved: () => void }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(value != null ? String(value) : '');
@@ -104,7 +106,7 @@ function EditableCell({ weekStart, field, value, onSaved }: { weekStart: string;
     );
   }
   return (
-    <span onClick={(e) => { e.stopPropagation(); setEditing(true); }} title="Click to enter Amazon sales for this week"
+    <span onClick={(e) => { e.stopPropagation(); setEditing(true); }} title={`Click to enter Amazon ${field.endsWith('_uk') ? 'UK' : 'AU'} sales for this week`}
       className="cursor-text decoration-dotted decoration-gray-400 hover:underline">
       {value == null ? '—' : fmt(value, 'money')}
     </span>
@@ -177,8 +179,8 @@ export default function SalesMaster({ weeks, year }: { weeks: Week[]; year: numb
                 return (
                   <td key={m.key} className={`whitespace-nowrap px-2 py-1.5 text-right tabular-nums text-gray-700 ${on ? 'border-y-2 border-caramel' : ''} ${gi && mi === 0 ? 'border-l-2 border-l-caramel/20' : ''} ${m.key === 'net_profit' ? 'font-bold text-caramel' : ''}`}
                     style={{ background: tint(v, m) }}>
-                    {m.key === 'amazon_sales'
-                      ? <EditableCell weekStart={w.week_start} field="amazon_sales" value={v} onSaved={() => router.refresh()} />
+                    {(m.key === 'amazon_sales_au' || m.key === 'amazon_sales_uk')
+                      ? <EditableCell weekStart={w.week_start} field={m.key} value={v} onSaved={() => router.refresh()} />
                       : fmt(v, m.fmt)}
                   </td>
                 );

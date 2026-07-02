@@ -3,7 +3,7 @@ import { supabaseLogistics } from '@/lib/supabase-logistics';
 
 // Editable (manual) fields — saving any of these LOCKS it so auto-fill won't overwrite.
 const EDITABLE = new Set([
-  'amazon_purchases', 'amazon_sales', 'amazon_spend', 'amazon_roas',
+  'amazon_purchases', 'amazon_sales_au', 'amazon_sales_uk', 'amazon_spend', 'amazon_roas',
   'meta_spend', 'meta_roas', 'meta_purchases', 'meta_nc_roas', 'meta_cpa', 'meta_nc_cpa',
   'google_spend', 'google_roas', 'google_purchases', 'google_nc_roas', 'google_cpa', 'google_nc_cpa',
   'cr', 'nz_cr', 'uk_cr', 'notes',

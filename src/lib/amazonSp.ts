@@ -54,7 +54,8 @@ async function marketWeek(m: Market, token: string, createdAfter: string, create
   return { sales, orders };
 }
 
-export interface AmazonWeek { sales: number; orders: number; warnings: string[] }
+// AU + UK reported separately (Luke compares the two markets), plus a combined order count.
+export interface AmazonWeek { au: number; uk: number; orders: number; warnings: string[] }
 
 // startIso inclusive, endIso exclusive — same contract as fetchMetaWeek/fetchGoogleAdsWeek.
 export async function fetchAmazonSalesWeek(startIso: string, endIso: string, fxGbpAud: number): Promise<AmazonWeek | null> {
@@ -63,12 +64,13 @@ export async function fetchAmazonSalesWeek(startIso: string, endIso: string, fxG
   const createdAfter = `${startIso}T00:00:00Z`;
   const createdBefore = `${endIso}T00:00:00Z`;
 
-  let sales = 0, orders = 0;
+  let au = 0, uk = 0, orders = 0;
   const warnings: string[] = [];
   for (const m of MARKETS) {
     try {
       const r = await marketWeek(m, token, createdAfter, createdBefore);
-      sales += m.currency === 'GBP' ? r.sales * fxGbpAud : r.sales;
+      const converted = m.currency === 'GBP' ? r.sales * fxGbpAud : r.sales;
+      if (m.label === 'UK') uk += converted; else au += converted;
       orders += r.orders;
     } catch (e) {
       // one market failing (e.g. account not authorised there yet) shouldn't blank the other
@@ -76,7 +78,7 @@ export async function fetchAmazonSalesWeek(startIso: string, endIso: string, fxG
     }
   }
   if (warnings.length === MARKETS.length) throw new Error(warnings.join(' | '));
-  return { sales: round2(sales), orders, warnings };
+  return { au: round2(au), uk: round2(uk), orders, warnings };
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;

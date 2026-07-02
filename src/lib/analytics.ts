@@ -199,7 +199,7 @@ export async function autofillWeek(weekStart: string) {
     }
   }
   if (amazon && !amazon._err) {
-    set('amazon_sales', amazon.sales); set('amazon_purchases', amazon.orders);
+    set('amazon_sales_au', amazon.au); set('amazon_sales_uk', amazon.uk); set('amazon_purchases', amazon.orders);
   }
   await supabaseLogistics.from('sales_week').upsert(row, { onConflict: 'week_start' });
   return {
@@ -213,7 +213,10 @@ export async function autofillWeek(weekStart: string) {
 // Derived profit metrics for a stored row.
 export function derive(r: any, a: Assumptions) {
   const n = (v: any) => Number(v) || 0;
-  const sales_total = n(r.online_sales) + n(r.amazon_sales) + n(r.wholesale_invoices);
+  // Amazon total is DERIVED (AU + UK), same pattern as sales_total — the two regions are the
+  // stored/editable source of truth so Luke can compare markets; the total is never set directly.
+  const amazon_sales = n(r.amazon_sales_au) + n(r.amazon_sales_uk);
+  const sales_total = n(r.online_sales) + amazon_sales + n(r.wholesale_invoices);
   const total_ad_spend = n(r.meta_spend) + n(r.google_spend) + n(r.amazon_spend);
   const gross_profit = n(r.gross_profit);
   const wholesale_np = n(r.wholesale_invoices) * a.wholesale_margin;
@@ -223,6 +226,7 @@ export function derive(r: any, a: Assumptions) {
   const online_np = gross_profit - total_ad_spend - n(r.shipbob_charges) - n(r.online_sales) * a.payment_fee_pct;
   const net_profit = online_np + wholesale_np - wages;
   return {
+    amazon_sales: round2(amazon_sales),
     sales_total: round2(sales_total),
     total_ad_spend: round2(total_ad_spend),
     blended_roas: total_ad_spend ? round2(sales_total / total_ad_spend) : null,
