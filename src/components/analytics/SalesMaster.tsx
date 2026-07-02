@@ -152,7 +152,12 @@ export default function SalesMaster({ weeks, year }: { weeks: Week[]; year: numb
   const router = useRouter();
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+    // max-h + overflow-auto makes THIS div the vertical scroll container. That's what makes the
+    // sticky headers actually stick: overflow-x-auto alone already made this div the sticky
+    // reference container (why the left-pinned Week column worked), but vertical scrolling
+    // happened on the page body — the div itself never scrolled vertically, so top-0 had
+    // nothing to stick to. Both axes must scroll HERE.
+    <div className="max-h-[calc(100dvh-13.5rem)] overflow-auto overscroll-x-contain rounded-xl border border-gray-200 bg-white shadow-sm sm:max-h-[calc(100dvh-11.5rem)]">
       <table className="border-collapse text-[12px]">
         <thead>
           {/* Sticky is applied PER CELL (not on <thead> itself) — with border-collapse tables,
@@ -195,10 +200,11 @@ export default function SalesMaster({ weeks, year }: { weeks: Week[]; year: numb
           })}
         </tbody>
         <tfoot>
-          <tr className="border-t-2 border-caramel/40 bg-gray-50 font-semibold">
-            <td className="sticky left-0 z-10 whitespace-nowrap border-r border-gray-200 bg-gray-50 px-2 py-2 text-caramel">{year} Σ/avg</td>
+          {/* Totals pinned to the bottom of the scroll area — per-cell sticky like the header. */}
+          <tr className="font-semibold">
+            <td className="sticky bottom-0 left-0 z-30 whitespace-nowrap border-r border-t-2 border-caramel/40 border-r-gray-200 bg-gray-50 px-2 py-2 text-caramel">{year} Σ/avg</td>
             {GROUPS.map((g, gi) => g.metrics.map((m, mi) => (
-              <td key={m.key} className={`whitespace-nowrap px-2 py-2 text-right tabular-nums text-caramel ${gi && mi === 0 ? 'border-l-2 border-l-caramel/30' : ''}`}>{fmt(totals[m.key], m.fmt)}</td>
+              <td key={m.key} className={`sticky bottom-0 z-20 whitespace-nowrap border-t-2 border-caramel/40 bg-gray-50 px-2 py-2 text-right tabular-nums text-caramel ${gi && mi === 0 ? 'border-l-2 border-l-caramel/30' : ''}`}>{fmt(totals[m.key], m.fmt)}</td>
             )))}
           </tr>
         </tfoot>

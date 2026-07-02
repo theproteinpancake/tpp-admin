@@ -48,5 +48,8 @@ export async function integrationStatus() {
     xero: xero ? { connected: true, org: xero.tenant_name } : { connected: false },
     shipbob_au: { connected: !!process.env.SHIPBOB_API_TOKEN },
     shipbob_uk: { connected: !!process.env.SHIPBOB_API_TOKEN_UK },
+    // Amazon SP-API: one shared LWA client, one refresh token per marketplace (env-based, no OAuth flow).
+    amazon_au: { connected: !!(process.env.AMAZON_SP_CLIENT_ID && process.env.AMAZON_SP_CLIENT_SECRET && process.env.AMAZON_SP_REFRESH_TOKEN_AU) },
+    amazon_uk: { connected: !!(process.env.AMAZON_SP_CLIENT_ID && process.env.AMAZON_SP_CLIENT_SECRET && process.env.AMAZON_SP_REFRESH_TOKEN_UK) },
   };
 }
