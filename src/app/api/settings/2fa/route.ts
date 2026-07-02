@@ -20,10 +20,9 @@ export async function POST(req: NextRequest) {
     await supabaseLogistics.from('app_users').update({ totp_enabled: true }).eq('id', user.id);
     return NextResponse.json({ ok: true });
   }
-  if (b.action === 'disable') {
-    if (user.totp_secret && !verifyTotp(user.totp_secret, String(b.token || ''))) return NextResponse.json({ error: 'Enter a valid current code to disable.' }, { status: 400 });
-    await supabaseLogistics.from('app_users').update({ totp_enabled: false }).eq('id', user.id);
-    return NextResponse.json({ ok: true });
-  }
+  // 2FA is mandatory for every account (Jun 2026) — no self-service disable. guard.ts would
+  // just bounce a disabled account straight back to /mfa-setup anyway; reject it here too so
+  // the Settings UI can't offer a toggle that silently does nothing useful.
+  if (b.action === 'disable') return NextResponse.json({ error: '2FA is required for all accounts and can\'t be turned off.' }, { status: 403 });
   return NextResponse.json({ error: 'unknown action' }, { status: 400 });
 }
