@@ -4,7 +4,6 @@
 // endpoint the optional Settings field already used; the server is the source of truth for the
 // policy, this just mirrors it for immediate feedback.
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { ShieldCheck } from 'lucide-react';
 
 const MIN_LEN = 12;
@@ -23,7 +22,6 @@ export default function PasswordUpdateForm({ hasPassword, redirectTo }: { hasPas
   const [confirm, setConfirm] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const router = useRouter();
 
   const save = async () => {
     setMsg(null);
@@ -34,7 +32,12 @@ export default function PasswordUpdateForm({ hasPassword, redirectTo }: { hasPas
     try {
       const r = await fetch('/api/auth/change-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ current, new: next }) });
       const j = await r.json();
-      if (j.ok) router.push(redirectTo);
+      // Hard navigation, not router.push — the destination's guard check depends on the
+      // password_changed_at we just wrote, and Next's client router cache can otherwise
+      // serve a page prefetched before that write, bouncing straight back here (the loop
+      // Luke hit in prod: password saved fine, but the cached /analytics prefetch still
+      // carried the pre-update redirect back to /password-update).
+      if (j.ok) window.location.href = redirectTo;
       else setMsg(j.error || 'Failed');
     } finally { setBusy(false); }
   };

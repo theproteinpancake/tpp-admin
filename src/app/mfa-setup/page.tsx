@@ -9,9 +9,9 @@ export const dynamic = 'force-dynamic';
 export default async function MfaSetupPage() {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
-  if (user.totp_enabled) redirect('/settings'); // already enrolled, nothing to do here
 
   const secs = allowedSections(user);
   const redirectTo = secs.length ? sectionHome(secs[0]) : '/settings';
+  if (user.totp_enabled) redirect(redirectTo); // already enrolled, nothing to do here — carry on to their dashboard, not Settings
   return <MfaSetupForm redirectTo={redirectTo} />;
 }

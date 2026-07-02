@@ -9,9 +9,9 @@ export const dynamic = 'force-dynamic';
 export default async function PasswordUpdatePage() {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
-  if (!passwordExpired(user)) redirect('/settings'); // already fresh, nothing to do
 
   const secs = allowedSections(user);
   const redirectTo = secs.length ? sectionHome(secs[0]) : '/settings';
+  if (!passwordExpired(user)) redirect(redirectTo); // already fresh, nothing to do — carry on to their dashboard, not Settings
   return <PasswordUpdateForm hasPassword={!!user.password_hash} redirectTo={redirectTo} />;
 }

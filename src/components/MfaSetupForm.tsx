@@ -3,7 +3,6 @@
 // /api/settings/2fa begin/enable actions the optional Settings toggle already used, just
 // auto-started (no skip) and redirects onward once verified instead of refreshing in place.
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { ShieldCheck } from 'lucide-react';
 
 export default function MfaSetupForm({ redirectTo }: { redirectTo: string }) {
@@ -12,7 +11,6 @@ export default function MfaSetupForm({ redirectTo }: { redirectTo: string }) {
   const [token, setToken] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const router = useRouter();
 
   const post = async (body: any) => {
     setBusy(true); setMsg(null);
@@ -22,7 +20,9 @@ export default function MfaSetupForm({ redirectTo }: { redirectTo: string }) {
   useEffect(() => { (async () => { const j = await post({ action: 'begin' }); if (j.secret) { setSecret(j.secret); setOtpauth(j.otpauth); } })(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const enable = async () => {
     const j = await post({ action: 'enable', token });
-    if (j.ok) router.push(redirectTo);
+    // Hard navigation, not router.push — see PasswordUpdateForm for why (stale client route
+    // cache can otherwise re-serve a pre-enrollment redirect and bounce the user back here).
+    if (j.ok) window.location.href = redirectTo;
     else setMsg(j.error || 'Failed');
   };
 
