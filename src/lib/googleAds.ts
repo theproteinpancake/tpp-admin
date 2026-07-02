@@ -47,7 +47,11 @@ export async function fetchGoogleAdsWeek(startIso: string, endIso: string): Prom
   const raw = await res.text();
   if (!res.ok) {
     const hint = res.status === 404 ? ` — Google Ads API ${ADS_VERSION} may be sunset; set GOOGLE_ADS_API_VERSION to a current version` : '';
-    throw new Error(`Google Ads ${res.status}${hint}: ${raw.slice(0, 200)}`);
+    // The generic message ("Request contains an invalid argument") comes first; the actually
+    // useful field-level errors live in error.details — surface those, not the preamble.
+    let detail = raw.slice(0, 600);
+    try { const e = JSON.parse(raw).error; detail = JSON.stringify(e.details ?? e.message ?? e).slice(0, 600); } catch { /* keep raw */ }
+    throw new Error(`Google Ads ${res.status}${hint}: ${detail}`);
   }
   const j = JSON.parse(raw);
 
