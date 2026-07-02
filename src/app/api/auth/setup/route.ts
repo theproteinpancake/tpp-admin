@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseLogistics } from '@/lib/supabase-logistics';
-import { getUserByEmail, hashPassword } from '@/lib/auth';
+import { getUserByEmail, hashPassword, passwordPolicyError } from '@/lib/auth';
 import { generateSecret, otpauthUrl, verifyTotp } from '@/lib/totp';
 
 // First-time account setup via the invite token: set own password, then enrol 2FA.
@@ -14,9 +14,10 @@ export async function POST(req: NextRequest) {
   }
 
   if (b.action === 'set_password') {
-    if (!b.password || String(b.password).length < 8) return NextResponse.json({ error: 'Password must be at least 8 characters.' }, { status: 400 });
+    const policyError = passwordPolicyError(String(b.password || ''));
+    if (policyError) return NextResponse.json({ error: policyError }, { status: 400 });
     const secret = generateSecret();
-    await supabaseLogistics.from('app_users').update({ password_hash: hashPassword(String(b.password)), totp_secret: secret, totp_enabled: false }).eq('id', user.id);
+    await supabaseLogistics.from('app_users').update({ password_hash: hashPassword(String(b.password)), password_changed_at: new Date().toISOString(), totp_secret: secret, totp_enabled: false }).eq('id', user.id);
     return NextResponse.json({ ok: true, secret, otpauth: otpauthUrl(secret, user.email) });
   }
 

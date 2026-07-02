@@ -19,6 +19,25 @@ export function verifyPassword(pw: string, stored?: string | null): boolean {
   return hb.length === cand.length && crypto.timingSafeEqual(hb, cand);
 }
 
+// Password policy (Amazon SP-API security requirement, Jul 2026): 12+ chars, mixed case,
+// a digit, a special char, and a max 365-day age before it must be rotated.
+export const PASSWORD_MIN_LENGTH = 12;
+export const PASSWORD_MAX_AGE_DAYS = 365;
+export function passwordPolicyError(pw: string): string | null {
+  if (typeof pw !== 'string' || pw.length < PASSWORD_MIN_LENGTH) return `Password must be at least ${PASSWORD_MIN_LENGTH} characters.`;
+  if (!/[a-z]/.test(pw)) return 'Password must include a lowercase letter.';
+  if (!/[A-Z]/.test(pw)) return 'Password must include an uppercase letter.';
+  if (!/[0-9]/.test(pw)) return 'Password must include a number.';
+  if (!/[^A-Za-z0-9]/.test(pw)) return 'Password must include a special character (e.g. ! @ # $ %).';
+  return null;
+}
+// True if this account needs a (re)set: no password yet, never rotated, or older than the max age.
+export function passwordExpired(user: { password_hash?: string | null; password_changed_at?: string | null }): boolean {
+  if (!user?.password_hash) return true;
+  if (!user.password_changed_at) return true;
+  return Date.now() - new Date(user.password_changed_at).getTime() > PASSWORD_MAX_AGE_DAYS * 86400_000;
+}
+
 export interface SessionUser { uid: string; email: string; role: string; sections?: string[] }
 export function signSession(u: SessionUser): string {
   const data = Buffer.from(JSON.stringify(u)).toString('base64url');

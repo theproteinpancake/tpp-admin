@@ -20,7 +20,11 @@ function SetupInner() {
 
   const setPassword = async () => {
     setError('');
-    if (pw.length < 8) return setError('Password must be at least 8 characters.');
+    if (pw.length < 12) return setError('Password must be at least 12 characters.');
+    if (!/[a-z]/.test(pw)) return setError('Password must include a lowercase letter.');
+    if (!/[A-Z]/.test(pw)) return setError('Password must include an uppercase letter.');
+    if (!/[0-9]/.test(pw)) return setError('Password must include a number.');
+    if (!/[^A-Za-z0-9]/.test(pw)) return setError('Password must include a special character (e.g. ! @ # $ %).');
     if (pw !== pw2) return setError('Passwords don’t match.');
     setBusy(true);
     try {
@@ -54,8 +58,9 @@ function SetupInner() {
 
       {step === 1 && (
         <div className="space-y-3">
-          <input type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="New password (min 8 chars)" className="w-full rounded-xl border border-gray-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-caramel" />
+          <input type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="New password (min 12 chars)" className="w-full rounded-xl border border-gray-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-caramel" />
           <input type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} placeholder="Confirm password" className="w-full rounded-xl border border-gray-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-caramel" />
+          <p className="text-xs text-gray-400">Needs an uppercase and lowercase letter, a number, and a special character.</p>
           {error && <p className="text-center text-sm text-red-500">{error}</p>}
           <button disabled={busy} onClick={setPassword} className="w-full rounded-xl bg-caramel px-4 py-3 font-semibold text-white hover:bg-maple disabled:opacity-50">Continue</button>
         </div>
