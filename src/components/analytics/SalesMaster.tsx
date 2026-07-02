@@ -154,16 +154,21 @@ export default function SalesMaster({ weeks, year }: { weeks: Week[]; year: numb
   return (
     <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
       <table className="border-collapse text-[12px]">
-        <thead className="sticky top-0 z-20">
+        <thead>
+          {/* Sticky is applied PER CELL (not on <thead> itself) — with border-collapse tables,
+              position:sticky on the thead/tbody element is inconsistently honoured across
+              browsers, whereas per-cell sticky is the same reliable technique already used for
+              the left-pinned Week column below. Both header rows get an explicit h-9 so row 2's
+              top offset (top-9 = the exact height of row 1) never drifts out of sync. */}
           <tr>
-            <th rowSpan={2} className="sticky left-0 z-10 border-b border-r border-white/20 px-2 py-2 text-left text-[12px] font-bold text-white" style={{ background: HEAD_BLUE }}>Week</th>
+            <th rowSpan={2} className="sticky left-0 top-0 z-30 h-[72px] border-b border-r border-white/20 px-2 py-2 text-left text-[12px] font-bold text-white" style={{ background: HEAD_BLUE }}>Week</th>
             {GROUPS.map((g, gi) => (
-              <th key={g.label} colSpan={g.metrics.length} className={`border-b border-white/20 px-2 py-1.5 text-center text-[12px] font-extrabold uppercase tracking-wide ${gi ? 'border-l-2 border-l-white/50' : ''}`} style={{ background: GROUP_STYLE[g.label]?.bg, color: GROUP_STYLE[g.label]?.fg }}>{g.label}</th>
+              <th key={g.label} colSpan={g.metrics.length} className={`sticky top-0 z-20 h-9 border-b border-white/20 px-2 py-1.5 text-center text-[12px] font-extrabold uppercase tracking-wide ${gi ? 'border-l-2 border-l-white/50' : ''}`} style={{ background: GROUP_STYLE[g.label]?.bg, color: GROUP_STYLE[g.label]?.fg }}>{g.label}</th>
             ))}
           </tr>
           <tr>
             {GROUPS.map((g, gi) => g.metrics.map((m, mi) => (
-              <th key={m.key} className={`whitespace-nowrap border-b border-white/20 px-2 py-1.5 text-right text-[11px] font-bold text-white ${gi && mi === 0 ? 'border-l-2 border-l-white/40' : ''}`} style={{ background: HEAD_BLUE }}>{m.label}</th>
+              <th key={m.key} className={`sticky top-9 z-20 h-9 whitespace-nowrap border-b border-white/20 px-2 py-1.5 text-right text-[11px] font-bold text-white ${gi && mi === 0 ? 'border-l-2 border-l-white/40' : ''}`} style={{ background: HEAD_BLUE }}>{m.label}</th>
             )))}
           </tr>
         </thead>
