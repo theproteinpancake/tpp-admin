@@ -61,6 +61,16 @@ export async function createWRO(opts: {
   return { id: wro.id, status: wro.status };
 }
 
+// Cancel a WRO (e.g. one orphaned by a superseded VISY draft — its replacement gets a new WRO).
+export async function cancelWRO(site: string, id: number): Promise<boolean> {
+  const token = TOKENS[site];
+  if (!token) return false;
+  const res = await fetch(`https://api.shipbob.com/1.0/receiving/${id}/cancel`, {
+    method: 'POST', headers: { Authorization: `Bearer ${token}` },
+  });
+  return res.ok;
+}
+
 // Fetch the WRO labels PDF as base64. NOTE: ShipBob's API only serves the 2-page
 // receiving doc (WRO #, barcode, lot/expiry/qty) — the QR "box label" is UI-only
 // (the box-labels endpoints 404), so it can't be retrieved here.

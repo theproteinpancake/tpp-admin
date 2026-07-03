@@ -5,7 +5,7 @@
 import { supabaseLogistics } from './supabase-logistics';
 import { gmailCreateDraft, gmailDeleteDraftsBySubject } from './google';
 import { getConfig } from './settings';
-import { createWRO, getWROLabels } from './shipbob';
+import { createWRO, getWROLabels, cancelWRO } from './shipbob';
 import { deliveryBlock, VISY_SIGNATURE } from './visyConstants';
 import { melbDate, addDays } from './tz';
 
@@ -138,9 +138,18 @@ export async function draftVisyOrder(opts: { item: VisyItem; qty?: number }): Pr
 
   if (!contact.email) notes.push("VISY contact email isn't set yet — the draft has no recipient. Set it in settings (config key `visy_contact`) or tell me Amanda's email.");
   // Supersede any earlier un-sent copy of THIS order so duplicate drafts never pile up
-  // (a stale duplicate is what caused a no-op "send" before). Then mark stale DB rows cancelled.
+  // (a stale duplicate is what caused a no-op "send" before). The superseded draft's WRO is
+  // orphaned (this re-draft made its own), so cancel it in ShipBob too — two live WROs for one
+  // physical delivery confuses receiving. Then mark stale DB rows cancelled.
   const supersededDrafts = await gmailDeleteDraftsBySubject(subject).catch(() => 0);
   if (supersededDrafts) {
+    const { data: stale } = await supabaseLogistics.from('visy_orders').select('wro_id').eq('subject', subject).eq('status', 'drafted');
+    for (const staleWro of new Set((stale ?? []).map((r: any) => r.wro_id).filter((id: any) => id && id !== wro_id))) {
+      const ok = await cancelWRO('ALTONA', staleWro as number).catch(() => false);
+      notes.push(ok
+        ? `Cancelled WRO ${staleWro} from the replaced draft (this draft has its own WRO).`
+        : `WRO ${staleWro} from the replaced draft could NOT be auto-cancelled — cancel it in ShipBob so receiving isn't expecting a double-up.`);
+    }
     await supabaseLogistics.from('visy_orders').update({ status: 'cancelled' }).eq('subject', subject).eq('status', 'drafted').then(() => {}, () => {});
     notes.push(`Replaced ${supersededDrafts} earlier un-sent draft${supersededDrafts > 1 ? 's' : ''} for this order so there's only one to send.`);
   }
