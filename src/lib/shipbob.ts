@@ -12,28 +12,35 @@ export interface WROItem {
   expiration_date?: string | null; // YYYY-MM-DD
 }
 
-// Create a Warehouse Receiving Order at a site.
+// Create a Warehouse Receiving Order at a site. Pass `boxes` (one WROItem[] per physical
+// pallet/box) when the delivery arrives as MORE than one — each box gets its own label page
+// in the WRO labels PDF (VISY needs a label per pallet; a single label on a 2-pallet delivery
+// meant hand-editing the WRO last time). Plain `items` = whole delivery on one pallet.
 export async function createWRO(opts: {
   site: string;
   expected_arrival_date: string;     // YYYY-MM-DD
   tracking_ref: string;              // docket / reference number
   purchase_order_number?: string;
   package_type?: 'Pallet' | 'Package' | 'FloorLoadedContainer';
-  items: WROItem[];
+  items?: WROItem[];
+  boxes?: WROItem[][];
 }): Promise<{ id: number; status: string }> {
   const token = TOKENS[opts.site];
   if (!token) throw new Error(`No ShipBob token for ${opts.site}`);
   const fcId = FC[opts.site];
+  const boxes = opts.boxes?.length ? opts.boxes : [opts.items || []];
+  if (!boxes[0]?.length) throw new Error('createWRO: no items');
 
   const body = {
     fulfillment_center: { id: fcId },
     package_type: opts.package_type || 'Pallet',
-    box_packaging_type: 'EverythingInOneBox',
+    box_packaging_type: boxes.length > 1 ? 'MultipleBoxes' : 'EverythingInOneBox',
     expected_arrival_date: opts.expected_arrival_date,
     purchase_order_number: opts.purchase_order_number || undefined,
-    boxes: [{
-      tracking_number: opts.tracking_ref,
-      box_items: opts.items.map((i) => ({
+    boxes: boxes.map((boxItems, bi) => ({
+      // per-box refs must be distinct or ShipBob treats them as one package
+      tracking_number: boxes.length > 1 ? `${opts.tracking_ref}-P${bi + 1}` : opts.tracking_ref,
+      box_items: boxItems.map((i) => ({
         inventory_id: i.inventory_id,
         quantity: i.quantity,
         lot_number: i.lot_number || undefined,
@@ -41,7 +48,7 @@ export async function createWRO(opts: {
         // same calendar date in both AU and US timezones (no day-shift on display).
         lot_date: i.expiration_date ? `${i.expiration_date}T12:00:00Z` : undefined,
       })),
-    }],
+    })),
   };
 
   const res = await fetch('https://api.shipbob.com/1.0/receiving', {

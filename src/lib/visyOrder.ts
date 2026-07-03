@@ -75,8 +75,13 @@ export async function resolveVisyItem(query: string): Promise<{ item?: VisyItem;
 export interface VisyDraft {
   draft_id: string; to: string; subject: string; body: string;
   destination: 'ABC' | 'ALTONA'; qty: number; visy_code: string | null;
-  wro_id?: number; wro_attached?: boolean; notes: string[];
+  wro_id?: number; wro_attached?: boolean; pallets?: number; notes: string[];
 }
+
+// VISY stacks 1,000 shipper cartons per pallet — every 1,000 units is its own pallet in the
+// WRO, so the labels PDF carries one label per pallet (VISY had to chase a second label when a
+// 2,000-unit order went out as a single-pallet WRO).
+const UNITS_PER_PALLET = 1000;
 
 // Draft (NOT send) a VISY order email. For ALTONA shipping cartons, also create a WRO + attach
 // its label PDF to the pallet's paperwork.
@@ -95,6 +100,9 @@ export async function draftVisyOrder(opts: { item: VisyItem; qty?: number }): Pr
   const subject = `NEW ORDER - ${shortCode}`;
 
   // ALTONA shipping cartons → create the WRO first so its label can ride with the paperwork.
+  // One pallet (= one WRO box = one label page) per 1,000 units: 1,000 → 1 pallet, 2,000 → 2.
+  const palletQtys: number[] = [];
+  for (let left = qty; left > 0; left -= UNITS_PER_PALLET) palletQtys.push(Math.min(left, UNITS_PER_PALLET));
   let attachment: { filename: string; base64: string } | undefined;
   let wro_id: number | undefined;
   let wro_attached = false;
@@ -104,12 +112,14 @@ export async function draftVisyOrder(opts: { item: VisyItem; qty?: number }): Pr
         const eta = addDays(melbDate(0), 14);
         const wro = await createWRO({
           site: 'ALTONA', expected_arrival_date: eta, tracking_ref: `VISY-${item.visy_code}-${eta}`,
-          package_type: 'Pallet', items: [{ inventory_id: item.shipbob_inventory_id, quantity: qty }],
+          package_type: 'Pallet',
+          boxes: palletQtys.map((q) => [{ inventory_id: item.shipbob_inventory_id!, quantity: q }]),
         });
         wro_id = wro.id;
         const labels = await getWROLabels('ALTONA', wro.id);
         if (labels) { attachment = { filename: `WRO-${wro.id}-label.pdf`, base64: labels }; wro_attached = true; }
         else notes.push(`WRO ${wro.id} created but its label PDF wasn't available yet — re-fetch before sending.`);
+        if (palletQtys.length > 1) notes.push(`${qty.toLocaleString()} units = ${palletQtys.length} pallets — the WRO has one label per pallet (VISY needs a label on each).`);
       } catch (e) { notes.push(`Couldn't create the ShipBob WRO automatically: ${String(e).slice(0, 120)}. Draft made without a label.`); }
     } else {
       notes.push('This carton has no ShipBob inventory id mapped, so no WRO/label was generated — add the inventory id to enable it.');
@@ -140,7 +150,7 @@ export async function draftVisyOrder(opts: { item: VisyItem; qty?: number }): Pr
     visy_code: item.visy_code, item: item.name, qty, destination: item.destination,
     draft_id, wro_id: wro_id ?? null, subject, status: 'drafted',
   }).then(() => {}, () => {});
-  return { draft_id, to: contact.email || '(no recipient set)', subject, body, destination: item.destination, qty, visy_code: item.visy_code, wro_id, wro_attached, notes };
+  return { draft_id, to: contact.email || '(no recipient set)', subject, body, destination: item.destination, qty, visy_code: item.visy_code, wro_id, wro_attached, pallets: item.destination === 'ALTONA' ? palletQtys.length : undefined, notes };
 }
 
 // When a VISY order draft is actually sent, flip it drafted → ordered (called from send_email_draft).
