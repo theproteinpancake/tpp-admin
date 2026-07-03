@@ -34,7 +34,10 @@ export async function createWRO(opts: {
   const body = {
     fulfillment_center: { id: fcId },
     package_type: opts.package_type || 'Pallet',
-    box_packaging_type: boxes.length > 1 ? 'MultipleBoxes' : 'EverythingInOneBox',
+    // Always EverythingInOneBox, even multi-box: ShipBob 500s ("Object reference not set") on
+    // the 'MultipleBoxes' enum, but happily accepts N boxes under this one — verified live
+    // (WRO 969533): 2 boxes → labels PDF with "Pallet: 1 of 2" / "Pallet: 2 of 2" pages.
+    box_packaging_type: 'EverythingInOneBox',
     expected_arrival_date: opts.expected_arrival_date,
     purchase_order_number: opts.purchase_order_number || undefined,
     boxes: boxes.map((boxItems, bi) => ({
