@@ -46,7 +46,12 @@ export async function updateRecipeBlog(recipeId: string): Promise<BlogUpdateResu
     return { ok: false, error: 'The linked Shopify article was not found. It may have been deleted. Please create a new blog draft.', status: 404 };
   }
 
-  const articleTitle = recipe.meta_title || generateMetaTitle(recipe);
+  // Visible article title = the CLEAN recipe title. The SEO title (with the "| High Protein
+  // …" suffix) lives ONLY in the global.title_tag metafield, which Shopify serves to search
+  // engines. Using the SEO title as article.title was why every post showed the suffix on the
+  // site and Luke had to hand-delete it before saving.
+  const articleTitle = recipe.title;
+  const seoTitle = recipe.meta_title || generateMetaTitle(recipe);
   const metaDescription = recipe.meta_description || generateMetaDescription(recipe);
 
   const putArticle = (withImage: boolean) => fetch(
@@ -81,5 +86,30 @@ export async function updateRecipeBlog(recipeId: string): Promise<BlogUpdateResu
     }
   }
   const { article } = await updateResponse.json();
+
+  // Ensure the SEO metafields exist/refresh — with the suffix gone from the visible title,
+  // Shopify would fall back to that clean title in search results unless global.title_tag is
+  // actually set (older articles may predate the draft route writing it).
+  try {
+    await upsertArticleMetafield(targetBlogId, article.id, 'title_tag', seoTitle);
+    await upsertArticleMetafield(targetBlogId, article.id, 'description_tag', metaDescription);
+  } catch (e) { console.warn('SEO metafield upsert failed (article body still updated):', String(e).slice(0, 160)); }
+
   return { ok: true, articleId: article.id, articleUrl: `https://${SHOPIFY_STORE_DOMAIN}/admin/blogs/${targetBlogId}/articles/${article.id}` };
+}
+
+// Create-or-update a `global` namespace metafield on an article (Shopify's SEO title/description).
+async function upsertArticleMetafield(blogId: number, articleId: number | string, key: string, value: string) {
+  const token = process.env.SHOPIFY_ADMIN_ACCESS_TOKEN!;
+  const H = { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' };
+  const base = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-10/blogs/${blogId}/articles/${articleId}/metafields`;
+  const listRes = await fetch(`${base}.json?namespace=global&key=${key}`, { headers: H });
+  if (!listRes.ok) throw new Error(`metafield list ${listRes.status}`);
+  const existing = ((await listRes.json()).metafields || [])[0];
+  const metafield = { namespace: 'global', key, value, type: 'single_line_text_field' };
+  const res = existing
+    ? await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-10/metafields/${existing.id}.json`, {
+        method: 'PUT', headers: H, body: JSON.stringify({ metafield: { id: existing.id, value } }) })
+    : await fetch(`${base}.json`, { method: 'POST', headers: H, body: JSON.stringify({ metafield }) });
+  if (!res.ok) throw new Error(`metafield ${key} ${existing ? 'update' : 'create'} ${res.status}: ${(await res.text()).slice(0, 120)}`);
 }

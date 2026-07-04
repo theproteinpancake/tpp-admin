@@ -82,8 +82,11 @@ export async function POST(request: Request) {
 
     console.log('Using blog:', targetBlog.handle, targetBlog.id);
 
-    // Use SEO-optimized title if available, otherwise auto-generate
-    const articleTitle = recipe.meta_title || generateMetaTitle(recipe);
+    // Visible title = clean recipe title; the SEO title (suffixed) goes ONLY into the
+    // global.title_tag metafield below — Shopify serves that to search engines. Putting the
+    // SEO title in article.title made huge on-page titles Luke had to hand-trim every post.
+    const articleTitle = recipe.title;
+    const seoTitle = recipe.meta_title || generateMetaTitle(recipe);
     const metaDescription = recipe.meta_description || generateMetaDescription(recipe);
 
     // Create the article as a draft
@@ -127,7 +130,7 @@ export async function POST(request: Request) {
               {
                 namespace: 'global',
                 key: 'title_tag',
-                value: articleTitle,
+                value: seoTitle,
                 type: 'single_line_text_field',
               },
             ],
