@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { extractPlaybackId, getMp4Url, findAssetByPlaybackId, enableMp4Support } from '@/lib/mux';
 import { uploadToYouTube, isYouTubeConfigured } from '@/lib/youtube';
+import { updateRecipeBlog } from '@/lib/blogPublish';
 
 export const maxDuration = 300; // 5 min timeout for video upload
 
@@ -175,27 +176,19 @@ export async function POST(request: Request) {
 
     console.log(`[YouTube Upload] Success! ${result.videoUrl}`);
 
-    // Auto-update Shopify blog post with YouTube embed if blog exists
+    // Auto-update Shopify blog post with YouTube embed if blog exists. Direct lib call — the
+    // old HTTP self-fetch to /api/shopify/blog-update was cookieless, so middleware bounced it
+    // to /login on every single run and the embed never reached the published article.
+    let blog_embed: string | undefined;
     if (recipe.shopify_article_id) {
       try {
-        const baseUrl = request.headers.get('origin') || request.headers.get('host') || '';
-        const protocol = baseUrl.startsWith('http') ? '' : 'https://';
-        const blogUpdateUrl = `${protocol}${baseUrl}/api/shopify/blog-update`;
-
         console.log(`[YouTube Upload] Updating Shopify blog with YouTube embed...`);
-        const blogResponse = await fetch(blogUpdateUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ recipeId }),
-        });
-
-        if (blogResponse.ok) {
-          console.log('[YouTube Upload] Shopify blog updated with YouTube embed');
-        } else {
-          console.log('[YouTube Upload] Shopify blog update failed (non-critical):', await blogResponse.text());
-        }
+        const blogResult = await updateRecipeBlog(recipeId);
+        blog_embed = blogResult.ok ? 'updated' : `failed: ${blogResult.error}`;
+        console.log(`[YouTube Upload] Shopify blog ${blog_embed}`);
       } catch (blogErr) {
-        console.log('[YouTube Upload] Could not update Shopify blog (non-critical):', blogErr);
+        blog_embed = `failed: ${String(blogErr).slice(0, 160)}`;
+        console.log('[YouTube Upload] Could not update Shopify blog:', blogErr);
       }
     }
 
@@ -204,6 +197,7 @@ export async function POST(request: Request) {
       videoId: result.videoId,
       videoUrl: result.videoUrl,
       embedUrl: result.embedUrl,
+      blog_embed,
     });
 
   } catch (error: unknown) {
