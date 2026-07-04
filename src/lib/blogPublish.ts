@@ -49,7 +49,7 @@ export async function updateRecipeBlog(recipeId: string): Promise<BlogUpdateResu
   const articleTitle = recipe.meta_title || generateMetaTitle(recipe);
   const metaDescription = recipe.meta_description || generateMetaDescription(recipe);
 
-  const updateResponse = await fetch(
+  const putArticle = (withImage: boolean) => fetch(
     `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-10/blogs/${targetBlogId}/articles/${recipe.shopify_article_id}.json`,
     {
       method: 'PUT', headers: H,
@@ -60,15 +60,25 @@ export async function updateRecipeBlog(recipeId: string): Promise<BlogUpdateResu
           body_html: blogContent,
           summary_html: metaDescription,
           tags: recipe.tags?.join(', ') || '',
-          ...(recipe.featured_image && { image: { src: recipe.featured_image, alt: articleTitle } }),
+          ...(withImage && recipe.featured_image && { image: { src: recipe.featured_image, alt: articleTitle } }),
         },
       }),
     },
   );
+
+  let updateResponse = await putArticle(true);
   if (!updateResponse.ok) {
     const errorText = await updateResponse.text();
-    console.error('Failed to update article:', updateResponse.status, errorText);
-    return { ok: false, error: `Failed to update blog post: ${errorText}`, status: 500 };
+    // A dead featured_image URL (e.g. deleted from Shopify's CDN) 422s the WHOLE update —
+    // retry without the image so the body still lands; the article keeps its existing image.
+    if (updateResponse.status === 422 && /image upload failed/i.test(errorText)) {
+      console.warn(`Blog update for ${recipe.slug}: featured image failed to download, retrying without it`);
+      updateResponse = await putArticle(false);
+    }
+    if (!updateResponse.ok) {
+      console.error('Failed to update article:', updateResponse.status, errorText);
+      return { ok: false, error: `Failed to update blog post: ${errorText}`, status: 500 };
+    }
   }
   const { article } = await updateResponse.json();
   return { ok: true, articleId: article.id, articleUrl: `https://${SHOPIFY_STORE_DOMAIN}/admin/blogs/${targetBlogId}/articles/${article.id}` };
