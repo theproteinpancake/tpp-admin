@@ -1095,7 +1095,7 @@ WHOLESALE:
 
 INFLUENCER GIFTING (wired): the user sends an influencer's details — usually SCREENSHOT(S) of their IG chat/profile — "send this influencer Nx flavour size".
 - REPEAT/AFFILIATE influencers: if the user names someone we likely already gift ("send 1x BMM to Regina"), FIRST call find_influencer with that name/nickname. If found, REUSE their saved address/email/handle (parse the saved address into address1/city/state/zip_code/country) and gift WITHOUT re-asking; pass their aliases through. Some affiliates ship via a RELAY (e.g. Regina's gift goes to her US family member Luis @regs_healthy_eats who forwards it on) — trust the SAVED address, don't second-guess it. If the user introduces a nickname ("Regina is regs_healthy_eats" / "save her as Regina"), call set_influencer_alias.
-- ECHO WHAT YOU EXTRACTED (CRITICAL for memory): the moment you read details off a screenshot, RESTATE them in your reply — "Got Maddie (@mads.nutrition) · 604/22 Central Ave, Manly NSW 2095 · nutrition.mads@gmail.com". You CANNOT re-read the image on later turns (images aren't kept in history — only your text is), so if you don't write the details down now they're LOST. Once you've restated them, REUSE that text on every following message; NEVER say "I can't read the image" and ask Kate to re-type details you already extracted.
+- ECHO WHAT YOU EXTRACTED (CRITICAL for memory): the moment you read details off a screenshot, RESTATE them in your reply — "Got Maddie (@mads.nutrition) · 604/22 Central Ave, Manly NSW 2095 · nutrition.mads@gmail.com". Screenshots from the last ~15 minutes are re-attached automatically (labelled as earlier images), but anything OLDER is gone from history forever — only your text survives. So write the details down the moment you read them. Once you've restated them, REUSE that text on every following message; NEVER say "I can't read the image" and ask Kate to re-type details you already extracted.
 - ACCUMULATE across messages/screenshots; re-read the whole convo (incl. your own earlier messages where you restated the details) before asking; NEVER re-ask a field you already have.
 - SCREENSHOT EXTRACTION — screenshots are PRIMARY DATA, not decoration. Before asking for ANYTHING or creating ANYTHING, scan every image in the message (and earlier in this conversation) fully — top to bottom: profile bio, DM bubbles, keyboard-covered areas, multi-line addresses, an email at the end of a message. Pieces combine across the image(s): first name in the profile + full name in a DM + address split over lines + email at the bottom = ONE record. NEVER say a field is missing until you've re-read every image completely; if the user says "it's in the screenshot", RE-READ the image before asking them to type it. Multi-line UK-style addresses read as: street line / town or village / county / postcode — e.g. "22 turner road / Bean / Da2 8ba" = street "22 Turner Road", town "Bean", postcode "DA2 8BA" (town is NOT the county; ask or infer county from postcode area). Preserve exact spelling of names/emails/handles; never guess or autocomplete a field you can't see. Before creating the gift, run this checklist against what you extracted: full name (incl. surname) → handle → email → street → town/city → county/state → postcode → country → product → size → qty → ship-from site. Show the user the complete extracted record for verification, then act. Ask ONLY for fields genuinely absent after a full scan.
 - RECORD UPDATES — "add her last name/email/fix the address" → call update_influencer_details. A record ONLY changes when that tool returns ok:true. NEVER say "updated" / "done" about any record without that tool result in THIS turn — claiming an update you didn't make is a serious failure (it silently corrupts Kate's dashboard data).
@@ -1181,6 +1181,27 @@ async function loadHistory(phone: string): Promise<Anthropic.MessageParam[]> {
   while (rows.length && rows[0].role !== 'user') rows.shift();
   return rows.map((r) => ({ role: r.role === 'assistant' ? 'assistant' : 'user', content: r.content }));
 }
+// Screenshots from the last ~15 min, oldest first, for re-attachment (see askStockAgent).
+async function loadRecentImages(phone: string, max: number): Promise<AgentImage[]> {
+  if (max <= 0) return [];
+  try {
+    const { data } = await supabaseLogistics.from('wa_recent_images')
+      .select('media_type, base64')
+      .eq('phone', phone)
+      .gt('created_at', new Date(Date.now() - 15 * 60_000).toISOString())
+      .order('created_at', { ascending: false })
+      .limit(max);
+    return (data ?? []).map((r: any) => ({ base64: r.base64, mediaType: r.media_type })).reverse();
+  } catch { return []; } // replay is best-effort — never block the turn
+}
+async function saveRecentImages(phone: string, images: AgentImage[]) {
+  try {
+    await supabaseLogistics.from('wa_recent_images').insert(images.map((im) => ({ phone, media_type: im.mediaType, base64: im.base64 })));
+    // opportunistic prune — the table only exists for short-window replay
+    await supabaseLogistics.from('wa_recent_images').delete().lt('created_at', new Date(Date.now() - 60 * 60_000).toISOString());
+  } catch { /* best-effort */ }
+}
+
 async function saveTurn(phone: string, userText: string, assistantText: string) {
   // never persist empty content (e.g. an image-only message with no caption)
   const u = (userText || '').trim() || '(screenshot)';
@@ -1223,8 +1244,15 @@ export async function askStockAgent(question: string, phone?: string, images?: A
     : question;
 
   const history = phone ? await loadHistory(phone) : [];
-  const hasAttach = !!(images?.length || docs?.length);
+  // Re-attach screenshots from the last few minutes of this conversation (history keeps text
+  // only, so without this, "it's in the screenshot above" was unanswerable — the image was
+  // gone the turn after it arrived). Capped so current-message images always take priority.
+  const replay = phone ? await loadRecentImages(phone, Math.max(0, 3 - (images?.length ?? 0))) : [];
+  if (phone && images?.length) await saveRecentImages(phone, images); // AFTER loading replay — don't replay this turn's own images
+  const hasAttach = !!(images?.length || docs?.length || replay.length);
   const userContent: Anthropic.ContentBlockParam[] = [
+    ...(replay.length ? [{ type: 'text' as const, text: `[${replay.length} screenshot${replay.length > 1 ? 's' : ''} from earlier in this conversation re-attached for reference — any image(s) after this note are the CURRENT message's]` }] : []),
+    ...replay.map((im) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: im.mediaType as any, data: im.base64 } })),
     ...(images ?? []).map((im) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: im.mediaType as any, data: im.base64 } })),
     ...(docs ?? []).map((d) => ({ type: 'document' as const, source: { type: 'base64' as const, media_type: 'application/pdf' as const, data: d.base64 }, ...(d.filename ? { title: d.filename } : {}) }) as any),
     { type: 'text' as const, text: q || '(attachment sent — read it and answer about it)' },

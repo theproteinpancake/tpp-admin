@@ -44,9 +44,11 @@ export async function POST(req: NextRequest) {
     try {
       // fetch any attached screenshots (vision) + PDFs (invoices/dockets) so the agent reads them
       const images: AgentImage[] = [];
+      let skippedImages = Math.max(0, mediaUrls.length - 4); // beyond the 4-image cap
       for (const url of mediaUrls.slice(0, 4)) {
         const m = await fetchTwilioMedia(url);
         if (m) images.push(m);
+        else skippedImages++; // over the vision size limit or unsupported format
       }
       const docs: AgentDoc[] = [];
       for (const url of pdfUrls.slice(0, 3)) {
@@ -54,7 +56,12 @@ export async function POST(req: NextRequest) {
         if (d) docs.push({ base64: d.base64, filename: 'attachment.pdf' });
       }
       const quoted = repliedSid ? await fetchTwilioMessageBody(repliedSid).catch(() => null) : null;
-      const answer = await askStockAgent(body, from, images.length ? images : undefined, quoted || undefined, docs.length ? docs : undefined);
+      // A dropped image must be VISIBLE to the model — silently ignoring it reads to the user
+      // as "the agent ignored my screenshot" (it can't act on what it never saw).
+      const agentBody = skippedImages
+        ? `${body ? body + '\n\n' : ''}[system note: ${skippedImages} attached image${skippedImages > 1 ? 's' : ''} could NOT be read (too large or unsupported format). Tell the user which image(s) you did read, and ask them to re-send the rest as smaller screenshots.]`
+        : body;
+      const answer = await askStockAgent(agentBody, from, images.length ? images : undefined, quoted || undefined, docs.length ? docs : undefined);
       await sendWhatsApp(from, answer.text, answer.media);
     } catch (e) {
       console.error('whatsapp agent error', e);
