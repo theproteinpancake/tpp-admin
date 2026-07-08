@@ -169,14 +169,22 @@ export default function InfluencerTable({ influencers }: { influencers: Inf[] })
             <tbody>
               {g.rows.map((i) => (
                 <tr key={i.id} className="border-b border-gray-50 align-top hover:bg-cream/20">
-                  <td className="px-3 py-2 font-medium text-caramel">{i.name}{i.followers ? <span className="block text-[10px] text-gray-400">{i.followers.toLocaleString()} followers</span> : ''}</td>
+                  <td className="px-3 py-2 font-medium text-caramel">
+                    <EditText id={i.id} field="name" value={i.name} placeholder="add name…" className="w-32 rounded border border-transparent bg-transparent px-1 py-1 text-sm font-medium text-caramel placeholder:text-gray-300 hover:border-gray-200 focus:border-caramel focus:outline-none" />
+                    {i.followers ? <span className="block px-1 text-[10px] text-gray-400">{i.followers.toLocaleString()} followers</span> : ''}
+                  </td>
                   <td className="px-3 py-2 text-gray-500">
                     <div className="flex items-center gap-1">
                       <EditText id={i.id} field="handle" value={i.handle || ''} placeholder="add handle…" className="w-28 rounded border border-transparent bg-transparent px-1 py-1 text-xs text-blue-600 placeholder:text-gray-300 hover:border-gray-200 focus:border-caramel focus:outline-none" />
                       {i.handle && <a href={`https://instagram.com/${i.handle.replace('@', '')}`} target="_blank" title="open Instagram"><ExternalLink className="h-3 w-3 shrink-0 text-gray-400 hover:text-blue-600" /></a>}
                     </div>
                   </td>
-                  <td className="max-w-[180px] truncate px-3 py-2 text-xs">{i.email ? <a className="text-blue-600 hover:underline" href={`mailto:${i.email}`} title={i.email}>{i.email}</a> : <span className="text-gray-300">—</span>}</td>
+                  <td className="max-w-[190px] px-3 py-2 text-xs">
+                    <div className="flex items-center gap-1">
+                      <EditText id={i.id} field="email" value={i.email || ''} placeholder="add email…" className="w-36 truncate rounded border border-transparent bg-transparent px-1 py-1 text-xs text-blue-600 placeholder:text-gray-300 hover:border-gray-200 focus:border-caramel focus:outline-none" />
+                      {i.email && <a href={`mailto:${i.email}`} title={`email ${i.email}`}><ExternalLink className="h-3 w-3 shrink-0 text-gray-400 hover:text-blue-600" /></a>}
+                    </div>
+                  </td>
                   <td className="px-3 py-2 text-xs text-gray-600">{i.flavour_sent || '—'}</td>
                   <td className="px-3 py-2 text-gray-400">{fmtDate(i.date_initiated)}</td>
                   <td className="px-3 py-2"><Cell id={i.id} field="status" value={['order_processing', 'shipped', 'delivered', 'completed'].includes(i.status || '') ? (i.status as string) : 'order_processing'} options={STATUS} colors={STATUS_COLOR} /></td>

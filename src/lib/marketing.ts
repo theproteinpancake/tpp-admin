@@ -172,6 +172,33 @@ export async function setInfluencerAlias(nameOrHandle: string, alias: string): P
   return { ok: true, name: data.name };
 }
 
+// Fix/complete an influencer's details after the fact (surname arrived later, email was in a
+// second screenshot, wrong address line…). This capability GAP is what made the agent claim
+// "record updated" without any tool to actually do it — a hallucinated success (Katrina Lander,
+// Jul 2026). Matches by name/handle/alias; applies to the person's latest row.
+export async function updateInfluencerDetails(nameOrHandle: string, fields: {
+  name?: string; email?: string; handle?: string; followers?: number; address?: string; notes?: string;
+}): Promise<{ ok: true; name: string; updated: Record<string, string | number> } | { error: string }> {
+  const q = nameOrHandle.replace(/^@/, '').trim();
+  const { data } = await supabaseLogistics.from('influencers')
+    .select('id, name, handle, aliases').or(`name.ilike.%${q}%,handle.ilike.%${q}%,aliases.ilike.%${q}%`)
+    .order('date_initiated', { ascending: false }).limit(1).maybeSingle() as any;
+  if (!data) return { error: `No influencer matching "${nameOrHandle}".` };
+  const patch: Record<string, any> = {};
+  if (fields.name?.trim()) patch.name = fields.name.trim();
+  if (fields.email?.trim()) patch.email = fields.email.trim();
+  if (fields.handle?.trim()) patch.handle = fields.handle.trim().startsWith('@') ? fields.handle.trim() : `@${fields.handle.trim()}`;
+  if (fields.followers != null && Number(fields.followers) > 0) patch.followers = Number(fields.followers);
+  if (fields.address?.trim()) patch.address = fields.address.trim();
+  if (fields.notes?.trim()) patch.notes = fields.notes.trim();
+  if (!Object.keys(patch).length) return { error: 'Nothing to update — pass at least one of name/email/handle/followers/address/notes.' };
+  patch.updated_at = new Date().toISOString();
+  const { error } = await supabaseLogistics.from('influencers').update(patch).eq('id', data.id);
+  if (error) return { error: error.message };
+  const { updated_at: _drop, ...updated } = patch;
+  return { ok: true, name: patch.name || data.name, updated };
+}
+
 export async function updateInfluencerStatus(nameOrHandle: string, status: string):
   Promise<{ ok: true; name: string; status: string } | { error: string }> {
   if (!INFLUENCER_STATUSES.includes(status as any)) return { error: `Invalid status. Use one of: ${INFLUENCER_STATUSES.join(', ')}` };

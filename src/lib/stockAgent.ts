@@ -27,7 +27,7 @@ import { sendWhatsApp, senderRole, waAddr } from './whatsapp';
 import { processWholesalePO, processWholesalePOMulti, oosReplyBody } from './wholesalePO';
 import { createWholesaleOrder, sendWholesaleInvoice } from './wholesaleActions';
 import { getWholesaleDashboard } from './wholesale';
-import { sendInfluencerGift, updateInfluencerStatus, listInfluencers, likelyToPost, saveCollab, updateCollab, listCollabs, findInfluencer, setInfluencerAlias } from './marketing';
+import { sendInfluencerGift, updateInfluencerStatus, updateInfluencerDetails, listInfluencers, likelyToPost, saveCollab, updateCollab, listCollabs, findInfluencer, setInfluencerAlias } from './marketing';
 import { setRestockEta } from './restock';
 import { xlsxToText } from './xlsx';
 
@@ -40,7 +40,7 @@ const MODEL = 'claude-sonnet-4-6';
 const MUTATING_TOOLS = new Set([
   'approve_po', 'send_po_email', 'create_wro', 'send_email_draft', 'create_transfer',
   'update_transfer_status', 'mark_po_received', 'create_wholesale_order', 'process_po_email',
-  'send_influencer_gift', 'update_influencer_status', 'save_collab', 'update_collab',
+  'send_influencer_gift', 'update_influencer_status', 'update_influencer_details', 'save_collab', 'update_collab',
   'mark_brief_done', 'set_restock_eta', 'update_logistics_brief_excludes',
   'schedule_followup', 'cancel_followup', 'draft_po', 'order_packaging', 'create_transfer_wro',
   'update_transfer_lines',
@@ -351,6 +351,20 @@ const tools: Anthropic.Tool[] = [
       type: 'object',
       properties: { name_or_handle: { type: 'string' }, status: { type: 'string', enum: ['order_processing', 'shipped', 'delivered', 'completed'] } },
       required: ['name_or_handle', 'status'],
+    },
+  },
+  {
+    name: 'update_influencer_details',
+    description: "Fix or complete an influencer's RECORD after the fact: full name, email, handle, followers, address, notes. Use when the user says e.g. \"add her last name\", \"her email is on this screenshot\", \"fix the address\". Match by name/@handle/alias; pass ONLY the fields to change. This is the ONLY way a record actually changes — NEVER tell the user a record was updated unless this tool returned ok:true.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        name_or_handle: { type: 'string' },
+        name: { type: 'string', description: 'full name, e.g. "Katrina Lander"' },
+        email: { type: 'string' }, handle: { type: 'string' }, followers: { type: 'number' },
+        address: { type: 'string', description: 'full address as one line' }, notes: { type: 'string' },
+      },
+      required: ['name_or_handle'],
     },
   },
   {
@@ -849,6 +863,14 @@ W: theproteinpancake.co`;
   if (name === 'update_influencer_status') {
     return await updateInfluencerStatus(String(input.name_or_handle), String(input.status));
   }
+  if (name === 'update_influencer_details') {
+    const res = await updateInfluencerDetails(String(input.name_or_handle), {
+      name: input.name as string, email: input.email as string, handle: input.handle as string,
+      followers: input.followers as number, address: input.address as string, notes: input.notes as string,
+    });
+    if ('error' in res) return res;
+    return { ...res, note: `Record updated. Confirm to the user EXACTLY these saved values: ${JSON.stringify(res.updated)}` };
+  }
   if (name === 'get_influencers') {
     const [all, likely] = await Promise.all([listInfluencers(), likelyToPost(5)]);
     return {
@@ -1075,6 +1097,8 @@ INFLUENCER GIFTING (wired): the user sends an influencer's details — usually S
 - REPEAT/AFFILIATE influencers: if the user names someone we likely already gift ("send 1x BMM to Regina"), FIRST call find_influencer with that name/nickname. If found, REUSE their saved address/email/handle (parse the saved address into address1/city/state/zip_code/country) and gift WITHOUT re-asking; pass their aliases through. Some affiliates ship via a RELAY (e.g. Regina's gift goes to her US family member Luis @regs_healthy_eats who forwards it on) — trust the SAVED address, don't second-guess it. If the user introduces a nickname ("Regina is regs_healthy_eats" / "save her as Regina"), call set_influencer_alias.
 - ECHO WHAT YOU EXTRACTED (CRITICAL for memory): the moment you read details off a screenshot, RESTATE them in your reply — "Got Maddie (@mads.nutrition) · 604/22 Central Ave, Manly NSW 2095 · nutrition.mads@gmail.com". You CANNOT re-read the image on later turns (images aren't kept in history — only your text is), so if you don't write the details down now they're LOST. Once you've restated them, REUSE that text on every following message; NEVER say "I can't read the image" and ask Kate to re-type details you already extracted.
 - ACCUMULATE across messages/screenshots; re-read the whole convo (incl. your own earlier messages where you restated the details) before asking; NEVER re-ask a field you already have.
+- SCREENSHOT EXTRACTION — screenshots are PRIMARY DATA, not decoration. Before asking for ANYTHING or creating ANYTHING, scan every image in the message (and earlier in this conversation) fully — top to bottom: profile bio, DM bubbles, keyboard-covered areas, multi-line addresses, an email at the end of a message. Pieces combine across the image(s): first name in the profile + full name in a DM + address split over lines + email at the bottom = ONE record. NEVER say a field is missing until you've re-read every image completely; if the user says "it's in the screenshot", RE-READ the image before asking them to type it. Multi-line UK-style addresses read as: street line / town or village / county / postcode — e.g. "22 turner road / Bean / Da2 8ba" = street "22 Turner Road", town "Bean", postcode "DA2 8BA" (town is NOT the county; ask or infer county from postcode area). Preserve exact spelling of names/emails/handles; never guess or autocomplete a field you can't see. Before creating the gift, run this checklist against what you extracted: full name (incl. surname) → handle → email → street → town/city → county/state → postcode → country → product → size → qty → ship-from site. Show the user the complete extracted record for verification, then act. Ask ONLY for fields genuinely absent after a full scan.
+- RECORD UPDATES — "add her last name/email/fix the address" → call update_influencer_details. A record ONLY changes when that tool returns ok:true. NEVER say "updated" / "done" about any record without that tool result in THIS turn — claiming an update you didn't make is a serious failure (it silently corrupts Kate's dashboard data).
 - MISSING FIELDS — never create a half-formed gift: send_influencer_gift validates and, if anything required is missing, returns a "needs" list WITHOUT creating anything. When you get that, ask Kate for EXACTLY those fields and create nothing until she gives them. Required: name, full address (street, city/suburb, STATE e.g. NSW, postcode, country), flavour, size, AND Instagram handle. If a profile screenshot is unreadable or a field is genuinely absent (e.g. no handle), STOP and ask Kate — do not guess or proceed. Only if Kate explicitly says "no handle, send anyway" do you pass force:true.
 - SWAP / SEND-AGAIN keeps the creator: if a gift is OOS or Kate says "swap to Chocolate" / "send again" / "use Maple instead", REUSE the SAME creator details you already have (from your restated text or the oos note, which echoes them) — just change the flavour and call send_influencer_gift again. NEVER re-ask for the creator's name/address/handle on a swap.
 - If a later message corrects something (e.g. "change it to cinnamon"), use the corrected value.
