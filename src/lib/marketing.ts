@@ -1,6 +1,6 @@
 // Marketing: influencer gifting (ShipBob B2C) + collab tracking.
 import { supabaseLogistics } from './supabase-logistics';
-import { createB2COrder, getOrderTracking, getInventoryLevels, type B2CRecipient } from './shipbob';
+import { createB2COrder, getOrderTracking, getInventoryLevels, type B2CRecipient, getB2COrder } from './shipbob';
 
 // LIVE ShipBob fulfillable for a SKU at a site (not the once-a-day v_stock_current snapshot).
 // Returns null only if we can't resolve the inventory id / ShipBob doesn't answer.
@@ -57,13 +57,21 @@ async function resolveSku(flavour: string, size_g: number): Promise<{ sku: strin
 export interface GiftInput {
   name: string; handle?: string; followers?: number; email?: string;
   address1: string; address2?: string; city: string; state?: string; zip_code: string; country: string;
-  flavour: string; size_g: number; qty?: number; site?: string; aliases?: string; force?: boolean;
+  flavour?: string; size_g?: number; qty?: number;               // single-product shorthand
+  items?: { flavour: string; size_g: number; qty?: number }[];   // multi-product: EVERY product in the instruction, one shipment
+  site?: string; aliases?: string; force?: boolean;
 }
 
 // Create the ShipBob gifting order AND save the influencer to the dashboard.
 export async function sendInfluencerGift(input: GiftInput):
-  Promise<{ ok: true; order_id: number; summary: string; box: string; sku: string } | { needs: string[]; note: string } | { oos: true; sku: string; label: string; available: number; site: string; note: string } | { error: string }> {
-  const qty = input.qty && input.qty > 0 ? input.qty : 1;
+  Promise<{ ok: true; order_id: number; summary: string; box: string; sku: string; verified: Record<string, unknown> | null; dashboard_logged: boolean } | { needs: string[]; note: string } | { oos: true; sku: string; label: string; available: number; site: string; note: string } | { error: string }> {
+  // Multi-product: `items` lists every product in Kate's instruction ("1x 520g salted caramel
+  // and 1x 520g buttermilk" = 2 lines, ONE shipment). Single flavour/size/qty stays supported.
+  // Partial orders were shipping before this (only the first product went out — Amanda E.).
+  const lines = (input.items?.length
+    ? input.items
+    : [{ flavour: input.flavour || '', size_g: input.size_g || 0, qty: input.qty }]
+  ).map((l) => ({ flavour: (l.flavour || '').trim(), size_g: Number(l.size_g) || 0, qty: l.qty && l.qty > 0 ? Math.round(l.qty) : 1 }));
 
   // FINAL VALIDATION — never create a ShipBob order or influencer record with missing fields.
   // (ShipBob silently rejects addresses with no state/postcode; a missing handle was creating
@@ -75,8 +83,8 @@ export async function sendInfluencerGift(input: GiftInput):
   if (!input.state?.trim()) needs.push('state (e.g. NSW)');
   if (!input.zip_code?.trim()) needs.push('postcode');
   if (!input.country?.trim()) needs.push('country');
-  if (!input.flavour?.trim()) needs.push('flavour');
-  if (!input.size_g) needs.push('size');
+  if (lines.some((l) => !l.flavour)) needs.push('flavour');
+  if (lines.some((l) => !l.size_g)) needs.push('size');
   if (!input.handle?.trim() && !input.force) needs.push('Instagram handle');
   if (needs.length) {
     return { needs, note: `Can't send yet — missing ${needs.join(', ')}. Ask Kate for ${needs.length > 1 ? 'these' : 'this'} before creating anything. (If the creator genuinely has no Instagram handle, Kate can say "no handle, send anyway" and you call again with force:true.)` };
@@ -86,28 +94,35 @@ export async function sendInfluencerGift(input: GiftInput):
   // UK→Manchester). Other countries must be specified.
   const site = (input.site || siteFromCountry(input.country) || '').toUpperCase();
   if (!site) return { error: `Which warehouse should I ship from for ${input.country || 'this country'}? (reply "from AU" or "from UK")` };
-  const prod = await resolveSku(input.flavour, input.size_g);
-  if (!prod) return { error: `Couldn't match "${input.flavour} ${input.size_g}g" to a product SKU.` };
+  const prods: { sku: string; label: string; cogs: number | null; qty: number; size_g: number }[] = [];
+  for (const l of lines) {
+    const prod = await resolveSku(l.flavour, l.size_g);
+    if (!prod) return { error: `Couldn't match "${l.flavour} ${l.size_g}g" to a product SKU.` };
+    prods.push({ ...prod, qty: l.qty, size_g: l.size_g });
+  }
 
   // Stock check — LIVE from ShipBob (not the daily snapshot), so a fresh restock is seen
   // immediately. Falls back to the snapshot only if ShipBob can't be reached. If OOS, return
   // for Kate's call AND echo the creator details so a "swap flavour" reuses them (no re-asking).
   if (!input.force) {
-    let available = await liveAvailable(site, prod.sku);
-    if (available == null) {
-      const { data: stock } = await supabaseLogistics.from('v_stock_current')
-        .select('available').eq('location_code', site).eq('sku', prod.sku).maybeSingle();
-      available = Number((stock as any)?.available ?? 0);
-    }
-    if (available < qty) {
-      const sz = input.size_g >= 1000 ? `${input.size_g / 1000}kg` : `${input.size_g}g`;
-      const who = `${input.name}${input.handle ? ` (${input.handle})` : ''} — ${[input.address1, input.city, input.state, input.zip_code, input.country].filter(Boolean).join(', ')}${input.email ? `, ${input.email}` : ''}`;
-      return { oos: true, sku: prod.sku, label: prod.label, available, site,
-        note: `${prod.label} is OUT OF STOCK at ${site} (live: ${available} available). KEEP THESE CREATOR DETAILS for this gift — do NOT re-ask for them: ${who}. Ask Kate: (1) load it anyway — backorder, auto-fulfils on restock, or (2) swap to another ${sz} flavour. Then call send_influencer_gift again with the SAME creator details + force:true (to proceed) OR the new flavour (to swap).` };
+    for (const prod of prods) {
+      let available = await liveAvailable(site, prod.sku);
+      if (available == null) {
+        const { data: stock } = await supabaseLogistics.from('v_stock_current')
+          .select('available').eq('location_code', site).eq('sku', prod.sku).maybeSingle();
+        available = Number((stock as any)?.available ?? 0);
+      }
+      if (available < prod.qty) {
+        const sz = prod.size_g >= 1000 ? `${prod.size_g / 1000}kg` : `${prod.size_g}g`;
+        const who = `${input.name}${input.handle ? ` (${input.handle})` : ''} — ${[input.address1, input.city, input.state, input.zip_code, input.country].filter(Boolean).join(', ')}${input.email ? `, ${input.email}` : ''}`;
+        return { oos: true, sku: prod.sku, label: prod.label, available, site,
+          note: `${prod.label} is OUT OF STOCK at ${site} (live: ${available} available)${prods.length > 1 ? ` — the other item(s) in this gift are fine, but nothing was created` : ''}. KEEP THESE CREATOR DETAILS for this gift — do NOT re-ask for them: ${who}. Ask Kate: (1) load it anyway — backorder, auto-fulfils on restock, or (2) swap to another ${sz} flavour. Then call send_influencer_gift again with the SAME creator details + ALL items, using force:true (to proceed) OR the swapped flavour.` };
+      }
     }
   }
 
-  const box = boxForGift(input.size_g, qty);
+  const totalQty = prods.reduce((s2, p2) => s2 + p2.qty, 0);
+  const box = boxForGift(Math.max(...prods.map((p2) => p2.size_g)), totalQty);
 
   const recipient: B2CRecipient = {
     name: input.name, email: input.email, address1: input.address1, address2: input.address2,
@@ -118,23 +133,44 @@ export async function sendInfluencerGift(input: GiftInput):
   try {
     order = await createB2COrder({
       site, reference, recipient,
-      products: [{ reference_id: prod.sku, quantity: qty }, { reference_id: box, quantity: 1 }],
+      products: [...prods.map((p2) => ({ reference_id: p2.sku, quantity: p2.qty })), { reference_id: box, quantity: 1 }],
     });
   } catch (e) {
     return { error: `ShipBob order failed: ${String(e).slice(0, 160)}` };
   }
 
-  const summary = `${qty}× ${prod.label} (${prod.sku}) + 1× ${box} box → ${input.name}${input.handle ? ` (${input.handle})` : ''}, ${input.city} ${input.country}. ShipBob order #${order.id}.`;
-  await supabaseLogistics.from('influencers').insert({
+  // Verify against the SAVED order, not our intent — the agent reports what ShipBob actually
+  // stored (every product line, address incl. unit/door-code line). Kate's rule: never say
+  // "Done" about anything not confirmed on the final order.
+  let verified: Record<string, unknown> | null = null;
+  try {
+    const saved = await getB2COrder(site, order.id);
+    if (saved) {
+      verified = {
+        products_on_order: (saved.products || []).map((p2: any) => `${p2.quantity ?? 1}× ${p2.reference_id}`),
+        recipient: saved.recipient?.name,
+        address1: saved.recipient?.address?.address1,
+        address2: saved.recipient?.address?.address2 || null,
+        city_zip: `${saved.recipient?.address?.city ?? ''} ${saved.recipient?.address?.zip_code ?? ''}`.trim(),
+        status: saved.status,
+      };
+    }
+  } catch { /* verification is best-effort; agent falls back to the request summary */ }
+
+  const itemsLabel = prods.map((p2) => `${p2.qty}× ${p2.label}`).join(' + ');
+  const summary = `${itemsLabel} + 1× ${box} box → ${input.name}${input.handle ? ` (${input.handle})` : ''}, ${input.city} ${input.country}. ShipBob order #${order.id}.`;
+  const totalCogs = prods.every((p2) => p2.cogs == null) ? null
+    : Math.round(prods.reduce((s2, p2) => s2 + (p2.cogs || 0) * p2.qty, 0) * 100) / 100;
+  const { error: logErr } = await supabaseLogistics.from('influencers').insert({
     name: input.name, handle: input.handle || null, followers: input.followers || null, email: input.email || null,
     address: [input.address1, input.address2, input.city, input.state, input.zip_code, input.country].filter(Boolean).join(', '),
-    flavour_sent: `${qty}× ${prod.label}`, sent_from: site, region: regionFromCountry(input.country),
+    flavour_sent: itemsLabel, sent_from: site, region: regionFromCountry(input.country),
     date_initiated: new Date().toISOString().slice(0, 10), post_type: 'None',
     shipbob_order_id: String(order.id), order_summary: summary, status: 'order_processing',
-    cost_cogs: prod.cogs != null ? Math.round(prod.cogs * qty * 100) / 100 : null,
+    cost_cogs: totalCogs,
     cost_currency: site === 'MANCHESTER' ? 'GBP' : 'AUD', aliases: input.aliases || null,
   });
-  return { ok: true, order_id: order.id, summary, box, sku: prod.sku };
+  return { ok: true, order_id: order.id, summary, box, sku: prods[0].sku, verified, dashboard_logged: !logErr };
 }
 
 // Look up a known/repeat influencer by name, handle, or registered alias (e.g. "regina"
@@ -231,7 +267,7 @@ export async function refreshInfluencerTracking(): Promise<{ updated: number }> 
 
 export async function listInfluencers() {
   const [{ data }, { data: costs }] = await Promise.all([
-    supabaseLogistics.from('influencers').select('*').order('date_initiated', { ascending: false, nullsFirst: false }),
+    supabaseLogistics.from('influencers').select('*').order('date_initiated', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false }),
     supabaseLogistics.from('shipment_costs').select('shipbob_order_id, cost'),
   ]);
   const fulfilByOrder = new Map<string, number>();

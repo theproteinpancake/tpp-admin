@@ -5,7 +5,7 @@ import { ExternalLink, Trash2, Search, X } from 'lucide-react';
 
 type Inf = {
   id: string; name: string; handle: string | null; followers: number | null; email: string | null;
-  flavour_sent: string | null; region: string | null; sent_from: string | null; date_initiated: string | null;
+  flavour_sent: string | null; region: string | null; sent_from: string | null; date_initiated: string | null; created_at?: string | null;
   status: string | null; post_type: string | null; notes: string | null; tracking_number: string | null; tracking_url: string | null;
   cost_cogs: number | null; cost_fulfilment: number | null; parcel_cost: number | null; cost_currency: string | null;
 };
@@ -106,12 +106,15 @@ export default function InfluencerTable({ influencers }: { influencers: Inf[] })
       return true;
     });
     const t = (d: string | null) => { const v = Date.parse((d || '') + 'T00:00:00'); return Number.isNaN(v) ? 0 : v; };
+    // date_initiated is DATE-ONLY, so same-day rows tie — break on the created_at timestamp
+    // so "newest sent" is true chronological order (newest entry at the top).
+    const tc = (i: Inf) => { const v = Date.parse(i.created_at || ''); return Number.isNaN(v) ? 0 : v; };
     out = [...out].sort((a, b) =>
       sort === 'name' ? a.name.localeCompare(b.name)
       : sort === 'followers' ? (b.followers || 0) - (a.followers || 0)
       : sort === 'cost' ? (b.parcel_cost || 0) - (a.parcel_cost || 0)
-      : sort === 'date_asc' ? t(a.date_initiated) - t(b.date_initiated)
-      : t(b.date_initiated) - t(a.date_initiated));
+      : sort === 'date_asc' ? (t(a.date_initiated) - t(b.date_initiated)) || (tc(a) - tc(b))
+      : (t(b.date_initiated) - t(a.date_initiated)) || (tc(b) - tc(a)));
     return out;
   }, [influencers, region, q, statusF, postF, sort]);
 

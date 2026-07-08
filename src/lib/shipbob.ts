@@ -156,6 +156,15 @@ export async function createB2COrder(opts: {
 }
 
 // Read an order's current status + tracking (for the influencer dashboard).
+// Fetch a B2C order back from ShipBob — used to VERIFY what was actually saved (products,
+// address lines incl. door codes) so the agent reports confirmed reality, not intent.
+export async function getB2COrder(site: string, id: number): Promise<any | null> {
+  const token = TOKENS[site];
+  if (!token) return null;
+  const res = await fetch(`https://api.shipbob.com/1.0/order/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+  return res.ok ? res.json() : null;
+}
+
 export async function getOrderTracking(site: string, id: number): Promise<{ status: string; tracking_number: string | null; tracking_url: string | null; carrier: string | null } | null> {
   const token = TOKENS[site];
   if (!token) return null;

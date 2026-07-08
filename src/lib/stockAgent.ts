@@ -315,7 +315,7 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: 'send_influencer_gift',
-    description: 'Send an influencer a gifting order via ShipBob (standard B2C) AND log them to the Influencers dashboard. Use when Kate sends an influencer\'s details (often a screenshot of their IG chat with name/address/email). Read the screenshot for name, address, email, and Instagram handle. Auto-adds the right box (PANSMALL for 1–2× 520g). ALWAYS report back EXACTLY what was added. site is OPTIONAL — leave it out and it auto-picks by address: AU or NZ address → ALTONA, UK address → MANCHESTER. Only set site (or ask) for other countries, or when Kate explicitly says which warehouse.',
+    description: 'Send an influencer a gifting order via ShipBob (standard B2C) AND log them to the Influencers dashboard. Use when Kate sends an influencer\'s details (often a screenshot of their IG chat with name/address/email). Read the screenshot for name, address, email, and Instagram handle. MULTI-PRODUCT: if the instruction lists MORE THAN ONE product ("1x 520g salted caramel and 1x 520g buttermilk"), pass them ALL in `items` — one call, one shipment, every product a line item; NEVER submit a partial order or split into multiple calls. Door codes / unit numbers / delivery notes → address2. Auto-adds the right box. The result returns `verified` (what ShipBob ACTUALLY saved — every product + address lines) and `dashboard_logged` — report from those, never from intent. site is OPTIONAL — auto-picks by address: AU/NZ → ALTONA, UK → MANCHESTER.',
     input_schema: {
       type: 'object',
       properties: {
@@ -328,10 +328,15 @@ const tools: Anthropic.Tool[] = [
         flavour: { type: 'string', description: 'e.g. "Buttermilk", "GF Cinnamon Churro"' },
         size_g: { type: 'number', enum: [320, 520, 1000], description: 'pack size in grams (520 = the common gifting size)' },
         qty: { type: 'number', description: 'number of bags (default 1)' },
+        items: {
+          type: 'array',
+          description: 'MULTI-PRODUCT gifts: one entry per product in the instruction (overrides flavour/size_g/qty). EVERY product the user listed must appear here — count them against the instruction before calling.',
+          items: { type: 'object', properties: { flavour: { type: 'string' }, size_g: { type: 'number', enum: [320, 520, 1000] }, qty: { type: 'number' } }, required: ['flavour', 'size_g'] },
+        },
         site: { type: 'string', enum: ['ALTONA', 'MANCHESTER'] },
         force: { type: 'boolean', description: 'proceed even if the flavour is OUT OF STOCK (creates a backorder that auto-fulfils when restocked) — ONLY after Kate explicitly confirms' },
       },
-      required: ['name', 'address1', 'city', 'zip_code', 'country', 'flavour', 'size_g'],
+      required: ['name', 'address1', 'city', 'zip_code', 'country'], // flavour+size_g OR items — validated in-code with a needs list
     },
   },
   {
@@ -852,13 +857,14 @@ W: theproteinpancake.co`;
       aliases: input.aliases as string,
       address1: String(input.address1), address2: input.address2 as string, city: String(input.city),
       state: input.state as string, zip_code: String(input.zip_code), country: String(input.country),
-      flavour: String(input.flavour), size_g: Number(input.size_g), qty: input.qty as number, site: input.site as string,
+      flavour: input.flavour != null ? String(input.flavour) : undefined, size_g: input.size_g != null ? Number(input.size_g) : undefined,
+      qty: input.qty as number, items: input.items as { flavour: string; size_g: number; qty?: number }[] | undefined, site: input.site as string,
       force: input.force as boolean,
     });
     if ('error' in res) return res;
     if ('needs' in res) return res;  // missing required fields — ask Kate, create NOTHING
     if ('oos' in res) return res;   // OOS — agent must ask Kate before proceeding
-    return { ok: true, order_id: res.order_id, added: res.summary, note: `ShipBob B2C order created with the ${res.box} box. Report EXACTLY what was added: ${res.summary}` };
+    return { ok: true, order_id: res.order_id, added: res.summary, verified: res.verified, dashboard_logged: res.dashboard_logged, note: `ShipBob B2C order created with the ${res.box} box. Report from verified (what ShipBob ACTUALLY saved): every product line + the address incl. any door code in address2. Cross-check verified.products_on_order against the user's instruction — if anything they asked for is missing, say so immediately instead of 'Done'.${res.dashboard_logged ? '' : ' WARNING: the dashboard record FAILED to save — tell the user.'}` };
   }
   if (name === 'update_influencer_status') {
     return await updateInfluencerStatus(String(input.name_or_handle), String(input.status));
@@ -1096,6 +1102,9 @@ WHOLESALE:
 INFLUENCER GIFTING (wired): the user sends an influencer's details — usually SCREENSHOT(S) of their IG chat/profile — "send this influencer Nx flavour size".
 - COMBINED INPUT — CAPTION + SCREENSHOTS ARE ONE INSTRUCTION: operational details (quantity, flavour, size, fulfilment site) usually live in the CAPTION text; identity/contact details (name, handle, address, email) live in the SCREENSHOTS. Read both together and check BOTH sources before asking a single question — never ask for information already provided in either. "Send this influencer 1x 520g chocolate from Manchester" = qty 1 · flavour Chocolate · size 520g · site MANCHESTER: complete, nothing to ask. Asking "what flavour/size?" when the caption states them is a serious failure (it happened — Kate had to repeat herself). Ask only for what caption + screenshots genuinely lack.
 - NEW SCREENSHOTS = NEW GIFT, FULL STOP: a message with influencer screenshot(s) + a send instruction is a FRESH task about THAT person only. Detect the switch by IDENTITY too: if the screenshots show a DIFFERENT name/handle/profile/address than whoever was last discussed, it IS a new person — prioritise the latest message + screenshots over previous conversation context, and do NOT carry over missing fields, questions, or unfinished actions from the previous influencer. Do not mention, ask about, or "handle separately" ANY earlier influencer or unfinished thread — not even one sentence. Parked items stay invisible until the user raises them again. Treat two influencers as connected ONLY if Kate explicitly says they are. (Kate does NOT need to write "new influencer" — the screenshots + instruction ARE the signal.)
+- MULTI-PRODUCT ORDERS: when the instruction lists more than one product/flavour/size, pass EVERY one in send_influencer_gift's "items" array — one call, ONE shipment. "1x 520g salted caramel and 1x 520g buttermilk" = items:[{flavour:"Salted Caramel",size_g:520,qty:1},{flavour:"Buttermilk",size_g:520,qty:1}]. Count the products in the instruction vs your items before calling — they MUST match; a partial order is a serious failure (it happened: only the salted caramel shipped and Buttermilk was silently dropped).
+- REPORT ONLY WHAT'S CONFIRMED: build your "Done" message from the tool's "verified" block — list every product on verified.products_on_order and confirm door codes/unit numbers from verified.address2. If anything the user asked for is missing from verified, or dashboard_logged is false, LEAD with that — never report intended-but-unconfirmed as done.
+- EXTRACT ONCE, COMPLETELY: never claim a field is "not visible" and then later use that same value without the user having provided it — if you could produce it at order time, you should have extracted it at scan time. Profile screenshots carry the handle at the TOP of the profile and often in the bio/link line (e.g. beacons.ai/<handle>); check those spots before asking.
 - COUNTY/STATE — INFER, DON'T ASK: when the county/state is derivable, use it and note the inference in your confirmation instead of asking. Any London postcode (E/EC/N/NW/SE/SW/W/WC, e.g. E14 9PW) → "Greater London". A town whose county is well known (Bean → Kent, Manly → NSW) → use it. Only ask when genuinely ambiguous. Same for ship-from site: UK address → MANCHESTER, AU/NZ → ALTONA — never ask when the address answers it.
 - REPEAT/AFFILIATE influencers: if the user names someone we likely already gift ("send 1x BMM to Regina"), FIRST call find_influencer with that name/nickname. If found, REUSE their saved address/email/handle (parse the saved address into address1/city/state/zip_code/country) and gift WITHOUT re-asking; pass their aliases through. Some affiliates ship via a RELAY (e.g. Regina's gift goes to her US family member Luis @regs_healthy_eats who forwards it on) — trust the SAVED address, don't second-guess it. If the user introduces a nickname ("Regina is regs_healthy_eats" / "save her as Regina"), call set_influencer_alias.
 - ECHO WHAT YOU EXTRACTED (CRITICAL for memory): the moment you read details off a screenshot, RESTATE them in your reply — "Got Maddie (@mads.nutrition) · 604/22 Central Ave, Manly NSW 2095 · nutrition.mads@gmail.com". Screenshots from the last ~15 minutes are re-attached automatically (labelled as earlier images), but anything OLDER is gone from history forever — only your text survives. So write the details down the moment you read them. Once you've restated them, REUSE that text on every following message; NEVER say "I can't read the image" and ask Kate to re-type details you already extracted.
