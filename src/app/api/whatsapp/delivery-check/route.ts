@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { twilioAuthHeader, TWILIO_API_BASE } from '@/lib/whatsapp';
 
 export const maxDuration = 60;
 
@@ -13,16 +14,18 @@ async function handle(req: NextRequest) {
   const given = req.headers.get('x-cron-secret') || new URL(req.url).searchParams.get('secret');
   if (secret && given !== secret) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
-  const sid = process.env.TWILIO_ACCOUNT_SID, tok = process.env.TWILIO_AUTH_TOKEN;
-  if (!sid || !tok) return NextResponse.json({ error: 'Twilio not configured' }, { status: 500 });
+  // Same auth the send path uses (API key pair via twilioAuthHeader — prod has no auth token env).
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  const auth = twilioAuthHeader();
+  if (!sid || !auth) return NextResponse.json({ error: 'Twilio not configured' }, { status: 500 });
 
   const url = new URL(req.url);
   const q = new URLSearchParams({ PageSize: url.searchParams.get('limit') || '40' });
   const to = url.searchParams.get('to');
   if (to) q.set('To', to);
 
-  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json?${q}`, {
-    headers: { Authorization: 'Basic ' + Buffer.from(`${sid}:${tok}`).toString('base64') },
+  const res = await fetch(`${TWILIO_API_BASE}/2010-04-01/Accounts/${sid}/Messages.json?${q}`, {
+    headers: { Authorization: auth },
   });
   if (!res.ok) return NextResponse.json({ error: `Twilio ${res.status}: ${(await res.text()).slice(0, 200)}` }, { status: 500 });
   const j = await res.json();
