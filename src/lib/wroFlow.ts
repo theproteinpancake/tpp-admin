@@ -7,7 +7,10 @@ import { createWRO, getWROLabels } from './shipbob';
 import { ABC_PO_TO, ABC_PO_CC } from './poActions';
 
 const MODEL = 'claude-sonnet-4-6';
-const ABC_QUERY = 'from:abcblending.com.au has:attachment newer_than:30d';
+// Matches dockets sent directly by ABC AND copies the user forwards in (Sharon sometimes
+// emails Luke's Outlook instead of the connected Gmail — a forward comes FROM Luke, so a pure
+// from: filter would never find it; braces = Gmail OR).
+const ABC_QUERY = 'has:attachment newer_than:30d {from:abcblending.com.au subject:docket subject:shipment subject:pallets subject:"ship bob" filename:shipment}';
 
 export interface DocketLine {
   sku: string; flavour: string; size_g: number;
@@ -25,7 +28,7 @@ export interface ParsedDocket {
 
 export async function findLatestDocket(): Promise<{ messageId: string; subject: string; from: string; date: string } | null> {
   const hits = await gmailSearch(ABC_QUERY, 5);
-  const docket = hits.find((h) => /docket|packing|shipment|delivery/i.test(h.subject || '')) || hits[0];
+  const docket = hits.find((h) => /docket|packing|shipment|delivery|pallet/i.test(h.subject || '')) || hits[0];
   if (!docket) return null;
   return { messageId: docket.id, subject: docket.subject || '', from: docket.from || '', date: docket.date || '' };
 }
