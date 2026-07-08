@@ -408,7 +408,7 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: 'create_wro',
-    description: 'Create the ShipBob WRO from the docket (with lots + expiry) and link the PO. ONLY after the user has confirmed the best-befores. Returns the WRO number.',
+    description: 'Create the ShipBob WRO from the docket (with lots + expiry) and link the PO. ONLY after the user has confirmed the best-befores. Returns the WRO number + a `received` breakdown. UNIT CONVERSION IS AUTOMATIC: dockets list pouch units but 320g SKUs live in ShipBob as 4-pouch SRP cartons — the tool divides for you (e.g. 168 pouches → 42 cartons). NEVER pre-convert quantities yourself; in your summary, quote the `received` breakdown (docket units AND ShipBob qty) so the user can sanity-check.',
     input_schema: { type: 'object', properties: { messageId: { type: 'string' } }, required: ['messageId'] },
   },
   {

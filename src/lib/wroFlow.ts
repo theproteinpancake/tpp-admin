@@ -75,14 +75,26 @@ export async function createWROFromParsed(parsed: ParsedDocket, site = 'ALTONA')
   }
   const { data: loc } = await supabaseLogistics.from('locations').select('id').eq('code', site).single();
   const { data: pls } = await supabaseLogistics.from('product_locations')
-    .select('shipbob_inventory_id, product_id, products(sku)').eq('location_id', loc!.id);
+    .select('shipbob_inventory_id, shipbob_units_per, product_id, products(sku)').eq('location_id', loc!.id);
   const invBySku = new Map((pls ?? []).map((p: any) => [p.products?.sku, p.shipbob_inventory_id]));
   const pidBySku = new Map((pls ?? []).map((p: any) => [p.products?.sku, p.product_id]));
+  const perBySku = new Map((pls ?? []).map((p: any) => [p.products?.sku, Number(p.shipbob_units_per) || 1]));
 
-  const items = parsed.lines.map((l) => ({
-    inventory_id: Number(invBySku.get(l.sku)),
-    quantity: l.qty, lot_number: l.lot, expiration_date: l.expiry,
-  })).filter((i) => i.inventory_id);
+  // Dockets list POUCH units, but some ShipBob inventories are multi-packs — every 320g SKU
+  // maps to a "Wholesale (4)" SRP carton — so the WRO quantity is units ÷ shipbob_units_per.
+  // Sending raw units inflated receiving 4× (docket 001445: 168 pouches went in as 168 cartons
+  // instead of 42). A non-whole carton count means a misread docket or a genuinely loose pouch
+  // — refuse loudly rather than create a wrong WRO.
+  const items = parsed.lines.map((l) => {
+    const per = perBySku.get(l.sku) ?? 1;
+    if (l.qty % per !== 0) {
+      throw new Error(`${l.sku}: docket qty ${l.qty} isn't a whole number of ${per}-pouch cartons (the ShipBob inventory is the carton). Check the docket with the user before creating the WRO.`);
+    }
+    return {
+      inventory_id: Number(invBySku.get(l.sku)),
+      quantity: l.qty / per, lot_number: l.lot, expiration_date: l.expiry,
+    };
+  }).filter((i) => i.inventory_id);
   if (!items.length) throw new Error('No docket lines matched a known SKU.');
 
   // ShipBob rejects past arrival dates. The date is only a rough guide, so if the
@@ -123,7 +135,11 @@ export async function createWROFromParsed(parsed: ParsedDocket, site = 'ALTONA')
       .update({ wro_created: true, shipbob_wro_id: String(wro.id), wro_status: wro.status, updated_at: new Date().toISOString() })
       .eq('po_number', parsed.po_ref);
   }
-  return { wro_id: wro.id, status: wro.status, lines: parsed.lines.length };
+  const received = parsed.lines.map((l) => {
+    const per = perBySku.get(l.sku) ?? 1;
+    return { sku: l.sku, lot: l.lot, docket_units: l.qty, shipbob_qty: l.qty / per, ...(per > 1 ? { note: `${per}-pouch cartons` } : {}) };
+  });
+  return { wro_id: wro.id, status: wro.status, lines: parsed.lines.length, received };
 }
 
 const SIGNATURE = 'Luke Rolls\nOwner | The Protein Pancake\nP: +61 0412 474 330\nE: luke@theproteinpancake.co';
