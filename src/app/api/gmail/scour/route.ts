@@ -5,6 +5,7 @@ import { reconcilePOsFromWROs } from '@/lib/poReconcile';
 import { refreshInfluencerTracking } from '@/lib/marketing';
 import { recordJobRun } from '@/lib/settings';
 import { syncDetectedBillStatuses } from '@/lib/xeroBills';
+import { runCdsScour } from '@/lib/cdsFlow';
 
 export const maxDuration = 120;
 
@@ -28,7 +29,11 @@ async function handle(req: NextRequest) {
   let visy: Awaited<ReturnType<typeof runVisyScour>> | { error: string };
   try { visy = await runVisyScour(); }
   catch (e) { visy = { error: String(e) }; }
-  return NextResponse.json({ ok: true, ...res, bills_synced: billsSynced, po_reconcile: reconcile, influencer_tracking: tracking, visy });
+  // UK customs clearance → draft the CDS email to ShipBob receiving (playbook: cds-clearance)
+  let cds: Awaited<ReturnType<typeof runCdsScour>> | { error: string };
+  try { cds = await runCdsScour(); }
+  catch (e) { cds = { error: String(e) }; }
+  return NextResponse.json({ ok: true, ...res, bills_synced: billsSynced, po_reconcile: reconcile, influencer_tracking: tracking, visy, cds });
 }
 
 export const POST = handle;

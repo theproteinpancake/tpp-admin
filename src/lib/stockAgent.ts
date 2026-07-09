@@ -7,6 +7,7 @@ import { proposeFlavourPOs, proposeOneFlavour } from './poBuilder';
 import { draftWhatsAppPO, approveLatestWhatsAppDraft, sendLatestPOEmail } from './poActions';
 import { markPOReceived } from './poReconcile';
 import { findLatestDocket, parseDocket, createWROFromParsed, draftSharonReply } from './wroFlow';
+import { markCdsSent } from './cdsFlow';
 import { resolveVisyItem, draftVisyOrder, markVisyOrderSent, getVisyOrders } from './visyOrder';
 import { findContacts } from './contacts';
 import { getPackagingSummary } from './packaging';
@@ -996,7 +997,8 @@ W: theproteinpancake.co`;
       const draftId = String(input.draft_id);
       const sent = await gmailSendDraft(draftId); // throws if the draft is gone or has no recipient
       const visySent = await markVisyOrderSent(draftId).catch(() => false); // flip a VISY order drafted→ordered
-      return { sent: true, sent_message_id: sent.id, to: sent.to, ...(visySent ? { visy_order: 'now tracking — I\'ll update you as VISY confirms/ships it' } : {}) };
+      const cdsSent = await markCdsSent(draftId).catch(() => false); // flip a CDS clearance email drafted→emailed
+      return { sent: true, sent_message_id: sent.id, to: sent.to, ...(visySent ? { visy_order: 'now tracking — I\'ll update you as VISY confirms/ships it' } : {}), ...(cdsSent ? { cds: 'CDS email logged as sent for that transfer — ShipBob receiving has the paperwork' } : {}) };
     } catch (e) { return { sent: false, error: String(e).slice(0, 200) }; }
   }
   if (name === 'set_restock_eta') {
@@ -1175,6 +1177,18 @@ async function resolveRole(phone: string): Promise<'wholesale' | 'owner'> {
   return _roleCache.map.get(norm) ?? senderRole(phone); // static KATE_NUMBER fallback
 }
 
+// Live operator playbooks (agent_playbooks table) — authored from Luke's Cowork/Chat session
+// via its Supabase connector, or by hand. Appended to the system prompt every run so new
+// operating procedures reach the agent WITHOUT a deploy. Keep each playbook tight: this rides
+// in the prompt on every message.
+async function loadPlaybooks(): Promise<string> {
+  const { data } = await supabaseLogistics.from('agent_playbooks')
+    .select('slug, title, content_md').eq('active', true).order('slug');
+  if (!data?.length) return '';
+  const blocks = (data as any[]).map((p) => `### ${p.title} [playbook:${p.slug}]\n${String(p.content_md).slice(0, 6000)}`);
+  return `\n\nOPERATOR PLAYBOOKS — live standing procedures maintained by Luke (updated without deploys; follow them like the rest of this prompt):\n${blocks.join('\n\n')}`.slice(0, 24000);
+}
+
 // Recent conversation history so multi-step flows (confirm / SEND / yes) AND replies to the
 // morning brief later in the day keep their context. ~26h covers a same-day reply to a 9am brief.
 const HISTORY_LIMIT = 18;
@@ -1256,6 +1270,7 @@ export async function askStockAgent(question: string, phone?: string, images?: A
     : question;
 
   const history = phone ? await loadHistory(phone) : [];
+  const playbooks = await loadPlaybooks().catch(() => '');
   // Re-attach screenshots from the last few minutes of this conversation (history keeps text
   // only, so without this, "it's in the screenshot above" was unanswerable — the image was
   // gone the turn after it arrived). Capped so current-message images always take priority.
@@ -1271,7 +1286,7 @@ export async function askStockAgent(question: string, phone?: string, images?: A
   ];
   const messages: Anthropic.MessageParam[] = [...history, { role: 'user', content: hasAttach ? userContent : (q || '(no message)') }];
   const role = phone ? await resolveRole(phone) : 'owner';
-  const system = systemFor(role);
+  const system = systemFor(role) + playbooks;
   const roleTools = toolsForRole(role);
 
   // Prompt caching: the tools + (per-role) system prompt are large and static across the
