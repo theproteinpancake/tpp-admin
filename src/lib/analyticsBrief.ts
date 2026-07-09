@@ -6,7 +6,7 @@
 import { supabaseLogistics } from './supabase-logistics';
 import { getAssumptions, shopifyOrders, shopifyWeekCOGS } from './analytics';
 import { fetchMetaWeek } from './meta';
-import { sendWhatsApp, sendWhatsAppTemplate, allowedNumbers, senderRole } from './whatsapp';
+import { sendWhatsApp, sendWhatsAppTemplate, allowedNumbers, senderRole, hasOpenSession } from './whatsapp';
 import { getTemplateSid } from './waTemplates';
 import { recordProactiveContext } from './stockAgent';
 import { melbDate, melbMidnightUtc, dowMon0, addDays } from './tz';
@@ -149,9 +149,17 @@ export async function sendSalesReview(kind: 'daily' | 'weekly'): Promise<{ sent:
   const owners = allowedNumbers().filter((to) => senderRole(to) === 'owner');
   let sent = 0;
   for (const to of owners) {
+    // FREE-FORM FIRST when the 24h session is open (the owner chats most days): the
+    // tpp_sales_review template is MARKETING-categorised at Meta, and Meta's per-user
+    // marketing cap silently dropped it (63049, Jul 2026 — Twilio accepted, Meta never
+    // delivered, and the Salty Seats review died the same way since the cap is per-recipient
+    // across ALL businesses). In-session free-form has no such cap. Template = fallback for
+    // the out-of-session case only.
+    const inSession = await hasOpenSession(to).catch(() => false);
     let ok = false;
-    if (sid) ok = await sendWhatsAppTemplate(to, sid, vars);
-    if (!ok) ok = await sendWhatsApp(to, text);
+    if (inSession) ok = await sendWhatsApp(to, text);
+    if (!ok && sid) ok = await sendWhatsAppTemplate(to, sid, vars);
+    if (!ok && !inSession) ok = await sendWhatsApp(to, text);
     if (ok) { sent++; await recordProactiveContext(to, `This is the ${kind.toUpperCase()} SALES REVIEW I just sent. If the user replies about it, respond about THESE numbers:\n${text}`).catch(() => {}); }
   }
   return { sent, kind, text };

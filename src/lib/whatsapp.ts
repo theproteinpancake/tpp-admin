@@ -55,6 +55,21 @@ function sniffImageType(buf: Buffer): string | null {
   return null;
 }
 
+// Is the 24h WhatsApp session window with this person open? (i.e. did THEY message us in the
+// last ~23h.) In-session, free-form sends are allowed — and immune to Meta's per-user
+// MARKETING-template cap (error 63049), which silently ate the daily sales reviews.
+export async function hasOpenSession(to: string): Promise<boolean> {
+  const sid = SID(), auth = twilioAuthHeader();
+  if (!sid || !auth) return false;
+  try {
+    const q = new URLSearchParams({ From: waAddr(to), PageSize: '1' });
+    const res = await fetch(`${TWILIO_API_BASE}/2010-04-01/Accounts/${sid}/Messages.json?${q}`, { headers: { Authorization: auth } });
+    if (!res.ok) return false;
+    const m = (await res.json()).messages?.[0];
+    return !!m && Date.now() - new Date(m.date_created).getTime() < 23 * 3600_000;
+  } catch { return false; }
+}
+
 export async function fetchTwilioMedia(url: string): Promise<{ base64: string; mediaType: string } | null> {
   const auth = twilioAuthHeader();
   if (!auth) return null;
