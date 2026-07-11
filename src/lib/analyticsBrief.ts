@@ -6,9 +6,9 @@
 import { supabaseLogistics } from './supabase-logistics';
 import { getAssumptions, shopifyOrders, shopifyWeekCOGS } from './analytics';
 import { fetchMetaWeek } from './meta';
-import { sendWhatsApp, sendWhatsAppTemplate, allowedNumbers, senderRole, hasOpenSession, verifyRecentDelivery } from './whatsapp';
+import { sendWhatsApp, sendWhatsAppTemplate, allowedNumbers, senderRole, hasOpenSession, verifyRecentDelivery, recentMessagesTo } from './whatsapp';
 import { gmailCreateDraft, gmailSendDraft } from './google';
-import { getConfig } from './settings';
+import { getConfig, setConfig } from './settings';
 import { getTemplateSid } from './waTemplates';
 import { recordProactiveContext } from './stockAgent';
 import { melbDate, melbMidnightUtc, dowMon0, addDays } from './tz';
@@ -118,6 +118,32 @@ export async function dayMetrics(date: string): Promise<ReviewMetrics> {
   };
 }
 
+// SAFETY NET (runs on the 15-min followups cron): if a sales review went out in the last few
+// hours and EVERY copy died inside WhatsApp (Meta kills accepted sends async: 63049 marketing
+// cap, 63016 out-of-session, incl. runs cut off by the 60s runtime cap before their own email
+// fallback), email the review body so the owner still gets the numbers. Once per day.
+export async function repairReviewDelivery(): Promise<{ repaired: boolean; reason?: string }> {
+  const today = melbDate(0);
+  const doneKey = `review_repair:${today}`;
+  if (await getConfig(doneKey)) return { repaired: false, reason: 'already repaired today' };
+  const owners = allowedNumbers().filter((to) => senderRole(to) === 'owner');
+  const isReview = (b: string) => /day in review|week in review|TPP account report|TPP sales review/i.test(b);
+  for (const to of owners) {
+    const msgs = (await recentMessagesTo(to, 15)).filter((m) => isReview(m.body) && Date.now() - new Date(m.date).getTime() < 4 * 3600_000);
+    if (!msgs.length) continue;                                       // nothing sent recently
+    if (msgs.some((m) => !['undelivered', 'failed'].includes(m.status))) continue; // at least one copy alive (or still pending)
+    const body = msgs.find((m) => m.body.length > 80)?.body || msgs[0].body;
+    try {
+      const adminEmail = (await getConfig('admin_email')) || 'luke@theproteinpancake.co';
+      const draftId = await gmailCreateDraft(adminEmail, 'TPP sales review — WhatsApp delivery blocked', `${body}\n\n(Emailed because every WhatsApp copy was refused — Meta template/session limits. Numbers are also on the dashboard.)`);
+      await gmailSendDraft(draftId);
+      await setConfig(doneKey, new Date().toISOString());
+      return { repaired: true };
+    } catch (e) { return { repaired: false, reason: String(e).slice(0, 120) }; }
+  }
+  return { repaired: false };
+}
+
 // The copy-paste week-in-review (used by /api/whatsapp/week-in-review).
 export async function buildWeekInReview(weekStart: string): Promise<string> {
   const m = await weekMetrics(weekStart);
@@ -166,8 +192,8 @@ export async function sendSalesReview(kind: 'daily' | 'weekly'): Promise<{ sent:
     let ok = false;
     for (const attempt of channels) {
       if (!(await attempt())) continue;
-      await new Promise((r) => setTimeout(r, 40_000)); // give Meta time to surface async failures
-      const v = await verifyRecentDelivery(to, 50_000);
+      await new Promise((r) => setTimeout(r, 12_000)); // Meta surfaces 63016/63049 within seconds; runtime is capped at 60s so waits must be short
+      const v = await verifyRecentDelivery(to, 20_000);
       if (v.ok) { ok = true; break; }
       delivery.push(`${to}: dropped (${v.status}${v.error_code ? ` ${v.error_code}` : ''}) — trying next channel`);
     }

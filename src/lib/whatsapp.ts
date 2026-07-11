@@ -73,6 +73,19 @@ export async function verifyRecentDelivery(to: string, sinceMs: number): Promise
   } catch { return { ok: true }; }
 }
 
+// List recent messages to a number (for the review-delivery repair sweep).
+export async function recentMessagesTo(to: string, limit = 10): Promise<{ date: string; status: string; error_code: number | null; body: string }[]> {
+  const sid = SID(), auth = twilioAuthHeader();
+  if (!sid || !auth) return [];
+  try {
+    const q = new URLSearchParams({ To: waAddr(to), PageSize: String(limit) });
+    const res = await fetch(`${TWILIO_API_BASE}/2010-04-01/Accounts/${sid}/Messages.json?${q}`, { headers: { Authorization: auth } });
+    if (!res.ok) return [];
+    return ((await res.json()).messages || []).filter((m: any) => m.direction?.startsWith('outbound'))
+      .map((m: any) => ({ date: m.date_created, status: m.status, error_code: m.error_code ?? null, body: m.body || '' }));
+  } catch { return []; }
+}
+
 // Is the 24h WhatsApp session window with this person open? (i.e. did THEY message us in the
 // last ~23h.) In-session, free-form sends are allowed — and immune to Meta's per-user
 // MARKETING-template cap (error 63049), which silently ate the daily sales reviews.

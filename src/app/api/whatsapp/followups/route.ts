@@ -4,6 +4,7 @@ import { getTemplateSid } from '@/lib/waTemplates';
 import { sendWhatsApp, sendWhatsAppTemplate } from '@/lib/whatsapp';
 import { recordProactiveContext } from '@/lib/stockAgent';
 import { melbLongDate } from '@/lib/tz';
+import { repairReviewDelivery } from '@/lib/analyticsBrief';
 
 export const maxDuration = 60;
 
@@ -28,7 +29,9 @@ async function handle(req: NextRequest) {
       await recordProactiveContext(f.phone, `I just sent the user this FOLLOW-UP reminder (id ${f.id}): "${f.message}".${f.context ? ` Context: ${f.context}` : ''} If they reply "done" it's handled (nothing to cancel — it already fired); "snooze a day" → schedule_followup again for tomorrow with the same message; otherwise act on their instruction.`).catch(() => {});
     }
   }
-  return NextResponse.json({ ok: true, due: (due ?? []).length, sent });
+  // Safety net: if today's sales review died in WhatsApp (all copies undelivered), email it.
+  const reviewRepair = await repairReviewDelivery().catch((e) => ({ repaired: false, reason: String(e).slice(0, 100) }));
+  return NextResponse.json({ ok: true, due: (due ?? []).length, sent, review_repair: reviewRepair });
 }
 
 export const GET = handle;
