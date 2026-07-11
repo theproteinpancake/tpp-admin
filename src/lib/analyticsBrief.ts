@@ -124,8 +124,8 @@ export async function dayMetrics(date: string): Promise<ReviewMetrics> {
 // fallback), email the review body so the owner still gets the numbers. Once per day.
 export async function repairReviewDelivery(): Promise<{ repaired: boolean; reason?: string }> {
   const today = melbDate(0);
-  const doneKey = `review_repair:${today}`;
-  if (await getConfig(doneKey)) return { repaired: false, reason: 'already repaired today' };
+  const doneKey = `review_email_fallback:${today}`; // shared with the in-ladder email fallback
+  if (await getConfig(doneKey)) return { repaired: false, reason: 'review already emailed today' };
   const owners = allowedNumbers().filter((to) => senderRole(to) === 'owner');
   const isReview = (b: string) => /day in review|week in review|TPP account report|TPP sales review/i.test(b);
   for (const to of owners) {
@@ -135,9 +135,9 @@ export async function repairReviewDelivery(): Promise<{ repaired: boolean; reaso
     const body = msgs.find((m) => m.body.length > 80)?.body || msgs[0].body;
     try {
       const adminEmail = (await getConfig('admin_email')) || 'luke@theproteinpancake.co';
+      await setConfig(doneKey, new Date().toISOString()); // claim before sending — never duplicate
       const draftId = await gmailCreateDraft(adminEmail, 'TPP sales review — WhatsApp delivery blocked', `${body}\n\n(Emailed because every WhatsApp copy was refused — Meta template/session limits. Numbers are also on the dashboard.)`);
       await gmailSendDraft(draftId);
-      await setConfig(doneKey, new Date().toISOString());
       return { repaired: true };
     } catch (e) { return { repaired: false, reason: String(e).slice(0, 120) }; }
   }
@@ -198,14 +198,24 @@ export async function sendSalesReview(kind: 'daily' | 'weekly'): Promise<{ sent:
       delivery.push(`${to}: dropped (${v.status}${v.error_code ? ` ${v.error_code}` : ''}) — trying next channel`);
     }
     if (!ok) {
-      // WhatsApp fully blocked → email the review so the numbers still arrive.
-      try {
-        const adminEmail = (await getConfig('admin_email')) || 'luke@theproteinpancake.co';
-        const draftId = await gmailCreateDraft(adminEmail, `TPP ${kind} sales review — WhatsApp delivery blocked`, `${text}\n\n(Sent by email because WhatsApp refused delivery — likely Meta's per-user template cap. The numbers are also on the dashboard.)`);
-        await gmailSendDraft(draftId);
-        delivery.push(`${to}: WhatsApp blocked — emailed ${adminEmail} instead`);
+      // WhatsApp fully blocked → email the review so the numbers still arrive. ONCE per day
+      // across every path (this fallback + the repair sweep share the guard key): overlapping
+      // invocations each emailed on 11 Jul — the 60s runtime "kill" only cuts the connection,
+      // the function keeps running, so two test runs both completed their ladders.
+      const guardKey = `review_email_fallback:${melbDate(0)}`;
+      if (await getConfig(guardKey)) {
+        delivery.push(`${to}: WhatsApp blocked — review already emailed today, not duplicating`);
         ok = true;
-      } catch (e) { delivery.push(`${to}: WhatsApp AND email failed: ${String(e).slice(0, 100)}`); }
+      } else {
+        try {
+          await setConfig(guardKey, new Date().toISOString()); // claim BEFORE sending — a dupe email is worse than a rare miss
+          const adminEmail = (await getConfig('admin_email')) || 'luke@theproteinpancake.co';
+          const draftId = await gmailCreateDraft(adminEmail, `TPP ${kind} sales review — WhatsApp delivery blocked`, `${text}\n\n(Sent by email because WhatsApp refused delivery — likely Meta's per-user template cap. The numbers are also on the dashboard.)`);
+          await gmailSendDraft(draftId);
+          delivery.push(`${to}: WhatsApp blocked — emailed ${adminEmail} instead`);
+          ok = true;
+        } catch (e) { delivery.push(`${to}: WhatsApp AND email failed: ${String(e).slice(0, 100)}`); }
+      }
     }
     if (ok) { sent++; await recordProactiveContext(to, `This is the ${kind.toUpperCase()} SALES REVIEW I just sent. If the user replies about it, respond about THESE numbers:\n${text}`).catch(() => {}); }
   }
