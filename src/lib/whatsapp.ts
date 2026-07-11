@@ -55,6 +55,24 @@ function sniffImageType(buf: Buffer): string | null {
   return null;
 }
 
+// Did our most recent outbound message to this person actually DELIVER? Twilio accepts sends
+// that Meta later drops silently (63049 marketing cap, 63016 out-of-session) — the send call
+// returns true either way. Polls the newest outbound created within `sinceMs`.
+export async function verifyRecentDelivery(to: string, sinceMs: number): Promise<{ ok: boolean; status?: string; error_code?: number }> {
+  const sid = SID(), auth = twilioAuthHeader();
+  if (!sid || !auth) return { ok: true }; // can't verify → assume ok
+  try {
+    const q = new URLSearchParams({ To: waAddr(to), PageSize: '3' });
+    const res = await fetch(`${TWILIO_API_BASE}/2010-04-01/Accounts/${sid}/Messages.json?${q}`, { headers: { Authorization: auth } });
+    if (!res.ok) return { ok: true };
+    const recent = ((await res.json()).messages || []).filter((m: any) =>
+      m.direction?.startsWith('outbound') && Date.now() - new Date(m.date_created).getTime() < sinceMs);
+    const dead = recent.find((m: any) => ['undelivered', 'failed'].includes(m.status));
+    if (dead) return { ok: false, status: dead.status, error_code: dead.error_code };
+    return { ok: true, status: recent[0]?.status };
+  } catch { return { ok: true }; }
+}
+
 // Is the 24h WhatsApp session window with this person open? (i.e. did THEY message us in the
 // last ~23h.) In-session, free-form sends are allowed — and immune to Meta's per-user
 // MARKETING-template cap (error 63049), which silently ate the daily sales reviews.

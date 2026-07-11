@@ -17,6 +17,14 @@ export const TEMPLATES: WaTemplate[] = [
     sample: { '1': 'Daily · Mon 9 Jun', '2': '$21,537 · 251 orders · AOV $85.80', '3': '$1,889 wholesale · $23,426 total', '4': 'ROAS 3.06× · CPA $28.11 · NC ROAS 1.80× · NC CPA $44.92', '5': '$286' },
   },
   {
+    // Utility-worded twin of tpp_sales_review: Meta re-categorised the original as MARKETING
+    // (revenue wording trips its classifier) and its per-user marketing cap silently dropped
+    // sends (63049). This one is phrased as a scheduled operational account report.
+    key: 'tpp_daily_report',
+    body: 'TPP account report — {{1}}\n\nOrders processed: {{2}}\nAccount totals: {{3}}\nAd account performance: {{4}}\nNet position: {{5}}\n\nThis is your scheduled account report. Reply to query any line.',
+    sample: { '1': 'Daily · Mon 9 Jun', '2': '$21,537 · 251 orders · AOV $85.80', '3': '$1,889 wholesale · $23,426 total', '4': 'ROAS 3.06× · CPA $28.11 · NC ROAS 1.80× · NC CPA $44.92', '5': '$286' },
+  },
+  {
     key: 'tpp_logistics_brief',
     body: '🥞 *Logistics overview* — {{1}}\n\n🇦🇺 *AU stock*\n{{2}}\n\n🇬🇧 *UK stock*\n{{3}}\n\n🚢 *UK transfer*\n{{4}}\n\n📦 *Outstanding inbound*\n{{5}}\n\n💸 *Fulfilment watch*\n{{6}}\n\n_Reply to action anything._',
     sample: { '1': 'Tuesday, 9 June', '2': 'Buttermilk OOS (+1T in) · Maple 53d · GF Buttermilk 58d · Cinnamon 117d', '3': 'Maple 40d · Buttermilk 22d (+inbound) · Cinnamon 60d', '4': 'INTERNAL2 — awaiting customs clearance, ETA this week', '5': 'April Maple+Cinnamon · May Buttermilk 1T · GF Buttermilk May 1T', '6': 'New $99 fulfilment charge yesterday — worth a check' },

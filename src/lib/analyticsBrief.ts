@@ -6,7 +6,9 @@
 import { supabaseLogistics } from './supabase-logistics';
 import { getAssumptions, shopifyOrders, shopifyWeekCOGS } from './analytics';
 import { fetchMetaWeek } from './meta';
-import { sendWhatsApp, sendWhatsAppTemplate, allowedNumbers, senderRole, hasOpenSession } from './whatsapp';
+import { sendWhatsApp, sendWhatsAppTemplate, allowedNumbers, senderRole, hasOpenSession, verifyRecentDelivery } from './whatsapp';
+import { gmailCreateDraft, gmailSendDraft } from './google';
+import { getConfig } from './settings';
 import { getTemplateSid } from './waTemplates';
 import { recordProactiveContext } from './stockAgent';
 import { melbDate, melbMidnightUtc, dowMon0, addDays } from './tz';
@@ -145,22 +147,41 @@ export async function sendSalesReview(kind: 'daily' | 'weekly'): Promise<{ sent:
   const text = reviewText(m) + extra;
   const vars = reviewVars(m);
   if (extra) vars['5'] = `${vars['5']} · ${extra.replace(/\n+/g, ' · ').replace(/ · +/g, ' · ').trim()}`.slice(0, 550);
-  const sid = await getTemplateSid('tpp_sales_review');
+  // Template preference: tpp_daily_report (utility-worded — Meta re-categorised the original
+  // tpp_sales_review as MARKETING, whose per-user cap silently drops sends, error 63049),
+  // falling back to the old template until the new one is approved.
+  const sid = (await getTemplateSid('tpp_daily_report')) || (await getTemplateSid('tpp_sales_review'));
   const owners = allowedNumbers().filter((to) => senderRole(to) === 'owner');
   let sent = 0;
+  const delivery: string[] = [];
   for (const to of owners) {
-    // FREE-FORM FIRST when the 24h session is open (the owner chats most days): the
-    // tpp_sales_review template is MARKETING-categorised at Meta, and Meta's per-user
-    // marketing cap silently dropped it (63049, Jul 2026 — Twilio accepted, Meta never
-    // delivered, and the Salty Seats review died the same way since the cap is per-recipient
-    // across ALL businesses). In-session free-form has no such cap. Template = fallback for
-    // the out-of-session case only.
+    // VERIFIED LADDER: Twilio accepts sends Meta later kills silently (63049 marketing cap /
+    // 63016 out-of-session), so each channel is checked for ACTUAL delivery before trusting it.
+    // In-session: free-form first (no caps). Out-of-session: template first. Email = the
+    // never-fails last resort so the owner is never left without their numbers again.
     const inSession = await hasOpenSession(to).catch(() => false);
+    const channels: (() => Promise<boolean>)[] = inSession
+      ? [() => sendWhatsApp(to, text), ...(sid ? [() => sendWhatsAppTemplate(to, sid!, vars)] : [])]
+      : [...(sid ? [() => sendWhatsAppTemplate(to, sid!, vars)] : []), () => sendWhatsApp(to, text)];
     let ok = false;
-    if (inSession) ok = await sendWhatsApp(to, text);
-    if (!ok && sid) ok = await sendWhatsAppTemplate(to, sid, vars);
-    if (!ok && !inSession) ok = await sendWhatsApp(to, text);
+    for (const attempt of channels) {
+      if (!(await attempt())) continue;
+      await new Promise((r) => setTimeout(r, 40_000)); // give Meta time to surface async failures
+      const v = await verifyRecentDelivery(to, 50_000);
+      if (v.ok) { ok = true; break; }
+      delivery.push(`${to}: dropped (${v.status}${v.error_code ? ` ${v.error_code}` : ''}) — trying next channel`);
+    }
+    if (!ok) {
+      // WhatsApp fully blocked → email the review so the numbers still arrive.
+      try {
+        const adminEmail = (await getConfig('admin_email')) || 'luke@theproteinpancake.co';
+        const draftId = await gmailCreateDraft(adminEmail, `TPP ${kind} sales review — WhatsApp delivery blocked`, `${text}\n\n(Sent by email because WhatsApp refused delivery — likely Meta's per-user template cap. The numbers are also on the dashboard.)`);
+        await gmailSendDraft(draftId);
+        delivery.push(`${to}: WhatsApp blocked — emailed ${adminEmail} instead`);
+        ok = true;
+      } catch (e) { delivery.push(`${to}: WhatsApp AND email failed: ${String(e).slice(0, 100)}`); }
+    }
     if (ok) { sent++; await recordProactiveContext(to, `This is the ${kind.toUpperCase()} SALES REVIEW I just sent. If the user replies about it, respond about THESE numbers:\n${text}`).catch(() => {}); }
   }
-  return { sent, kind, text };
+  return { sent, kind, text, ...(delivery.length ? { delivery } : {}) };
 }

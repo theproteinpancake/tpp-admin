@@ -3,7 +3,7 @@ import { sendSalesReview, dayMetrics, weekMetrics, reviewText, reviewVars } from
 import { melbDate, dowMon0, addDays } from '@/lib/tz';
 import { recordJobRun } from '@/lib/settings';
 
-export const maxDuration = 120;
+export const maxDuration = 300; // verified-delivery ladder waits ~40s per channel attempt
 
 // Owner sales review. Daily every day; Mondays ALSO send the weekly wrap as a second message
 // (Luke wants the daily rhythm unbroken — the weekly used to REPLACE Monday's daily).
