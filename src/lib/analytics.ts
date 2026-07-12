@@ -6,6 +6,7 @@ import { supabaseLogistics } from './supabase-logistics';
 import { fetchMetaWeek, metaConfigured } from './meta';
 import { fetchGoogleAdsWeek, googleAdsConfigured } from './googleAds';
 import { fetchAmazonSalesWeek, amazonSpConfigured } from './amazonSp';
+import { fetchSessionsWeek } from './shopifySessions';
 import { getShopifyToken, SHOPIFY_SHOP } from './shopifyToken';
 import { melbMidnightUtc } from './tz';
 
@@ -136,7 +137,7 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 export async function autofillWeek(weekStart: string) {
   const { startIso, endIso } = weekRange(weekStart);
   const a = await getAssumptions();
-  const [shop, sb, wh, meta, google, amazon, existing] = await Promise.all([
+  const [shop, sb, wh, meta, google, amazon, existing, sessions] = await Promise.all([
     shopifyOrders(startIso, endIso).catch((e) => ({ _err: String(e) } as any)),
     shipbobCharges(startIso, endIso, a.fx_gbp_aud).catch(() => null),
     wholesaleTotal(startIso, endIso).catch(() => null),
@@ -144,6 +145,7 @@ export async function autofillWeek(weekStart: string) {
     googleAdsConfigured() ? fetchGoogleAdsWeek(startIso, endIso).catch((e) => ({ _err: String(e) } as any)) : Promise.resolve(null),
     amazonSpConfigured() ? fetchAmazonSalesWeek(startIso, endIso, a.fx_gbp_aud).catch((e) => ({ _err: String(e) } as any)) : Promise.resolve(null),
     supabaseLogistics.from('sales_week').select('locked, cogs').eq('week_start', weekStart).maybeSingle(),
+    fetchSessionsWeek(startIso, endIso).catch((e) => ({ _err: String(e) } as any)),
   ]);
   const locked: string[] = (existing.data?.locked as string[]) || [];
   const row: Record<string, unknown> = { week_start: weekStart, auto_filled_at: new Date().toISOString(), updated_at: new Date().toISOString() };
@@ -156,6 +158,16 @@ export async function autofillWeek(weekStart: string) {
     // fall back to the % assumption only when no real cost is stored yet.
     const storedCogs = existing.data?.cogs != null ? Number(existing.data.cogs) : null;
     set('gross_profit', round2(storedCogs != null ? shop.online_sales - storedCogs : shop.online_sales * (1 - a.online_cogs_pct)));
+  }
+  // Conversion rates from ShopifyQL sessions (used to be typed in weekly by hand — this is
+  // the "flowing through" Luke expected). CR = orders ÷ sessions per region; skipped cleanly
+  // when sessions are unavailable (read_reports scope missing / ShopifyQL moved again).
+  if (sessions && !(sessions as any)._err && shop && !shop._err) {
+    const sess = sessions as { total: number; nz: number; uk: number };
+    const r4 = (x: number) => Math.round(x * 10000) / 10000;
+    if (sess.total > 0 && shop.orders != null) set('cr', r4(shop.orders / sess.total));
+    if (sess.nz > 0 && shop.orders_nz != null) set('nz_cr', r4(shop.orders_nz / sess.nz));
+    if (sess.uk > 0 && shop.orders_uk != null) set('uk_cr', r4(shop.orders_uk / sess.uk));
   }
   if (sb != null) set('shipbob_charges', sb);
   if (wh != null) set('wholesale_invoices', wh);
@@ -207,6 +219,7 @@ export async function autofillWeek(weekStart: string) {
     meta: meta?._err ? `error: ${meta._err}` : (meta ? 'ok' : 'not configured'),
     google: google?._err ? `error: ${google._err}` : (google ? 'ok' : 'not configured'),
     amazon: amazon?._err ? `error: ${amazon._err}` : (amazon ? `ok${amazon.warnings?.length ? ` (${amazon.warnings.join('; ')})` : ''}` : 'not configured'),
+    sessions: (sessions as any)?._err ? `error: ${(sessions as any)._err}` : (sessions ? 'ok' : 'not configured'),
   };
 }
 
