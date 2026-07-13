@@ -16,7 +16,9 @@ const PO_SIGNATURE = 'Luke Rolls\nOwner | The Protein Pancake\nP: +61 0412 474 3
 function poEmailContent(poNumber: string, flavour: string) {
   const of = flavour ? ` of ${flavour}` : '';
   return {
-    to: ABC_PO_TO, cc: ABC_PO_CC, subject: 'New PO',
+    // Luke is CC'd so the send lands in his own inbox — visible proof the PO email actually
+    // went out (asked for after the 13 Jul duplicate-PO mess made sends hard to trust blind).
+    to: ABC_PO_TO, cc: `${ABC_PO_CC}, luke@theproteinpancake.co`, subject: 'New PO',
     body: `Hey guys,\n\nJust sending over a new PO${of}.\n\nThanks!\n\n${PO_SIGNATURE}`,
   };
 }
