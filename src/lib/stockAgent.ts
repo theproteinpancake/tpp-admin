@@ -107,7 +107,7 @@ const tools: Anthropic.Tool[] = [
   {
     name: 'approve_po',
     description: 'ONLY call when the user has EXPLICITLY approved sending (e.g. "send it", "approve", "yes send to ABC"). Pushes a pending draft PO to Xero as an APPROVED order (AUTHORISED — it appears under Xero\'s Approved tab, never Drafts). When MORE THAN ONE draft is pending (e.g. two flavours drafted together), you MUST pass `flavour` to pick the right one ("SEND CHOCOLATE" → flavour:"Chocolate"); with no flavour it approves the most recent draft.',
-    input_schema: { type: 'object', properties: { flavour: { type: 'string', description: 'which pending draft to approve when several exist, e.g. "Chocolate"' } } },
+    input_schema: { type: 'object', properties: { flavour: { type: 'string', description: 'which pending draft to approve when several exist, e.g. "Chocolate"' }, force: { type: 'boolean', description: 'ONLY after the user explicitly confirms they want a SECOND identical PO within 24h' } } },
   },
   {
     name: 'send_po_email',
@@ -527,10 +527,12 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
     const res = await draftWhatsAppPO(items);
     if ('error' in res) return res;
     _media.push(res.image_url);
-    return { drafted: true, summary: res.summary, note: `One-flavour 500kg-multiple PO drafted.${cartonNote} Screenshot attached. IMPORTANT: this draft lives in the DASHBOARD only — NOTHING is in Xero yet, so never say it is. On the user's approval, approve_po pushes it to Xero as an APPROVED order (Xero's Approved tab, not Drafts) and drafts the ABC email. If several drafts are pending, tell the user to approve by flavour name and pass flavour to approve_po.` };
+    return { drafted: true, summary: res.summary, warnings: (res as any).warnings, note: `One-flavour 500kg-multiple PO drafted.${cartonNote} Screenshot attached. IMPORTANT: this draft lives in the DASHBOARD only — NOTHING is in Xero yet, so never say it is. PENDING PO APPROVAL: if the user's NEXT message approves (SEND / send <flavour> / yes / go), call approve_po with the flavour IMMEDIATELY — do NOT call draft_po again; re-drafting on an approval is the exact bug that sent ABC two identical Chocolate POs. Only re-draft if they change quantities. Relay any warnings verbatim.` };
   }
   if (name === 'approve_po') {
-    return await approveLatestWhatsAppDraft(input.flavour ? String(input.flavour) : undefined);
+    const res = await approveLatestWhatsAppDraft(input.flavour ? String(input.flavour) : undefined, input.force === true);
+    if ('error' in res) return res;
+    return { ...res, note: `PO ${res.xero_number} is APPROVED in Xero and the ABC email is drafted (NOT sent). Next step and ONLY next step: when the user says "send to ABC" (or similar), call send_po_email. Do NOT call approve_po or draft_po again for this flavour.` };
   }
   if (name === 'send_po_email') {
     return await sendLatestPOEmail();

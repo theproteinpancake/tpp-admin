@@ -77,6 +77,28 @@ export async function draftWhatsAppPO(lines?: DraftLine[]): Promise<{ id: string
   const { data: altona } = await supabaseLogistics.from('locations').select('id').eq('code', 'ALTONA').single();
   const total = items.reduce((s, i) => s + i.qty_ordered * (i.unit_cost || 0), 0);
 
+  // Supersede any pending WhatsApp draft for the SAME flavour — the agent re-drafting on
+  // approval-ish messages piled up 5 stray drafts (and 2 approved Chocolate POs) on 13 Jul.
+  // One pending draft per flavour, ever.
+  const newFlavours = [...new Set(items.map((i) => (byId.get(i.product_id)?.flavour || '').toLowerCase()).filter(Boolean))];
+  const warnings: string[] = [];
+  const { data: pendings } = await supabaseLogistics.from('purchase_orders')
+    .select('id, items:po_items(product:product_id(flavour))')
+    .eq('source', 'whatsapp').eq('status', 'draft');
+  const staleIds = ((pendings ?? []) as any[])
+    .filter((d) => (d.items || []).some((i: any) => newFlavours.includes((i.product?.flavour || '').toLowerCase())))
+    .map((d) => d.id);
+  if (staleIds.length) {
+    await supabaseLogistics.from('purchase_orders').update({ status: 'cancelled', notes: 'Superseded by a newer WhatsApp draft of the same flavour', updated_at: new Date().toISOString() }).in('id', staleIds);
+    warnings.push(`replaced ${staleIds.length} earlier pending draft${staleIds.length > 1 ? 's' : ''} of the same flavour`);
+  }
+  // Same flavour APPROVED recently? Flag it hard — a second identical PO reaching ABC doubles the blend run.
+  const { data: recent } = await supabaseLogistics.from('purchase_orders')
+    .select('po_number, reference').eq('status', 'placed')
+    .gt('updated_at', new Date(Date.now() - 48 * 3600_000).toISOString());
+  const dupe = ((recent ?? []) as any[]).find((r) => newFlavours.some((f) => (r.reference || '').toLowerCase().includes(f)));
+  if (dupe) warnings.push(`⚠️ ${dupe.reference} was ALREADY approved as ${dupe.po_number} in the last 48h — confirm the user really wants ANOTHER before approving this one`);
+
   const { data: po, error } = await supabaseLogistics.from('purchase_orders').insert({
     supplier_id: abc?.id, destination_location_id: altona?.id, status: 'draft',
     currency: 'AUD', order_date: new Date().toISOString().slice(0, 10),
@@ -91,13 +113,13 @@ export async function draftWhatsAppPO(lines?: DraftLine[]): Promise<{ id: string
     return `• ${p?.flavour ?? p?.sku} ${sz} ×${i.qty_ordered}`;
   }).join('\n');
   const summary = `Drafted PO for ABC Blending (→ Altona):\n${lineSummary}\nTotal: AUD ${total.toFixed(2)}`;
-  return { id: po.id, image_url: `${APP_URL}/api/whatsapp/po-image/${po.id}`, summary };
+  return { id: po.id, image_url: `${APP_URL}/api/whatsapp/po-image/${po.id}`, summary, ...(warnings.length ? { warnings } : {}) };
 }
 
 // Approve the most recent WhatsApp draft → push to Xero as AUTHORISED, then DRAFT
 // the ABC email (To: Sharon, CC: Stephen, Xero PDF) for Luke to review. The email
 // is NOT sent until Luke confirms with "send to ABC" (sendLatestPOEmail).
-export async function approveLatestWhatsAppDraft(flavourFilter?: string): Promise<
+export async function approveLatestWhatsAppDraft(flavourFilter?: string, force?: boolean): Promise<
   { ok: true; xero_number: string; email_drafted: boolean; email_to: string; email_cc: string; email_subject: string; email_body: string }
   | { error: string }> {
   if (!(await getConnection())) return { error: 'Xero is not connected yet — connect it on the Purchase Orders page first.' };
@@ -130,6 +152,16 @@ export async function approveLatestWhatsAppDraft(flavourFilter?: string): Promis
   const sizeTag = totalKg >= 1000 ? `${Number((totalKg / 1000).toFixed(1))}T` : `${Math.round(totalKg)}KG`;
   const month = new Date().toLocaleDateString('en-AU', { month: 'long' }).toUpperCase();
   const reference = [flavour.toUpperCase(), month, totalKg > 0 ? sizeTag : ''].filter(Boolean).join(' ') || 'ABC PO';
+
+  // Idempotency: the same flavour approved again within 24h is almost always the re-draft
+  // loop, not a real second order (two Chocolate POs reached ABC on 13 Jul). Refuse unless forced.
+  if (!force) {
+    const { data: recent } = await supabaseLogistics.from('purchase_orders')
+      .select('po_number, reference').eq('status', 'placed')
+      .gt('updated_at', new Date(Date.now() - 24 * 3600_000).toISOString());
+    const dupe = ((recent ?? []) as any[]).find((r) => (r.reference || '').toLowerCase().includes(flavour.toLowerCase()));
+    if (dupe) return { error: `${flavour} was already approved as ${dupe.po_number} in the last 24h. If the user REALLY wants a second identical PO, confirm with them explicitly and call approve_po again with force:true. Otherwise the next step for ${dupe.po_number} is send_po_email.` };
+  }
 
   try {
     const xero = await createXeroPurchaseOrder({
