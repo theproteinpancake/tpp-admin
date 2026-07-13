@@ -35,7 +35,7 @@ import { xlsxToText } from './xlsx';
 const APP_URL = process.env.PUBLIC_APP_URL || 'https://admin.theproteinpancake.co';
 const TRANSFER_DOC_LIST: [string, string][] = [['commercial-invoice', 'Commercial Invoice'], ['packing-list', 'Packing List']];
 
-const MODEL = 'claude-sonnet-4-6';
+const MODEL = 'claude-sonnet-5'; // upgraded from sonnet-4-6 (13 Jul) — the agent touches Xero/ABC/ShipBob, and 4.6 was improvising under messy context (fake SKU lists, role-played resets)
 
 // Tools that CHANGE something (orders, invoices, emails, statuses) — logged to agent_actions.
 const MUTATING_TOOLS = new Set([
