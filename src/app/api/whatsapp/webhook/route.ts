@@ -89,6 +89,19 @@ export async function POST(req: NextRequest) {
       }
 
       const mergedBody = batch.map((p) => (p.body || '').trim()).filter(Boolean).join('\n');
+
+      // HARD RESET command — deterministic escape hatch when the conversation state has gone
+      // sideways (looping, stale context, hallucinated refusals): wipes this phone's history,
+      // replayable screenshots and buffered pieces, so the next message starts a clean slate.
+      // Deliberately code-level (not model-interpreted) so it works no matter how confused the
+      // agent is. Message must be ONLY the command so normal sentences never trigger it.
+      if (/^(reset|\/reset|new chat|start (over|fresh|again)|fresh start|clear chat)[.! ]*$/i.test(mergedBody)) {
+        await supabaseLogistics.from('wa_conversation').delete().eq('phone', from);
+        await supabaseLogistics.from('wa_recent_images').delete().eq('phone', from);
+        await supabaseLogistics.from('wa_inbound_buffer').delete().eq('phone', from);
+        await sendWhatsApp(from, '🧹 Fresh slate — I\'ve cleared our conversation history and start from scratch on your next message. (Drafts, POs, orders and records are all untouched — only my chat memory was wiped.)');
+        return;
+      }
       const allMedia = batch.flatMap((p) => (p.media_urls as string[]) || []);
       const allPdfs = batch.flatMap((p) => (p.pdf_urls as string[]) || []);
       const quotedSid = batch.map((p) => p.replied_sid).find(Boolean) || '';
