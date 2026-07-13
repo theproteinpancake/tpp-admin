@@ -168,6 +168,11 @@ export async function POST(request: Request) {
       success: true,
       articleId: article.id,
       articleUrl: `https://${SHOPIFY_STORE_DOMAIN}/admin/blogs/${targetBlog.id}/articles/${article.id}`,
+      // Google Search Console flags Recipe pages whose structured data lacks nutrition
+      // (WNC-10030322 hit two posts, Jul 2026) — surface it at publish time, not weeks later.
+      ...(recipe.calories == null && {
+        warning: 'This recipe has NO NUTRITION DATA — Google flags Recipe pages without it. Run "Analyze Nutrition" on the recipe, then "Update Blog Post".',
+      }),
     });
 
   } catch (error) {
