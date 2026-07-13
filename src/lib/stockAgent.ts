@@ -106,8 +106,8 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: 'approve_po',
-    description: 'ONLY call when the user has EXPLICITLY approved sending (e.g. "send it", "approve", "yes send to ABC"). Pushes the most recent draft PO to Xero as an approved order.',
-    input_schema: { type: 'object', properties: {} },
+    description: 'ONLY call when the user has EXPLICITLY approved sending (e.g. "send it", "approve", "yes send to ABC"). Pushes a pending draft PO to Xero as an APPROVED order (AUTHORISED — it appears under Xero\'s Approved tab, never Drafts). When MORE THAN ONE draft is pending (e.g. two flavours drafted together), you MUST pass `flavour` to pick the right one ("SEND CHOCOLATE" → flavour:"Chocolate"); with no flavour it approves the most recent draft.',
+    input_schema: { type: 'object', properties: { flavour: { type: 'string', description: 'which pending draft to approve when several exist, e.g. "Chocolate"' } } },
   },
   {
     name: 'send_po_email',
@@ -448,7 +448,7 @@ const tools: Anthropic.Tool[] = [
   },
 ];
 
-let _media: string | null = null; // screenshot URL set by draft_po within a single run
+let _media: string[] = []; // screenshot URLs set by draft_po within a single run — a LIST, because one run can draft multiple POs (two flavours = two previews; a single slot silently dropped all but the last image)
 let _phone: string | null = null; // WhatsApp recipient for tools that send media directly
 
 async function runTool(name: string, input: Record<string, unknown>): Promise<unknown> {
@@ -526,11 +526,11 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
     }
     const res = await draftWhatsAppPO(items);
     if ('error' in res) return res;
-    _media = res.image_url;
-    return { drafted: true, summary: res.summary, note: `One-flavour 500kg-multiple PO drafted.${cartonNote} Screenshot attached. Tell the user to reply SEND to approve & push to Xero.` };
+    _media.push(res.image_url);
+    return { drafted: true, summary: res.summary, note: `One-flavour 500kg-multiple PO drafted.${cartonNote} Screenshot attached. IMPORTANT: this draft lives in the DASHBOARD only — NOTHING is in Xero yet, so never say it is. On the user's approval, approve_po pushes it to Xero as an APPROVED order (Xero's Approved tab, not Drafts) and drafts the ABC email. If several drafts are pending, tell the user to approve by flavour name and pass flavour to approve_po.` };
   }
   if (name === 'approve_po') {
-    return await approveLatestWhatsAppDraft();
+    return await approveLatestWhatsAppDraft(input.flavour ? String(input.flavour) : undefined);
   }
   if (name === 'send_po_email') {
     return await sendLatestPOEmail();
@@ -1256,8 +1256,8 @@ export async function recordProactiveContext(phone: string, summary: string) {
 export interface AgentImage { base64: string; mediaType: string }
 export interface AgentDoc { base64: string; filename?: string }
 
-export async function askStockAgent(question: string, phone?: string, images?: AgentImage[], quotedText?: string, docs?: AgentDoc[]): Promise<{ text: string; media?: string }> {
-  _media = null;
+export async function askStockAgent(question: string, phone?: string, images?: AgentImage[], quotedText?: string, docs?: AgentDoc[]): Promise<{ text: string; media?: string[] }> {
+  _media = [];
   _phone = phone || null;
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return { text: 'Assistant is not configured (missing API key).' };
@@ -1330,5 +1330,5 @@ export async function askStockAgent(question: string, phone?: string, images?: A
     const tag = hasAttach ? `[sent ${[docs?.length ? `${docs.length} PDF${docs.length > 1 ? 's' : ''}` : '', images?.length ? `${images.length} image${images.length > 1 ? 's' : ''}` : ''].filter(Boolean).join(' + ')}] ` : '';
     await saveTurn(phone, `${tag}${question}`.trim(), answer).catch(() => {});
   }
-  return { text: answer, media: _media || undefined };
+  return { text: answer, media: _media.length ? [..._media] : undefined };
 }

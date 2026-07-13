@@ -97,15 +97,26 @@ export async function draftWhatsAppPO(lines?: DraftLine[]): Promise<{ id: string
 // Approve the most recent WhatsApp draft → push to Xero as AUTHORISED, then DRAFT
 // the ABC email (To: Sharon, CC: Stephen, Xero PDF) for Luke to review. The email
 // is NOT sent until Luke confirms with "send to ABC" (sendLatestPOEmail).
-export async function approveLatestWhatsAppDraft(): Promise<
+export async function approveLatestWhatsAppDraft(flavourFilter?: string): Promise<
   { ok: true; xero_number: string; email_drafted: boolean; email_to: string; email_cc: string; email_subject: string; email_body: string }
   | { error: string }> {
   if (!(await getConnection())) return { error: 'Xero is not connected yet — connect it on the Purchase Orders page first.' };
-  const { data: po } = await supabaseLogistics.from('purchase_orders')
+  // Several drafts can be pending at once (two flavours ordered together) — approving "the
+  // latest" blind sent the wrong flavour's PO, so a flavour filter picks the right one.
+  const { data: drafts } = await supabaseLogistics.from('purchase_orders')
     .select('id, reference, expected_date, items:po_items(qty_ordered, unit_cost, product:product_id(sku, flavour, unit_size_g))')
     .eq('source', 'whatsapp').eq('status', 'draft')
-    .order('created_at', { ascending: false }).limit(1).maybeSingle() as any;
-  if (!po) return { error: 'No pending WhatsApp draft to approve.' };
+    .order('created_at', { ascending: false }).limit(10) as any;
+  const all = (drafts ?? []) as any[];
+  const f = (flavourFilter || '').toLowerCase().trim();
+  const po = f
+    ? all.find((d) => (d.items || []).some((i: any) => (i.product?.flavour || '').toLowerCase().includes(f)))
+    : all[0];
+  if (!po) return { error: f ? `No pending draft matches flavour "${flavourFilter}". Pending: ${all.map((d) => [...new Set((d.items || []).map((i: any) => i.product?.flavour).filter(Boolean))].join('/')).join(', ') || 'none'}.` : 'No pending WhatsApp draft to approve.' };
+  if (!f && all.length > 1) {
+    const flavours = all.map((d) => [...new Set((d.items || []).map((i: any) => i.product?.flavour).filter(Boolean))].join('/'));
+    return { error: `MULTIPLE drafts are pending (${flavours.join(', ')}) — ask the user which one and call approve_po with that flavour.` };
+  }
 
   const valid = (po.items || []).filter((i: any) => i.product?.sku);
   const lines = valid.map((i: any) => ({ ItemCode: i.product.sku, Quantity: i.qty_ordered, UnitAmount: i.unit_cost }));

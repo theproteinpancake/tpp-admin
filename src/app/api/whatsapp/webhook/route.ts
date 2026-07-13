@@ -113,7 +113,11 @@ export async function POST(req: NextRequest) {
         ? `${mergedBody ? mergedBody + '\n\n' : ''}[system note: ${skippedImages} attached image${skippedImages > 1 ? 's' : ''} could NOT be read (too large or unsupported format). Tell the user which image(s) you did read, and ask them to re-send the rest as smaller screenshots.]`
         : mergedBody;
       const answer = await askStockAgent(agentBody, from, images.length ? images : undefined, quoted || undefined, docs.length ? docs : undefined);
-      await sendWhatsApp(from, answer.text, answer.media);
+      // media is a LIST (e.g. two PO previews drafted in one run) — text rides with the first,
+      // the rest follow as their own messages so nothing is silently dropped.
+      const [firstMedia, ...restMedia] = answer.media ?? [];
+      await sendWhatsApp(from, answer.text, firstMedia);
+      for (const m of restMedia) await sendWhatsApp(from, '📎', m);
     } catch (e) {
       console.error('whatsapp agent error', e);
       const raw = String((e as any)?.message || e);
