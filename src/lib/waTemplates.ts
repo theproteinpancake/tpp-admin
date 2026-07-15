@@ -8,9 +8,24 @@ import { getConfig, setConfig } from './settings';
 
 const CONTENT_API = 'https://content.twilio.com/v1/Content';
 
-export type WaTemplate = { key: string; body: string; sample: Record<string, string> };
+export type WaTemplate = { key: string; body: string; sample: Record<string, string>; buttons?: string[] };
 
 export const TEMPLATES: WaTemplate[] = [
+  {
+    // Generic tappable quick-reply confirmations (DHL-style buttons) — body + button labels are
+    // all variables so ONE content resource covers every confirmation. Tapping a button sends
+    // its exact label back as the message body: deterministic, no "yes" interpretation.
+    key: 'tpp_buttons_2',
+    body: '{{1}}',
+    buttons: ['{{2}}', '{{3}}'],
+    sample: { '1': 'WRO 975246 created ✅ Want me to draft the reply to Sharon with the labels attached?', '2': 'Draft Sharon reply', '3': 'Not now' },
+  },
+  {
+    key: 'tpp_buttons_3',
+    body: '{{1}}',
+    buttons: ['{{2}}', '{{3}}', '{{4}}'],
+    sample: { '1': 'Draft ready. To: Amanda (VISY). Send the PANLARGE order email?', '2': 'Send it', '3': 'Edit first', '4': 'Cancel' },
+  },
   {
     key: 'tpp_sales_review',
     body: 'TPP sales review 🥞 — {{1}}\n\nOnline & orders: {{2}}\nWholesale & total: {{3}}\nMeta (ROAS/CPA/NC): {{4}}\nNet profit: {{5}}\n\nFull breakdown in the dashboard.',
@@ -72,9 +87,16 @@ export async function createTemplate(t: WaTemplate): Promise<{ key: string; cont
   const auth = twilioAuthHeader();
   if (!auth) return { key: t.key, error: 'twilio creds missing' };
   const name = `${t.key}_${Date.now().toString(36)}`; // WhatsApp names must be unique in the WABA
+  const types: Record<string, unknown> = t.buttons?.length
+    ? {
+        // quick-reply renders tappable buttons on WhatsApp; text fallback for other channels
+        'twilio/quick-reply': { body: t.body, actions: t.buttons.map((b, i) => ({ title: b, id: `b${i + 1}` })) },
+        'twilio/text': { body: t.body },
+      }
+    : { 'twilio/text': { body: t.body } };
   const createRes = await fetch(CONTENT_API, {
     method: 'POST', headers: { Authorization: auth, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ friendly_name: name, language: 'en', variables: t.sample, types: { 'twilio/text': { body: t.body } } }),
+    body: JSON.stringify({ friendly_name: name, language: 'en', variables: t.sample, types }),
   });
   const created = await createRes.json().catch(() => ({}));
   if (!createRes.ok || !(created as any)?.sid) return { key: t.key, error: `create failed ${createRes.status}: ${JSON.stringify(created).slice(0, 160)}` };

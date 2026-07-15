@@ -86,6 +86,22 @@ export async function recentMessagesTo(to: string, limit = 10): Promise<{ date: 
   } catch { return []; }
 }
 
+// Tappable quick-reply buttons (DHL-style). Body + labels ride the generic tpp_buttons_N
+// content resource; a tap comes back as the button's EXACT label — deterministic routing, no
+// free-text "yes" interpretation. Unapproved content still delivers inside the 24h session,
+// which is where confirmations always happen. Returns false if unconfigured (caller falls
+// back to plain text).
+export async function sendWhatsAppButtons(to: string, body: string, labels: string[]): Promise<boolean> {
+  const clean = labels.map((l) => l.trim().slice(0, 20)).filter(Boolean).slice(0, 3); // WhatsApp cap: 3 buttons, 20 chars each
+  if (clean.length < 2) return false;
+  const { getTemplateSid } = await import('./waTemplates'); // lazy — avoids an import cycle
+  const sid = await getTemplateSid(`tpp_buttons_${clean.length}`);
+  if (!sid) return false;
+  const vars: Record<string, string> = { '1': body.slice(0, 1000) };
+  clean.forEach((l, i) => { vars[String(i + 2)] = l; });
+  return sendWhatsAppTemplate(to, sid, vars);
+}
+
 // Is the 24h WhatsApp session window with this person open? (i.e. did THEY message us in the
 // last ~23h.) In-session, free-form sends are allowed — and immune to Meta's per-user
 // MARKETING-template cap (error 63049), which silently ate the daily sales reviews.

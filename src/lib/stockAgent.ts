@@ -958,6 +958,14 @@ W: theproteinpancake.co`;
     try {
       const parsed = await parseDocket(String(input.messageId));
       const res = await createWROFromParsed(parsed);
+      // Persist the state-change: the earlier PENDING WRO CONFIRMATION note outlives its
+      // purpose in history, and a later bare "yes" (answering the draft-Sharon offer) was
+      // misrouted back to create_wro by that stale note. This note supersedes it.
+      if (_phone) {
+        await recordProactiveContext(_phone,
+          `WRO ${res.wro_id} IS CREATED for docket ${parsed.docket_ref || ''} — the earlier PENDING WRO CONFIRMATION is COMPLETE and DEAD; never call create_wro for this docket again. I then offered to draft Sharon's labels reply: if the user's next message approves (yes / go / draft it), call draft_sharon_reply with wro_id=${res.wro_id} IMMEDIATELY.`
+        ).catch(() => {});
+      }
       const note = (res as any).already_existed
         ? `WRO ${res.wro_id} was ALREADY created for this docket/PO — not duplicated. Go straight to draft_sharon_reply with wro_id=${res.wro_id}.`
         : `WRO ${res.wro_id} created. Offer to draft Sharon's reply (draft_sharon_reply, wro_id=${res.wro_id}).`;
@@ -1104,6 +1112,8 @@ RESPOND ONLY TO THE CURRENT MESSAGE — handle the ONE task it asks for and repl
 
 ATTACHMENTS & "this/that" — when the message includes an ATTACHMENT (PDF invoice/docket/packing slip, or an image) or refers to "this"/"that"/"it", the attachment IS the subject. READ it first and answer specifically about ITS contents — e.g. an ABC Blending invoice → read the invoice number, line items, qty, amounts, then cross-check (does it match a PO via get_purchase_orders? were those goods received? is the billed amount right?). NEVER ignore the attachment and dump an unrelated status report (e.g. don't answer with the UK pallet/INTERNAL2 just because the words "received" or "ShipBob" appear). If you genuinely can't read it or lack what you need, say exactly what's missing and ask — do NOT substitute a generic tool dump. Match the words to the actual subject: "billing/invoice" → invoices & POs, not transfers.
 
+"YES" ANSWERS THE MOST RECENT QUESTION (CRITICAL): a bare approval (yes / go / do it) always refers to the LAST question YOU asked — never to an older step. PENDING/context notes describe the next step AS OF WHEN THEY WERE WRITTEN; once the conversation shows that step completed, the note is DEAD — acting on a stale note (e.g. re-running create_wro after the WRO exists) is a serious failure.
+TAPPABLE BUTTONS: when you ask the user to choose between clear next actions (approve/send/draft/skip), end your reply with a final line exactly like: [[buttons: Draft Sharon reply | Not now]] — 2 or 3 options, each ≤20 characters, action-specific verbs (NEVER a bare "Yes" — the label itself must say what it does, e.g. "Send to ABC", "Create WRO", "Skip"). The system renders them as tappable buttons and the user's tap comes back as the exact label. Use them for every confirmation question; skip them for open-ended questions.
 PO-ALERT REPLIES (CRITICAL): when the conversation contains a context note about a wholesale PO I proactively alerted (it includes the SOURCE EMAIL id+inbox), a reply with a clear instruction — "process it", "process [customer]", "remove/exclude X and proceed", "swap X for Y" — is the user's FULL confirmation. Execute end-to-end immediately: process_po_email(id, inbox, exclude as instructed) then create the order, and report the ShipBob order # + Xero invoice #. Never ask "which customer" (it's in the context note) and never re-ask for a confirmation they just gave. Only pause if their instruction is genuinely ambiguous (e.g. a swap to a flavour that's also OOS).
 
 INBOX ACCESS: you can read the wholesale inbox(es) — Kate's (kate@) AND Luke's (luke@) — because customer POs land in either. When the user refers to a PO "that came through" (e.g. "reprocess the Wholefood Merchants PO"), call find_po_email with the store name → pick the right result (note which inbox it's in) → process_po_email(id, inbox). process_po_email reads ANY format (text, HTML table, CSV, PDF — sometimes several for one order). Pass exclude:["Buttermilk"] for "leave off X". Only ask the user to paste it if find_po_email finds nothing. For a pasted PO use parse_wholesale_po(text, exclude). Always show the summary and confirm before processing.
@@ -1282,7 +1292,7 @@ export async function recordProactiveContext(phone: string, summary: string) {
 export interface AgentImage { base64: string; mediaType: string }
 export interface AgentDoc { base64: string; filename?: string }
 
-export async function askStockAgent(question: string, phone?: string, images?: AgentImage[], quotedText?: string, docs?: AgentDoc[]): Promise<{ text: string; media?: string[] }> {
+export async function askStockAgent(question: string, phone?: string, images?: AgentImage[], quotedText?: string, docs?: AgentDoc[]): Promise<{ text: string; media?: string[]; buttons?: string[] }> {
   _media = [];
   _phone = phone || null;
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -1356,5 +1366,14 @@ export async function askStockAgent(question: string, phone?: string, images?: A
     const tag = hasAttach ? `[sent ${[docs?.length ? `${docs.length} PDF${docs.length > 1 ? 's' : ''}` : '', images?.length ? `${images.length} image${images.length > 1 ? 's' : ''}` : ''].filter(Boolean).join(' + ')}] ` : '';
     await saveTurn(phone, `${tag}${question}`.trim(), answer).catch(() => {});
   }
-  return { text: answer, media: _media.length ? [..._media] : undefined };
+  // [[buttons: A | B | C]] marker → stripped from the text and returned for the webhook to
+  // render as WhatsApp quick-reply buttons (tap comes back as the exact label).
+  let buttons: string[] | undefined;
+  const bm = answer.match(/\[\[\s*buttons?\s*:([^\]]+)\]\]/i);
+  if (bm) {
+    buttons = bm[1].split('|').map((b) => b.trim()).filter(Boolean).slice(0, 3);
+    answer = answer.replace(bm[0], '').trim();
+    if (buttons.length < 2) buttons = undefined;
+  }
+  return { text: answer, media: _media.length ? [..._media] : undefined, buttons };
 }

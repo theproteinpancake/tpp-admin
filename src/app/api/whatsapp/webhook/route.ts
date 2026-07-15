@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { after } from 'next/server';
 import { askStockAgent, type AgentImage, type AgentDoc } from '@/lib/stockAgent';
-import { isAllowed, sendWhatsApp, fetchTwilioMedia, fetchTwilioMessageBody, fetchTwilioPdf } from '@/lib/whatsapp';
+import { isAllowed, sendWhatsApp, sendWhatsAppButtons, fetchTwilioMedia, fetchTwilioMessageBody, fetchTwilioPdf } from '@/lib/whatsapp';
 import { supabaseLogistics } from '@/lib/supabase-logistics';
 
 export const maxDuration = 180; // debounce window + agent + docket parse
@@ -131,6 +131,12 @@ export async function POST(req: NextRequest) {
       const [firstMedia, ...restMedia] = answer.media ?? [];
       await sendWhatsApp(from, answer.text, firstMedia);
       for (const m of restMedia) await sendWhatsApp(from, '📎', m);
+      // Tappable quick-reply buttons follow the text as their own short message (interactive
+      // bodies must be short + single-line). Fallback: list the options as plain text.
+      if (answer.buttons?.length) {
+        const ok = await sendWhatsAppButtons(from, 'Tap an option 👇', answer.buttons).catch(() => false);
+        if (!ok) await sendWhatsApp(from, `Reply with one of: ${answer.buttons.join(' / ')}`);
+      }
     } catch (e) {
       console.error('whatsapp agent error', e);
       const raw = String((e as any)?.message || e);
