@@ -2,7 +2,7 @@
 // create the ShipBob WRO with lots, link the PO, and draft the label email back.
 import Anthropic from '@anthropic-ai/sdk';
 import { supabaseLogistics } from './supabase-logistics';
-import { gmailSearch, gmailGetPdfAttachment, gmailCreateDraft } from './google';
+import { gmailSearch, gmailGetPdfAttachment, gmailListAttachmentNames, gmailCreateDraft } from './google';
 import { createWRO, getWROLabels } from './shipbob';
 import { ABC_PO_TO, ABC_PO_CC } from './poActions';
 
@@ -26,11 +26,17 @@ export interface ParsedDocket {
   subject: string;
 }
 
-export async function findLatestDocket(): Promise<{ messageId: string; subject: string; from: string; date: string } | null> {
-  const hits = await gmailSearch(ABC_QUERY, 5);
-  const docket = hits.find((h) => /docket|packing|shipment|delivery|pallet/i.test(h.subject || '')) || hits[0];
-  if (!docket) return null;
-  return { messageId: docket.id, subject: docket.subject || '', from: docket.from || '', date: docket.date || '' };
+export async function findLatestDocket(): Promise<{ messageId: string; subject: string; from: string; date: string; attachment: string } | null> {
+  const hits = await gmailSearch(ABC_QUERY, 8);
+  // Sharon's subjects vary wildly ("Shipment 001452", "2 pallets ready for Ship Bob",
+  // "RE: New PO") — subject-keyword ranking picked the WRONG email twice. The reliable signal
+  // is the docket PDF itself: newest hit that actually carries a PDF attachment wins.
+  for (const h of hits) {
+    const atts = await gmailListAttachmentNames(h.id).catch(() => []);
+    const pdf = atts.find((a) => /pdf/i.test(a.mimeType) || /\.pdf$/i.test(a.filename));
+    if (pdf) return { messageId: h.id, subject: h.subject || '', from: h.from || '', date: h.date || '', attachment: pdf.filename };
+  }
+  return null;
 }
 
 export async function parseDocket(messageId: string, subject = ''): Promise<ParsedDocket> {

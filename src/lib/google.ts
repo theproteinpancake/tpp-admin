@@ -188,6 +188,13 @@ function collectAttachments(p: any, out: { filename: string; attachmentId: strin
   for (const part of p?.parts || []) collectAttachments(part, out);
   return out;
 }
+// Filenames + mime types only (no attachment bodies downloaded) — cheap way to test whether a
+// message actually carries a PDF (used to identify docket emails, whose subjects vary wildly).
+export async function gmailListAttachmentNames(messageId: string, account?: string): Promise<{ filename: string; mimeType: string }[]> {
+  const m = await gget(`/messages/${messageId}?format=full`, account);
+  return collectAttachments(m.payload || {}).map((f) => ({ filename: f.filename, mimeType: f.mimeType }));
+}
+
 export async function gmailGetAllAttachments(messageId: string, account?: string): Promise<{ filename: string; mimeType: string; base64: string }[]> {
   const m = await gget(`/messages/${messageId}?format=full`, account);
   const parts = collectAttachments(m.payload || {});
