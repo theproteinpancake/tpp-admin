@@ -37,7 +37,7 @@ export function deliveryBlock(dest: 'ABC' | 'ALTONA'): string {
       `Phone: ${ALTONA_DELIVERY.phone}`,
       ALTONA_DELIVERY.address,
       '',
-      'Please dispatch with the attached WRO label affixed to the pallet so ShipBob can receive it.',
+      'When the cartons are ready to dispatch, let me know the pallet configuration (number of pallets and units per pallet) and I\'ll send over the pallet labels to affix — ShipBob needs one on each pallet to receive the delivery.',
     ].join('\n');
   }
   return [

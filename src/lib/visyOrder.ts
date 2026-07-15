@@ -78,13 +78,11 @@ export interface VisyDraft {
   wro_id?: number; wro_attached?: boolean; pallets?: number; notes: string[];
 }
 
-// VISY stacks 1,000 shipper cartons per pallet — every 1,000 units is its own pallet in the
-// WRO, so the labels PDF carries one label per pallet (VISY had to chase a second label when a
-// 2,000-unit order went out as a single-pallet WRO).
-const UNITS_PER_PALLET = 1000;
-
-// Draft (NOT send) a VISY order email. For ALTONA shipping cartons, also create a WRO + attach
-// its label PDF to the pallet's paperwork.
+// Draft (NOT send) a VISY order email. NO WRO is created at order time (changed 15 Jul): VISY's
+// actual manufactured quantity and pallet stacking regularly differ from what we ordered
+// (PANLARGE: ordered 2,000, they made 2,110 across 800/800/510 — the pre-made 2×1,000 WRO had
+// to be deleted and rebuilt by hand, since ShipBob WROs can't be edited). The WRO + labels are
+// now created by createVisyLabels() once Amanda confirms the real pallet configuration.
 export async function draftVisyOrder(opts: { item: VisyItem; qty?: number }): Promise<VisyDraft> {
   const { item } = opts;
   const notes: string[] = [];
@@ -99,31 +97,12 @@ export async function draftVisyOrder(opts: { item: VisyItem; qty?: number }): Pr
   const shortCode = item.linked_sku || item.visy_code || item.sku || 'ORDER';
   const subject = `NEW ORDER - ${shortCode}`;
 
-  // ALTONA shipping cartons → create the WRO first so its label can ride with the paperwork.
-  // One pallet (= one WRO box = one label page) per 1,000 units: 1,000 → 1 pallet, 2,000 → 2.
-  const palletQtys: number[] = [];
-  for (let left = qty; left > 0; left -= UNITS_PER_PALLET) palletQtys.push(Math.min(left, UNITS_PER_PALLET));
-  let attachment: { filename: string; base64: string } | undefined;
-  let wro_id: number | undefined;
-  let wro_attached = false;
+  // ALTONA shipping cartons: WRO deliberately NOT created here — it's built from VISY's real
+  // pallet configuration later (createVisyLabels), because their manufactured qty/stacking
+  // often differs from the order and ShipBob WROs can't be edited after creation.
   if (item.destination === 'ALTONA') {
-    if (item.shipbob_inventory_id) {
-      try {
-        const eta = addDays(melbDate(0), 14);
-        const wro = await createWRO({
-          site: 'ALTONA', expected_arrival_date: eta, tracking_ref: `VISY-${item.visy_code}-${eta}`,
-          package_type: 'Pallet',
-          boxes: palletQtys.map((q) => [{ inventory_id: item.shipbob_inventory_id!, quantity: q }]),
-        });
-        wro_id = wro.id;
-        const labels = await getWROLabels('ALTONA', wro.id);
-        if (labels) { attachment = { filename: `WRO-${wro.id}-label.pdf`, base64: labels }; wro_attached = true; }
-        else notes.push(`WRO ${wro.id} created but its label PDF wasn't available yet — re-fetch before sending.`);
-        if (palletQtys.length > 1) notes.push(`${qty.toLocaleString()} units = ${palletQtys.length} pallets — the WRO has one label per pallet (VISY needs a label on each).`);
-      } catch (e) { notes.push(`Couldn't create the ShipBob WRO automatically: ${String(e).slice(0, 120)}. Draft made without a label.`); }
-    } else {
-      notes.push('This carton has no ShipBob inventory id mapped, so no WRO/label was generated — add the inventory id to enable it.');
-    }
+    notes.push('No WRO yet — by design. When Amanda replies with the pallet configuration (e.g. "3 pallets: two with 800 and one of 510"), the labels get created from her REAL numbers and emailed back.');
+    if (!item.shipbob_inventory_id) notes.push('Note: this carton has no ShipBob inventory id mapped — add it before the labels step or the WRO can\'t be created.');
   }
 
   const body = [
@@ -138,28 +117,75 @@ export async function draftVisyOrder(opts: { item: VisyItem; qty?: number }): Pr
 
   if (!contact.email) notes.push("VISY contact email isn't set yet — the draft has no recipient. Set it in settings (config key `visy_contact`) or tell me Amanda's email.");
   // Supersede any earlier un-sent copy of THIS order so duplicate drafts never pile up
-  // (a stale duplicate is what caused a no-op "send" before). The superseded draft's WRO is
-  // orphaned (this re-draft made its own), so cancel it in ShipBob too — two live WROs for one
-  // physical delivery confuses receiving. Then mark stale DB rows cancelled.
+  // (a stale duplicate is what caused a no-op "send" before). Old-flow drafts may still carry a
+  // pre-made WRO — cancel those in ShipBob so receiving isn't expecting a double-up.
   const supersededDrafts = await gmailDeleteDraftsBySubject(subject).catch(() => 0);
   if (supersededDrafts) {
     const { data: stale } = await supabaseLogistics.from('visy_orders').select('wro_id').eq('subject', subject).eq('status', 'drafted');
-    for (const staleWro of new Set((stale ?? []).map((r: any) => r.wro_id).filter((id: any) => id && id !== wro_id))) {
+    for (const staleWro of new Set((stale ?? []).map((r: any) => r.wro_id).filter(Boolean))) {
       const ok = await cancelWRO('ALTONA', staleWro as number).catch(() => false);
       notes.push(ok
-        ? `Cancelled WRO ${staleWro} from the replaced draft (this draft has its own WRO).`
+        ? `Cancelled WRO ${staleWro} from the replaced draft.`
         : `WRO ${staleWro} from the replaced draft could NOT be auto-cancelled — cancel it in ShipBob so receiving isn't expecting a double-up.`);
     }
     await supabaseLogistics.from('visy_orders').update({ status: 'cancelled' }).eq('subject', subject).eq('status', 'drafted').then(() => {}, () => {});
     notes.push(`Replaced ${supersededDrafts} earlier un-sent draft${supersededDrafts > 1 ? 's' : ''} for this order so there's only one to send.`);
   }
-  const draft_id = await gmailCreateDraft(contact.email || '', subject, body, attachment);
+  const draft_id = await gmailCreateDraft(contact.email || '', subject, body);
   // Record the order so the VISY scour can track its status as Amanda replies.
   await supabaseLogistics.from('visy_orders').insert({
     visy_code: item.visy_code, item: item.name, qty, destination: item.destination,
-    draft_id, wro_id: wro_id ?? null, subject, status: 'drafted',
+    draft_id, wro_id: null, subject, status: 'drafted', // WRO linked later by createVisyLabels from VISY's real pallet config
   }).then(() => {}, () => {});
-  return { draft_id, to: contact.email || '(no recipient set)', subject, body, destination: item.destination, qty, visy_code: item.visy_code, wro_id, wro_attached, pallets: item.destination === 'ALTONA' ? palletQtys.length : undefined, notes };
+  return { draft_id, to: contact.email || '(no recipient set)', subject, body, destination: item.destination, qty, visy_code: item.visy_code, notes };
+}
+
+// Amanda confirmed the REAL pallet configuration ("3 pallets: two with 800 and one of 510") →
+// create the WRO with exactly those boxes (one label page per pallet), draft the labels reply
+// to her, and link the WRO to the tracked order. Total = HER numbers, even when they differ
+// from what we ordered (VISY manufactures over/under; 2,110 arrived on a 2,000 order).
+export async function createVisyLabels(itemQuery: string, pallets: number[]): Promise<
+  { ok: true; wro_id: number; pallets: number[]; total: number; draft_id: string; to: string; subject: string; body: string; notes: string[] } | { error: string } | { ambiguous: { name: string; visy_code: string | null }[] }> {
+  const clean = (pallets || []).map((p) => Math.round(Number(p))).filter((p) => p > 0);
+  if (!clean.length) return { error: 'Need the pallet configuration as units per pallet, e.g. [800, 800, 510].' };
+  const { item, candidates } = await resolveVisyItem(itemQuery);
+  if (candidates) return { ambiguous: candidates.map((c) => ({ name: c.name, visy_code: c.visy_code })) };
+  if (!item) return { error: `No VISY item matching "${itemQuery}".` };
+  if (item.destination !== 'ALTONA') return { error: `${item.name} delivers to ABC (no WRO/labels needed) — labels are only for ShipBob Altona shipping cartons.` };
+  if (!item.shipbob_inventory_id) return { error: `${item.name} has no ShipBob inventory id mapped — add it on the Packaging page first.` };
+
+  const notes: string[] = [];
+  const total = clean.reduce((s2, p2) => s2 + p2, 0);
+  const eta = addDays(melbDate(0), 7);
+  const wro = await createWRO({
+    site: 'ALTONA', expected_arrival_date: eta, tracking_ref: `VISY-${item.visy_code}-${melbDate(0)}`,
+    package_type: 'Pallet',
+    boxes: clean.map((q) => [{ inventory_id: item.shipbob_inventory_id!, quantity: q }]),
+  });
+  const labels = await getWROLabels('ALTONA', wro.id);
+  if (!labels) notes.push(`WRO ${wro.id} created but the label PDF isn't ready yet — retry create is NOT needed; re-draft the email in a minute.`);
+
+  // Link the WRO to the most recent open order for this code + note the actual quantity.
+  const { data: ord } = await supabaseLogistics.from('visy_orders')
+    .select('id, qty').eq('visy_code', item.visy_code).not('status', 'in', '("delivered","cancelled")')
+    .order('ordered_at', { ascending: false }).limit(1).maybeSingle();
+  if (ord) {
+    await supabaseLogistics.from('visy_orders').update({ wro_id: wro.id }).eq('id', (ord as any).id).then(() => {}, () => {});
+    if ((ord as any).qty && (ord as any).qty !== total) notes.push(`VISY's actual quantity (${total.toLocaleString()}) differs from the order (${Number((ord as any).qty).toLocaleString()}) — normal manufacturing variance; the WRO uses THEIR number.`);
+  }
+
+  const contact = await getVisyContact();
+  const subject = `RE: NEW ORDER - ${item.linked_sku || item.visy_code || item.sku}`;
+  const body = [
+    `Hi ${contact.name.split(' ')[0] || 'Amanda'},`,
+    '',
+    'Thanks so much — pallet labels attached, one per pallet.',
+    '',
+    VISY_SIGNATURE,
+  ].join('\n');
+  const draft_id = await gmailCreateDraft(contact.email || '', subject, body,
+    labels ? { filename: `WRO-${wro.id}-pallet-labels.pdf`, base64: labels } : undefined);
+  return { ok: true, wro_id: wro.id, pallets: clean, total, draft_id, to: contact.email || '(no recipient set)', subject, body, notes };
 }
 
 // When a VISY order draft is actually sent, flip it drafted → ordered (called from send_email_draft).

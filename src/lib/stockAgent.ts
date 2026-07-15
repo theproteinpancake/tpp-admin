@@ -8,7 +8,7 @@ import { draftWhatsAppPO, approveLatestWhatsAppDraft, sendLatestPOEmail } from '
 import { markPOReceived } from './poReconcile';
 import { findLatestDocket, parseDocket, createWROFromParsed, draftSharonReply } from './wroFlow';
 import { markCdsSent } from './cdsFlow';
-import { resolveVisyItem, draftVisyOrder, markVisyOrderSent, getVisyOrders } from './visyOrder';
+import { resolveVisyItem, draftVisyOrder, markVisyOrderSent, getVisyOrders, createVisyLabels } from './visyOrder';
 import { findContacts } from './contacts';
 import { getPackagingSummary } from './packaging';
 import { gmailSendDraft, gmailCreateDraft, gmailDeleteDraftsBySubject, gmailSearch, gmailGetBody, gmailGetAllAttachments } from './google';
@@ -43,7 +43,7 @@ const MUTATING_TOOLS = new Set([
   'update_transfer_status', 'mark_po_received', 'create_wholesale_order', 'process_po_email',
   'send_influencer_gift', 'update_influencer_status', 'update_influencer_details', 'save_collab', 'update_collab',
   'mark_brief_done', 'set_restock_eta', 'update_logistics_brief_excludes',
-  'schedule_followup', 'cancel_followup', 'draft_po', 'order_packaging', 'create_transfer_wro',
+  'schedule_followup', 'cancel_followup', 'draft_po', 'order_packaging', 'create_visy_labels', 'create_transfer_wro',
   'update_transfer_lines',
 ]);
 
@@ -174,6 +174,18 @@ const tools: Anthropic.Tool[] = [
     input_schema: { type: 'object', properties: {}, required: [] },
   },
   {
+    name: 'create_visy_labels',
+    description: 'VISY confirmed a shipping-carton order is ready and gave the REAL pallet configuration ("3 pallets in total. Two with 800 and One of 510") → creates the ShipBob WRO with exactly those pallets (one label page each), drafts the labels reply to Amanda, and links the WRO to the tracked order. Pass `item` (carton code/name, e.g. "PANLARGE") and `pallets` = units per pallet as an array, e.g. [800, 800, 510]. Use VISY\'s numbers EXACTLY — their manufactured total often differs from what we ordered and that is fine. Show the user the pallet breakdown + draft email; only send_email_draft after they approve.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        item: { type: 'string', description: 'carton code or name, e.g. "PANLARGE"' },
+        pallets: { type: 'array', items: { type: 'number' }, description: 'units per pallet, one entry per pallet, e.g. [800, 800, 510]' },
+      },
+      required: ['item', 'pallets'],
+    },
+  },
+  {
     name: 'get_visy_orders',
     description: "List our VISY packaging orders and their live status (drafted → ordered → confirmed → dispatched → delivered, plus invoices/queries) — updated automatically by scanning Amanda's emails. Use for 'what's the status of my VISY orders', 'has the Buttermilk SRP shipped', 'any updates from VISY'. Pass open_only:true to hide delivered/cancelled.",
     input_schema: { type: 'object', properties: { open_only: { type: 'boolean' } }, required: [] },
@@ -185,7 +197,7 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: 'order_packaging',
-    description: "Draft (NOT send) a VISY packaging order to Amanda when we're low on SRP cartons or shipping cartons. Pass `item` as a flavour, pouch SKU (e.g. BMS), carton name, or VISY code; optionally `qty` (defaults to the item's standard order quantity, usually 1000 for SRP). SRP cartons deliver to ABC Blending (packing line — no WRO). ShipBob shipping cartons deliver to ShipBob Altona and a WRO is generated with one pallet (and one label page) per 1,000 units. Always show the user the drafted email + quantity + destination + pallet count, and on approval call send_email_draft with the returned draft_id — never re-call order_packaging to send.",
+    description: "Draft (NOT send) a VISY packaging order to Amanda when we're low on SRP cartons or shipping cartons. Pass `item` as a flavour, pouch SKU (e.g. BMS), carton name, or VISY code; optionally `qty` (defaults to the item's standard order quantity, usually 1000 for SRP). SRP cartons deliver to ABC Blending (packing line — no WRO). ShipBob shipping cartons deliver to ShipBob Altona; NO WRO/labels at order time — the order email asks Amanda for the pallet configuration, and create_visy_labels handles labels when she replies. Always show the user the drafted email + quantity + destination, and on approval call send_email_draft with the returned draft_id — never re-call order_packaging to send.",
     input_schema: { type: 'object', properties: { item: { type: 'string', description: 'flavour / pouch SKU / carton name / VISY code, e.g. "BMS", "Buttermilk SRP", "PANSMALL"' }, qty: { type: 'number', description: 'units to order (optional; defaults to the standard order qty)' } }, required: ['item'] },
   },
   {
@@ -969,6 +981,17 @@ W: theproteinpancake.co`;
     try { return await getPackagingSummary(); }
     catch (e) { return { error: String(e).slice(0, 160) }; }
   }
+  if (name === 'create_visy_labels') {
+    try {
+      const res = await createVisyLabels(String(input.item || ''), (input.pallets as number[]) || []);
+      if ('error' in res) return res;
+      if ('ambiguous' in res) return { ...res, note: 'Which carton? Reply with the code.' };
+      return {
+        ...res,
+        next_step: `PENDING LABELS EMAIL — WRO ${res.wro_id} created with ${res.pallets.length} pallets (${res.pallets.join(' + ')} = ${res.total} units) and the labels reply to Amanda is drafted (draft_id="${res.draft_id}"). Show the user the breakdown; if their next message approves (send / yes / go), call send_email_draft with draft_id="${res.draft_id}" IMMEDIATELY — do NOT call create_visy_labels again (the WRO exists; re-creating duplicates it).`,
+      };
+    } catch (e) { return { error: String(e).slice(0, 160) }; }
+  }
   if (name === 'get_visy_orders') {
     try { return await getVisyOrders({ openOnly: input.open_only === true }); }
     catch (e) { return { error: String(e).slice(0, 160) }; }
@@ -1126,7 +1149,7 @@ INFLUENCER GIFTING (wired): the user sends an influencer's details — usually S
 
 COLLABS: when the user describes a business collab/partnership (often a chat screenshot) — call save_collab (partner, handle, email, address, type, due_date, expecting_samples + qty, description). update_collab to mark samples received / completed. get_collabs lists them.
 
-PACKAGING ORDERS (VISY → Amanda): when we're low on SRP cartons or shipping cartons (the Packaging page flags these; Sharon's stock-takes feed the counts), the user orders empties from VISY. On "order more BMS [boxes/cartons/SRP]" or "we're low on Buttermilk SRP, order some" → call order_packaging(item, qty?). item can be a flavour, pouch SKU (BMS), carton name or VISY code; qty defaults to the standard order (usually 1000 for SRP) — only override if the user gives a number. It DRAFTS an email to Amanda and returns the draft (subject, body, destination, qty, pallets). ALWAYS show the user the destination + quantity + the email body and ask them to confirm. When they approve ("send it" / "yes" / "go"), call send_email_draft with the draft_id from that order_packaging result — NEVER call order_packaging again on an approval; that re-drafts instead of sending (the looping bug). Only re-call order_packaging if they change the item or quantity. Shipping-carton orders over 1,000 units are split into one pallet per 1,000 units and the WRO label PDF has one label page per pallet (VISY requires a label on every pallet) — mention the pallet count in your summary. DESTINATIONS differ: SRP cartons + ABC-line packaging go to ABC Blending (packing line, delivered as-is, NO WRO). ShipBob shipping cartons (PANSMALL etc.) go to ShipBob Altona and a WRO label is auto-generated + attached for the pallet — mention the WRO #/label in your summary. If order_packaging returns an "ambiguous" list, ask which item. If it returns "notes", relay them (e.g. missing VISY contact email, or WRO couldn't be made). ORDER TRACKING: once a VISY order is sent it's tracked automatically — I scan Amanda's emails and advance each order (confirmed → dispatched → delivered) and flag invoices/queries, pinging you on changes. For "what's the status of my VISY orders / has the BMS shipped / any VISY updates" call get_visy_orders.
+PACKAGING ORDERS (VISY → Amanda): when we're low on SRP cartons or shipping cartons (the Packaging page flags these; Sharon's stock-takes feed the counts), the user orders empties from VISY. On "order more BMS [boxes/cartons/SRP]" or "we're low on Buttermilk SRP, order some" → call order_packaging(item, qty?). item can be a flavour, pouch SKU (BMS), carton name or VISY code; qty defaults to the standard order (usually 1000 for SRP) — only override if the user gives a number. It DRAFTS an email to Amanda and returns the draft (subject, body, destination, qty, pallets). ALWAYS show the user the destination + quantity + the email body and ask them to confirm. When they approve ("send it" / "yes" / "go"), call send_email_draft with the draft_id from that order_packaging result — NEVER call order_packaging again on an approval; that re-drafts instead of sending (the looping bug). Only re-call order_packaging if they change the item or quantity. Shipping-carton orders over 1,000 units are split into one pallet per 1,000 units and the WRO label PDF has one label page per pallet (VISY requires a label on every pallet) — mention the pallet count in your summary. DESTINATIONS differ: SRP cartons + ABC-line packaging go to ABC Blending (packing line, delivered as-is, NO WRO). ShipBob shipping cartons (PANSMALL etc.) go to ShipBob Altona; the order email asks Amanda to reply with the pallet configuration when ready — NO WRO or label exists at order time (see PALLET LABELS below). If order_packaging returns an "ambiguous" list, ask which item. If it returns "notes", relay them (e.g. missing VISY contact email, or WRO couldn't be made). PALLET LABELS (the WRO step — CHANGED 15 Jul, order emails NO LONGER carry labels): VISY's manufactured quantity and pallet stacking regularly differ from the order (2,110 arrived on a 2,000 order as 800/800/510), and ShipBob WROs can't be edited — so the WRO is created ONLY when Amanda replies with the real configuration. When the user relays her email ("labels for 3 pallets, two with 800 and one of 510") → create_visy_labels(item, pallets:[800,800,510]) with HER exact numbers → show the breakdown + draft → send_email_draft on approval. Never guess a pallet split; never create the WRO before her confirmation. ORDER TRACKING: once a VISY order is sent it's tracked automatically — I scan Amanda's emails and advance each order (confirmed → dispatched → delivered) and flag invoices/queries, pinging you on changes. For "what's the status of my VISY orders / has the BMS shipped / any VISY updates" call get_visy_orders.
 `;
 
 const KATE_PREFACE = `YOU ARE MESSAGING KATE — TPP's wholesale & marketing manager (NOT the founder Luke). Address her as Kate; lead with wholesale + marketing. Wherever the instructions below say "the user", that's Kate.
