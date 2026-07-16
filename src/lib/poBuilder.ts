@@ -26,8 +26,14 @@ function buildProposal(flavour: string, sizes: any[], force: boolean, forceKg?: 
   let totalDeficitKg = 0;
   let due = false;
   const needs = sizes.map((s) => {
-    const daily = Number(s.avg_daily_units_30d) || Number(s.avg_daily_units_90d) || 0;
-    const covered = (s.available || 0) + (s.inbound || 0);
+    // UNITS TRAP: for 320g SKUs, ShipBob tracks the 4-pack CARTON — so the snapshot
+    // 'available' and the shipment-derived velocity arrive in CARTONS, while POs and the
+    // blend-kg math here run in POUCHES. Convert both (inbound comes from po_items and is
+    // already pouches). Unconverted, BMS demand was 4× understated: a 1T Buttermilk split
+    // allocated 84 pouches (27kg) where real velocity supports ~300.
+    const csu = cartonSize(s.unit_size_g);
+    const daily = (Number(s.avg_daily_units_30d) || Number(s.avg_daily_units_90d) || 0) * csu;
+    const covered = (s.available || 0) * csu + (s.inbound || 0);
     const cover = daily > 0 ? covered / daily : 999;
     if (cover < TRIGGER_DAYS) due = true;
     const deficitUnits = Math.max(0, daily * TARGET_TOTAL_DAYS - covered);
