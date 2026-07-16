@@ -53,10 +53,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Cron-authenticated analytics autofill: the route validates x-cron-secret itself, but that
-  // check was dead code — this cookie gate blocked cookieless cron calls before the handler
-  // ever ran. Only pass through on an exact secret match; everything else falls to the gate.
-  if (pathname === '/api/analytics/autofill') {
+  // Cron-authenticated analytics routes (autofill, sync-orders, backfill-*): each route
+  // validates x-cron-secret itself, but this cookie gate blocked cookieless cron calls before
+  // the handler ever ran. Pass through on an exact secret match; everything else falls to the
+  // gate. (sync-orders was NOT covered, so cron order resyncs silently hit the login redirect.)
+  if (pathname.startsWith('/api/analytics/')) {
     const cronSecret = process.env.CRON_SECRET;
     if (cronSecret && request.headers.get('x-cron-secret') === cronSecret) return NextResponse.next();
   }
