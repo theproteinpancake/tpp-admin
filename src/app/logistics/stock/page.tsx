@@ -163,11 +163,11 @@ export default async function StockOverviewPage() {
 
   const hasVelocity = rows.some((r) => r.days_of_cover != null);
 
-  // 5 SKUs running out soonest per site (selling + lowest cover)
+  // 15 SKUs running out soonest per site (3 full rows of 5 on desktop) — selling + lowest cover
   const urgentFor = (site: string) => rows
     .filter((r) => r.active && r.category === 'mix' && r.location_code === site && r.days_of_cover != null)
     .sort((a, b) => (a.days_of_cover ?? 1e9) - (b.days_of_cover ?? 1e9))
-    .slice(0, 6);
+    .slice(0, 15);
   const urgentAU = urgentFor('ALTONA');
   const urgentUK = urgentFor('MANCHESTER');
 
