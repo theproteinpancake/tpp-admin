@@ -1334,7 +1334,7 @@ export async function askStockAgent(question: string, phone?: string, images?: A
   const systemBlocks: Anthropic.TextBlockParam[] = [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }];
 
   let answer = '';
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 14; i++) { // tool budget — complex POs (multi-size + samples + stock checks) legitimately need >8 rounds
     const resp = await client.messages.create({ model: MODEL, max_tokens: 1500, system: systemBlocks, tools: cachedTools, messages });
     if (resp.stop_reason === 'tool_use') {
       const results: Anthropic.ToolResultBlockParam[] = [];
@@ -1360,7 +1360,7 @@ export async function askStockAgent(question: string, phone?: string, images?: A
     answer = resp.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('\n').trim();
     break;
   }
-  if (!answer) answer = 'That took too many steps — try narrowing the request.';
+  if (!answer) answer = 'That took too many steps and I had to stop ⚠️ — I may be stuck on stale context. Text "reset" to clear my memory, then send the request again in one message.';
   // Mark that an attachment was sent so follow-ups ("what about line 2 of that invoice?") have
   // context — the actual contents live in the assistant's saved answer above.
   if (phone) {
