@@ -98,8 +98,12 @@ const tools: Anthropic.Tool[] = [
         order_kg: { type: 'number', description: 'exact total kg to order when the user specifies a size (e.g. 500, 1000, 1500). Omit to auto-size to demand. For 1kg bags, units == kg.' },
         items: {
           type: 'array',
-          description: 'EXTRA lines by SKU (e.g. sample packs: {sku:"BM80", qty_ordered:1000}). COMBINABLE with flavour: flavour builds the standard demand split and these are ADDED on top (same product merges). Without flavour, these are the whole PO.',
-          items: { type: 'object', properties: { sku: { type: 'string', description: 'product SKU, e.g. "BM80"' }, product_id: { type: 'string', description: 'internal id (only if you have it — sku preferred)' }, qty_ordered: { type: 'number' } }, required: ['qty_ordered'] },
+          description: 'Explicit lines by SKU in POUCH UNITS ("120 cartons of BMS" = qty_ordered 480 — cartons ×4). With flavour these merge onto the demand split: ADDED ON TOP by default ("1T of Buttermilk plus 1000 BM80"), or counted INSIDE order_kg when items_included_in_total is true. Without flavour, these are the whole PO.',
+          items: { type: 'object', properties: { sku: { type: 'string', description: 'product SKU, e.g. "BM80"' }, product_id: { type: 'string', description: 'internal id (only if you have it — sku preferred)' }, qty_ordered: { type: 'number', description: 'POUCH units (multiply cartons by 4 for 320g)' } }, required: ['qty_ordered'] },
+        },
+        items_included_in_total: {
+          type: 'boolean',
+          description: 'true when the user wants the explicit items PINNED INSIDE the order_kg total ("draft 1T with 120 cartons of BMS and the rest into BMM" → flavour:"Buttermilk", order_kg:1000, items:[{sku:"BMS",qty_ordered:480},...], items_included_in_total:true). The remaining kg is demand-split across the flavour\'s OTHER sizes. Requires flavour + order_kg. ONE draft_po call handles the whole request — never assemble it across multiple calls.',
         },
       },
     },
@@ -527,30 +531,53 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
   if (name === 'draft_po') {
     let items: { product_id: string; qty_ordered: number; unit_cost: null }[] = [];
     let cartonNote = '';
+    // Resolve explicit item lines FIRST (SKU-addressed, fail-closed on unknowns) so they can
+    // either be pinned INSIDE the flavour total or added on top of it.
+    const explicit: { pid: string; qty: number; g: number; sku: string }[] = [];
+    if (Array.isArray(input.items) && (input.items as any[]).length) {
+      for (const it of input.items as any[]) {
+        const qty = Math.round(Number(it.qty_ordered));
+        if (!qty || qty < 1) return { error: `Bad qty for item ${it.sku || it.product_id}.` };
+        let prod: any = null;
+        if (typeof it.product_id === 'string' && /^[0-9a-f-]{36}$/i.test(it.product_id)) {
+          const { data } = await supabaseLogistics.from('products').select('id, sku, unit_size_g').eq('id', it.product_id).eq('active', true).maybeSingle();
+          prod = data;
+        } else if (it.sku) {
+          const { data } = await supabaseLogistics.from('products').select('id, sku, unit_size_g').ilike('sku', String(it.sku).trim()).eq('active', true).maybeSingle();
+          prod = data;
+        }
+        if (!prod) return { error: `Couldn't resolve PO line "${it.sku || it.product_id}" to an active product — check the SKU. Nothing was drafted.` };
+        if (Number(prod.unit_size_g) === 320 && qty % 4 !== 0) return { error: `${prod.sku}: ${qty} units isn't a whole number of 4-pouch cartons — 320g ships in cartons of 4. Nearest are ${qty - (qty % 4)} or ${qty + 4 - (qty % 4)} units. Nothing was drafted; confirm with the user.` };
+        explicit.push({ pid: prod.id, qty, g: Number(prod.unit_size_g) || 0, sku: prod.sku });
+      }
+    }
+    // PINNED mode: the explicit lines count INSIDE order_kg ("1T total with 120 cartons of
+    // BMS, rest into BMM") — subtract their kg and demand-split only the REMAINDER across
+    // the flavour's other sizes. Default (flag off) keeps ADDITIVE semantics: explicit lines
+    // ride on top of the flavour total ("1T of Buttermilk plus 1000 BM80").
+    const pinned = input.items_included_in_total === true && !!input.flavour && explicit.length > 0;
+    let splitKg = input.order_kg ? Number(input.order_kg) : undefined;
+    if (pinned) {
+      if (!splitKg) return { error: 'items_included_in_total needs order_kg (the grand total the pinned lines count towards).' };
+      const pinnedKg = explicit.reduce((a, e) => a + (e.qty * e.g) / 1000, 0);
+      const rem = splitKg - pinnedKg;
+      if (rem <= 0) return { error: `The pinned lines alone are ${Math.round(pinnedKg)}kg — at or over the ${splitKg}kg total, so there's nothing left to split. Either raise order_kg or drop items_included_in_total.` };
+      splitKg = rem;
+    }
     if (input.flavour) {
-      const p = await proposeOneFlavour(String(input.flavour), 'ALTONA', input.order_kg ? Number(input.order_kg) : undefined);
-      if (!p) return { error: `Couldn't build a PO for "${input.flavour}" — no matching flavour.` };
+      const p = await proposeOneFlavour(String(input.flavour), 'ALTONA', splitKg, pinned ? explicit.map((e) => e.pid) : undefined);
+      if (!p) return { error: `Couldn't build a PO for "${input.flavour}" — no matching flavour${pinned ? ' (or the pinned lines cover all its sizes — drop items_included_in_total to add them on top instead)' : ''}.` };
       items = p.lines.map((l) => ({ product_id: l.product_id, qty_ordered: l.units, unit_cost: null as null }));
       const cartons = p.lines.filter((l) => l.cartons);
       cartonNote = cartons.length ? ` 320g lines = ${cartons.map((l) => `${l.units}u/${l.cartons}ctn`).join(', ')}.` : '';
     }
-    // Extra items MERGE with the flavour split (they used to be silently DISCARDED when a
-    // flavour was given — the BM80 sample line vanished from a drafted PO). SKU-addressed,
-    // fail-closed on unknowns.
-    if (Array.isArray(input.items) && (input.items as any[]).length) {
-      for (const it of input.items as any[]) {
-        const qty = Math.round(Number(it.qty_ordered));
-        if (!qty || qty < 1) return { error: `Bad qty for extra item ${it.sku || it.product_id}.` };
-        let pid = typeof it.product_id === 'string' && /^[0-9a-f-]{36}$/i.test(it.product_id) ? it.product_id : null;
-        if (!pid && it.sku) {
-          const { data: prod } = await supabaseLogistics.from('products').select('id').ilike('sku', String(it.sku).trim()).eq('active', true).maybeSingle();
-          pid = (prod as any)?.id ?? null;
-        }
-        if (!pid) return { error: `Couldn't resolve extra PO line "${it.sku || it.product_id}" to an active product — check the SKU. Nothing was drafted.` };
-        const existing = items.find((x) => x.product_id === pid);
-        if (existing) existing.qty_ordered += qty;
-        else items.push({ product_id: pid, qty_ordered: qty, unit_cost: null });
-      }
+    // Explicit lines merge onto the split (they used to be silently DISCARDED when a flavour
+    // was given — the BM80 sample line vanished from a drafted PO).
+    for (const e of explicit) {
+      const existing = items.find((x) => x.product_id === e.pid);
+      if (existing) existing.qty_ordered += e.qty;
+      else items.push({ product_id: e.pid, qty_ordered: e.qty, unit_cost: null });
+      if (e.g === 320) cartonNote += ` ${e.sku} = ${e.qty}u/${e.qty / 4}ctn.`;
     }
     const res = await draftWhatsAppPO(items);
     if ('error' in res) return res;
@@ -1095,6 +1122,7 @@ ABC purchase-order rules (IMPORTANT — get these right):
 - 320g bags are WHOLESALE, packed by ABC in Shelf-Ready Cartons of 4. The PO is placed in TOTAL UNITS (individual bags), but ShipBob counts them as cartons (units ÷ 4). ALWAYS present 320g lines as "X units (Y cartons)".
 - Account for inbound stock. get_reorder_recommendations gives the per-flavour 500kg proposals; draft_po with a flavour drafts one.
 - EXACT SIZES: by default draft_po auto-rounds to a demand-based 500kg multiple. If the user specifies a size ("500kg", "just 500", "one tonne", "1.5T", "500 units of 1kg"), pass order_kg to draft_po to pin it EXACTLY — do NOT auto-round back up to a bigger multiple. The user's stated size wins. (1kg bags: units == kg.) You may note if you think it'll sell out sooner, but build what they asked.
+- PINNED LINES (ONE call, never a multi-call assembly): "draft 1T with 120 cartons of BMS, 1000 BM80, rest into BMM" is a SINGLE draft_po call — flavour:"Buttermilk", order_kg:1000, items:[{sku:"BMS",qty_ordered:480},{sku:"BM80",qty_ordered:1000}], items_included_in_total:true. Cartons → pouches is ×4 (120 cartons = 480 units). The remaining kg auto-splits over the flavour's other sizes. If the user instead says "1T of Buttermilk PLUS samples", leave items_included_in_total off (extras ride on top). If a draft comes back with quantities the user then corrects, ONE more draft_po call with the corrected numbers — don't iterate hunting for a magic split.
 - ERROR HONESTY: if a tool returns an error, relay the ACTUAL error text — never invent a cause (don't guess "token expired"/"re-auth needed"/"missing field" unless the error literally says so). Quote the real message and suggest the real next step.
 Purchase orders — TWO-STEP send (don't confuse the steps):
 STEP 1 (approve): draft_po creates a DRAFT PO + attaches a screenshot; tell the user to reply "SEND". When the user approves, call approve_po. approve_po pushes the PO to Xero AND prepares (DRAFTS, does NOT send) the email to ABC (To: Sharon, CC: Stephen, Xero PO PDF attached). After it returns: confirm the Xero PO number, say the ABC email is DRAFTED in Gmail for review (show the To/CC + subject "New PO"), and tell them to reply "SEND TO ABC" when they're happy for it to go (or to tweak the Gmail draft first). If email_drafted is false, warn the draft didn't create (Gmail may need reconnecting).
@@ -1359,6 +1387,9 @@ export async function askStockAgent(question: string, phone?: string, images?: A
           let out: unknown;
           try { out = await runTool(block.name, block.input as Record<string, unknown>); }
           catch (e) { out = { error: String(e).slice(0, 200) }; }
+          // Tool-round trace → Vercel runtime logs. Two budget-exhaustion incidents were
+          // undiagnosable because nothing recorded WHICH tools the agent burned rounds on.
+          console.log(`[agent] round=${i + 1} tool=${block.name} input=${JSON.stringify(block.input).slice(0, 250)}${(out as any)?.error ? ` ERROR=${String((out as any).error).slice(0, 250)}` : ''}`);
           // Audit trail: every ACTION the agent takes on the user's behalf (not read-only lookups).
           if (MUTATING_TOOLS.has(block.name) && !(out as any)?.error) {
             supabaseLogistics.from('agent_actions').insert({
@@ -1376,7 +1407,8 @@ export async function askStockAgent(question: string, phone?: string, images?: A
     answer = resp.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('\n').trim();
     break;
   }
-  if (!answer) answer = 'That took too many steps and I had to stop ⚠️ — I may be stuck on stale context. Text "reset" to clear my memory, then send the request again in one message.';
+  if (!answer) console.error(`[agent] tool budget exhausted for: ${String(question).slice(0, 200)}`);
+  if (!answer) answer = 'I ran out of steps before finishing that one ⚠️ — nothing was sent anywhere. Try splitting the request into smaller pieces (e.g. draft the PO first, then adjust lines). If I seem confused by earlier messages, text "reset" to wipe my memory first.';
   // Mark that an attachment was sent so follow-ups ("what about line 2 of that invoice?") have
   // context — the actual contents live in the assistant's saved answer above.
   if (phone) {

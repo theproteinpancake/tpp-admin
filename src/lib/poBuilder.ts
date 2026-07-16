@@ -106,9 +106,15 @@ export async function proposeFlavourPOs(site = 'ALTONA'): Promise<FlavourProposa
 
 // A specific flavour on demand (even if not strictly "due") — for "draft a Buttermilk PO".
 // Pass orderKg to pin an exact size (e.g. 500) instead of auto-rounding to demand.
-export async function proposeOneFlavour(flavour: string, site = 'ALTONA', orderKg?: number): Promise<FlavourProposal | null> {
+// excludeProductIds drops sizes from the split — used when the user pins those lines to an
+// exact quantity themselves ("120 cartons of BMS, the rest into BMM"): the pinned SKUs are
+// excluded here and appended by the caller, so the split fills only the remaining kg.
+export async function proposeOneFlavour(flavour: string, site = 'ALTONA', orderKg?: number, excludeProductIds?: string[]): Promise<FlavourProposal | null> {
   const byFlavour = await flavourSizes(site);
   const key = [...byFlavour.keys()].find((f) => f.toLowerCase() === flavour.toLowerCase().trim());
   if (!key) return null;
-  return buildProposal(key, byFlavour.get(key)!, true, orderKg);
+  const excl = new Set(excludeProductIds ?? []);
+  const sizes = byFlavour.get(key)!.filter((r: any) => !excl.has(r.product_id));
+  if (!sizes.length) return null;
+  return buildProposal(key, sizes, true, orderKg);
 }
