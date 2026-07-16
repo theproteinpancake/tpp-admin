@@ -1378,6 +1378,7 @@ export async function askStockAgent(question: string, phone?: string, images?: A
   const systemBlocks: Anthropic.TextBlockParam[] = [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }];
 
   let answer = '';
+  let emptyRetries = 0;
   for (let i = 0; i < 14; i++) { // tool budget — complex POs (multi-size + samples + stock checks) legitimately need >8 rounds
     const resp = await client.messages.create({ model: MODEL, max_tokens: 1500, system: systemBlocks, tools: cachedTools, messages });
     if (resp.stop_reason === 'tool_use') {
@@ -1405,6 +1406,14 @@ export async function askStockAgent(question: string, phone?: string, images?: A
       continue;
     }
     answer = resp.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('\n').trim();
+    // A rare model glitch can return NO text and NO tool call (seen live: a "SEND" button tap
+    // got an empty first response, so a valid approval died with the out-of-steps message and
+    // zero diagnostics). Log the shape and retry the identical request a couple of times
+    // before giving up — the glitch is transient.
+    if (!answer) {
+      console.warn(`[agent] empty response stop=${resp.stop_reason} blocks=[${resp.content.map((b) => b.type).join(',')}] retry=${emptyRetries + 1}`);
+      if (emptyRetries < 2) { emptyRetries++; continue; }
+    }
     break;
   }
   if (!answer) console.error(`[agent] tool budget exhausted for: ${String(question).slice(0, 200)}`);
