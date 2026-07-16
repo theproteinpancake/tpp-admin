@@ -11,10 +11,15 @@ function classify(v: any): string {
   const s = (v.utmParameters?.source || v.source || '').toLowerCase();
   const m = (v.utmParameters?.medium || '').toLowerCase();
   const ref = (v.referrerUrl || '').toLowerCase();
-  const paid = /cpc|ppc|paid/.test(m);
+  const lp = (v.landingPage || '').toLowerCase();
+  // Google Ads auto-tagging carries NO utm params — the click id lives in the landing URL
+  // (gclid / gbraid / wbraid). Without this check every ad click classified as 'organic' and
+  // the google source never appeared in attribution (NC ROAS/CPA stayed blank all of June).
+  const googleClickId = /[?&](gclid|gbraid|wbraid)=/.test(lp);
+  const paid = /cpc|ppc|paid/.test(m) || googleClickId;
   const isEmail = /klaviyo|email|newsletter|shopify_email/.test(s) || m === 'email';
   const isMeta = /facebook|instagram|\bfb\b|\big\b|meta|fbclid|audience_network|\ban\b/.test(s) || /facebook|instagram|fb\.com|l\.facebook/.test(ref);
-  const isGoogle = /google|adwords|gclid|youtube/.test(s) || /google\.|youtube\./.test(ref);
+  const isGoogle = /google|adwords|gclid|youtube/.test(s) || /google\.|youtube\./.test(ref) || googleClickId;
   if (isEmail) return 'email';
   if (isMeta) return /organic|social$|unpaid|referral/.test(m) ? 'organic' : 'meta';
   if (isGoogle) return paid ? 'google' : 'organic';
@@ -31,8 +36,8 @@ const QUERY = `query($cursor: String, $q: String) {
       customer { id numberOfOrders }
       shippingAddress { countryCodeV2 }
       customerJourneySummary {
-        firstVisit { source referrerUrl utmParameters { source medium } }
-        lastVisit { source referrerUrl utmParameters { source medium } }
+        firstVisit { source referrerUrl landingPage utmParameters { source medium } }
+        lastVisit { source referrerUrl landingPage utmParameters { source medium } }
       }
     }
   }
