@@ -1,8 +1,9 @@
 import { Boxes, Package2, Mail, AlertTriangle } from 'lucide-react';
 import { getPouchTracking, getSrpTracking, getShipperTracking, getCustomPackaging, PACK_STATUS_META } from '@/lib/packaging';
 import { flavourColor } from '@/lib/flavours';
-import { setPouchBaseline, deletePackaging } from '@/lib/packagingActions';
+import { deletePackaging } from '@/lib/packagingActions';
 import CustomPackagingForm from '@/components/packaging/CustomPackagingForm';
+import PouchTable from '@/components/packaging/PouchTable';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -58,55 +59,8 @@ export default async function PackagingPage() {
           <Package2 className="h-5 w-5 text-caramel" />
           <h2 className="text-lg font-semibold text-caramel">Empty pouches (ABC)</h2>
         </div>
-        <p className="mb-3 text-xs text-gray-500">Enter the stock-take baseline ABC provides. Every PO placed after that date auto-deducts, giving a live remaining count and a reorder flag at lead time (default 60 days).</p>
-        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-paper shadow-sm">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                {['Pouch (SKU)', 'Baseline', 'Used (POs)', 'Pouches left', 'SRP cartons (320g)', 'Packable', '~Days cover', 'Status', 'Set / update baseline'].map((h) => (
-                  <th key={h} className="whitespace-nowrap px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {pouches.map((p) => (
-                <tr key={p.product_id} className="hover:bg-cream/30">
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <span className="h-3 w-1.5 rounded-full" style={{ backgroundColor: flavourColor(p.flavour) }} />
-                      <span className="text-sm font-medium text-caramel">{p.flavour} {p.size}</span>
-                      <span className="text-[11px] text-gray-400">{p.sku}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{fmt(p.baseline_qty)}{p.baseline_date && <span className="block text-[11px] text-gray-400">from {p.baseline_date}</span>}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{p.baseline_qty != null ? `−${fmt(p.consumed)}` : '—'}</td>
-                  <td className="px-4 py-3 text-sm font-semibold text-caramel">{fmt(p.remaining)}</td>
-                  <td className="px-4 py-3 text-sm">
-                    {p.srp ? (
-                      <span className={p.srp.binding ? 'font-semibold text-red-600' : 'text-gray-600'}>
-                        {fmt(p.srp.boxes_remaining)} <span className="text-[11px] text-gray-400">×{p.srp.units_per} = {fmt(p.srp.packable_bags)}</span>
-                        {p.srp.binding && <span className="block text-[10px] font-medium uppercase tracking-wide text-red-500">⚠ carton-limited</span>}
-                      </span>
-                    ) : <span className="text-gray-300">—</span>}
-                  </td>
-                  <td className="px-4 py-3 text-sm font-semibold text-caramel">{fmt(p.packable)}{p.srp?.binding && <span className="block text-[10px] font-normal text-gray-400">of {fmt(p.remaining)} pouches</span>}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{(() => { const d = Math.min(p.days_cover ?? Infinity, p.srp?.days_cover ?? Infinity); return Number.isFinite(d) ? `${d}d` : '—'; })()}</td>
-                  <td className="px-4 py-3"><Pill status={p.status} /></td>
-                  <td className="px-4 py-3">
-                    <form action={async (fd) => { 'use server'; await setPouchBaseline(fd); }} className="flex items-center gap-1.5">
-                      <input type="hidden" name="product_id" value={p.product_id} />
-                      <input name="baseline_qty" type="number" defaultValue={p.baseline_qty ?? ''} placeholder="qty"
-                        className="w-20 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-caramel focus:outline-none" />
-                      <input name="lead_days" type="number" defaultValue={p.lead_days} title="lead days"
-                        className="w-14 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-caramel focus:outline-none" />
-                      <button type="submit" className="rounded-md bg-caramel px-2.5 py-1 text-xs font-medium text-white hover:opacity-90">Save</button>
-                    </form>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <p className="mb-3 text-xs text-gray-500">Baseline = ABC&apos;s stock-take. Every PO after that date auto-deducts; logged deliveries (VISY SRP boxes, pouch drops) auto-add. Click a column header to sort — default is least packable stock first.</p>
+        <PouchTable rows={pouches} />
       </section>
 
       {/* Shelf-ready (SRP) cartons — auto-deduct from the linked 320g SKU's POs */}

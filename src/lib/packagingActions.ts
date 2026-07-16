@@ -27,6 +27,22 @@ export async function setPouchBaseline(formData: FormData) {
   return { ok: true };
 }
 
+// Log a delivery INTO packaging stock (VISY SRP boxes → ABC, empty-pouch drops).
+// Adds on top of the baseline instead of forcing a full baseline reset — a delivery of
+// 1,000 BMS boxes once went unrecorded because baseline-reset was the only write path.
+export async function logPackagingDelivery(formData: FormData) {
+  const packaging_id = str(formData.get('packaging_id'));
+  const qty = num(formData.get('qty'));
+  const delivered_on = str(formData.get('delivered_on')) ?? new Date().toISOString().slice(0, 10);
+  const note = str(formData.get('note'));
+  if (!packaging_id || !qty || qty <= 0) return { ok: false, error: 'Need item and a positive quantity' };
+
+  const { error } = await supabaseLogistics.from('packaging_deliveries').insert({ packaging_id, qty, delivered_on, note });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath('/logistics/packaging');
+  return { ok: true };
+}
+
 export async function saveCustomPackaging(formData: FormData) {
   const id = str(formData.get('id'));
   const row = {

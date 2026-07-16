@@ -14,13 +14,14 @@ export const PACK_STATUS_META: Record<PackStatus, { label: string; bg: string }>
 // SRP carton tied to a 320g pouch row: 320g sells only as 4-packs, so the usable count is
 // capped by whichever runs out first (pouches OR cartons). `binding` = cartons are the limit.
 export interface SrpOnRow {
-  units_per: number; boxes_baseline: number | null; boxes_consumed: number; boxes_remaining: number | null;
+  pack_id: string; units_per: number; boxes_baseline: number | null; boxes_consumed: number;
+  boxes_delivered: number; boxes_remaining: number | null;
   packable_bags: number | null; binding: boolean; days_cover: number | null; status: PackStatus;
 }
 export interface PouchRow {
-  product_id: string; sku: string; flavour: string | null; size: string;
+  product_id: string; pack_id: string | null; sku: string; flavour: string | null; size: string;
   baseline_qty: number | null; baseline_date: string | null;
-  consumed: number; remaining: number | null; daily: number | null;
+  consumed: number; delivered: number; remaining: number | null; daily: number | null;
   days_cover: number | null; lead_days: number; status: PackStatus;
   srp: SrpOnRow | null;          // attached SRP carton constraint (320g only)
   packable: number | null;       // usable 4-packs in bags = min(pouch remaining, srp packable)
@@ -38,17 +39,30 @@ export interface CustomPack {
 const sizeLabel = (g: number | null) => (g == null ? '' : g >= 1000 ? `${g / 1000}kg` : `${g}g`);
 
 export async function getPouchTracking(): Promise<PouchRow[]> {
-  const [{ data: products }, { data: packs }, { data: srpPacks }, { data: poItems }, { data: vel }] = await Promise.all([
+  const [{ data: products }, { data: packs }, { data: srpPacks }, { data: poItems }, { data: vel }, { data: dels }] = await Promise.all([
     supabaseLogistics.from('products').select('id, sku, flavour, unit_size_g').eq('active', true).eq('category', 'mix'),
     supabaseLogistics.from('packaging').select('*').eq('kind', 'pouch'),
     supabaseLogistics.from('packaging').select('*').eq('kind', 'srp').eq('active', true),
     supabaseLogistics.from('po_items').select('product_id, qty_ordered, po:po_id(created_at)'),
     supabaseLogistics.from('v_stock_current').select('product_id, avg_daily_units_30d').eq('location_code', 'ALTONA'),
+    supabaseLogistics.from('packaging_deliveries').select('packaging_id, qty, delivered_on'),
   ]);
+  // Deliveries ADD stock (VISY SRP boxes → ABC, pouch drops); only those on/after the row's
+  // baseline count — a fresh stock-take baseline already includes anything delivered before it.
+  const deliveredSince = (packagingId: string | null, since: string | null) =>
+    packagingId && since
+      ? (dels ?? []).filter((d: any) => d.packaging_id === packagingId && String(d.delivered_on) >= since)
+          .reduce((s: number, d: any) => s + (d.qty || 0), 0)
+      : 0;
 
   const packByProduct = new Map((packs ?? []).map((p: any) => [p.product_id, p]));
   const srpByLinked = new Map((srpPacks ?? []).map((s: any) => [s.linked_product_id, s]));
+  // UNITS TRAP: ShipBob tracks 320g SKUs as 4-pack cartons, so their velocity arrives in
+  // CARTONS/day — but pouch counts here are POUCHES. Scale to pouches/day or 320g cover
+  // reads 4× too long (same conversion the PO builder needs).
   const velByProduct = new Map((vel ?? []).map((v: any) => [v.product_id, Number(v.avg_daily_units_30d) || 0]));
+  const pouchDaily = (productId: string, unitSizeG: number | null) =>
+    (velByProduct.get(productId) ?? 0) * (unitSizeG === 320 ? 4 : 1);
   const consumedSince = (productId: string, since: string | null) =>
     since ? (poItems ?? []).filter((i: any) => i.product_id === productId && (i.po?.created_at ?? '').slice(0, 10) >= since)
       .reduce((s: number, i: any) => s + (i.qty_ordered || 0), 0) : 0;
@@ -60,8 +74,9 @@ export async function getPouchTracking(): Promise<PouchRow[]> {
     const lead_days = pack?.lead_days ?? 60;
     // consumed = units ordered on POs placed on/after the baseline date
     const consumed = consumedSince(p.id, baseline_date);
-    const remaining = baseline_qty == null ? null : baseline_qty - consumed;
-    const daily = pack?.daily_usage != null ? Number(pack.daily_usage) : (velByProduct.get(p.id) ?? null);
+    const delivered = deliveredSince(pack?.id ?? null, baseline_date);
+    const remaining = baseline_qty == null ? null : baseline_qty - consumed + delivered;
+    const daily = pack?.daily_usage != null ? Number(pack.daily_usage) : (pouchDaily(p.id, p.unit_size_g) || null);
     const days_cover = remaining != null && daily && daily > 0 ? Math.round(remaining / daily) : null;
 
     let status: PackStatus = 'unset';
@@ -82,7 +97,8 @@ export async function getPouchTracking(): Promise<PouchRow[]> {
       const units_per = sp.units_per || 4;
       const boxes_baseline = sp.baseline_qty ?? null;
       const boxes_consumed = Math.round(consumedSince(p.id, sp.baseline_date) / units_per);
-      const boxes_remaining = boxes_baseline == null ? null : boxes_baseline - boxes_consumed;
+      const boxes_delivered = deliveredSince(sp.id, sp.baseline_date);
+      const boxes_remaining = boxes_baseline == null ? null : boxes_baseline - boxes_consumed + boxes_delivered;
       const packable_bags = boxes_remaining == null ? null : boxes_remaining * units_per;
       const srpDaily = daily && daily > 0 ? daily : null; // bags/day; packable is in bags too
       const srpDays = packable_bags != null && srpDaily ? Math.round(packable_bags / srpDaily) : null;
@@ -96,11 +112,11 @@ export async function getPouchTracking(): Promise<PouchRow[]> {
       const binding = packable_bags != null && remaining != null && packable_bags < remaining;
       packable = packable_bags != null && remaining != null ? Math.min(remaining, packable_bags) : (packable_bags ?? remaining);
       rowStatus = worse(status, srpStatus);
-      srp = { units_per, boxes_baseline, boxes_consumed, boxes_remaining, packable_bags, binding, days_cover: srpDays, status: srpStatus };
+      srp = { pack_id: sp.id, units_per, boxes_baseline, boxes_consumed, boxes_delivered, boxes_remaining, packable_bags, binding, days_cover: srpDays, status: srpStatus };
     }
     return {
-      product_id: p.id, sku: p.sku, flavour: p.flavour, size: sizeLabel(p.unit_size_g),
-      baseline_qty, baseline_date, consumed, remaining, daily, days_cover, lead_days, status: rowStatus,
+      product_id: p.id, pack_id: pack?.id ?? null, sku: p.sku, flavour: p.flavour, size: sizeLabel(p.unit_size_g),
+      baseline_qty, baseline_date, consumed, delivered, remaining, daily, days_cover, lead_days, status: rowStatus,
       srp, packable,
     };
   });
@@ -122,18 +138,19 @@ export interface SrpRow {
 // Shelf-ready (SRP) cartons for DISCONTINUED 320g SKUs only — active ones now show inline on
 // their pouch row (getPouchTracking). These are held cartons for sizes we no longer produce.
 export async function getSrpTracking(): Promise<SrpRow[]> {
-  const [{ data: srpAll }, { data: poItems }, { data: vel }, { data: activeMix }] = await Promise.all([
+  const [{ data: srpAll }, { data: poItems }, { data: vel }, { data: activeMix }, { data: dels }] = await Promise.all([
     supabaseLogistics.from('packaging').select('*').eq('kind', 'srp').eq('active', true),
     supabaseLogistics.from('po_items').select('product_id, qty_ordered, po:po_id(created_at)'),
     supabaseLogistics.from('v_stock_current').select('product_id, avg_daily_units_30d').eq('location_code', 'ALTONA'),
     supabaseLogistics.from('products').select('id').eq('active', true).eq('category', 'mix'),
+    supabaseLogistics.from('packaging_deliveries').select('packaging_id, qty, delivered_on'),
   ]);
   // exclude SRP cartons whose linked product is an ACTIVE mix SKU (shown on the pouch row instead)
   const activeIds = new Set((activeMix ?? []).map((p: any) => p.id));
   const srp = (srpAll ?? []).filter((s: any) => !s.linked_product_id || !activeIds.has(s.linked_product_id));
   const products = srp.map((s: any) => s.linked_product_id).filter(Boolean);
   const { data: prod } = products.length
-    ? await supabaseLogistics.from('products').select('id, sku, flavour').in('id', products)
+    ? await supabaseLogistics.from('products').select('id, sku, flavour, unit_size_g').in('id', products)
     : { data: [] as any[] };
   const prodById = new Map((prod ?? []).map((p: any) => [p.id, p]));
   const velByProduct = new Map((vel ?? []).map((v: any) => [v.product_id, Number(v.avg_daily_units_30d) || 0]));
@@ -150,9 +167,16 @@ export async function getSrpTracking(): Promise<SrpRow[]> {
           .reduce((acc: number, i: any) => acc + (i.qty_ordered || 0), 0)
       : 0;
     const consumed_boxes = Math.round(consumed_units / units_per);
-    const remaining = baseline_qty == null ? null : baseline_qty - consumed_boxes;
-    // box usage/day = the linked SKU's daily velocity ÷ bags-per-box
-    const unitDaily = s.linked_product_id ? (velByProduct.get(s.linked_product_id) ?? 0) : 0;
+    const delivered_boxes = baseline_date
+      ? (dels ?? []).filter((d: any) => d.packaging_id === s.id && String(d.delivered_on) >= baseline_date)
+          .reduce((acc: number, d: any) => acc + (d.qty || 0), 0)
+      : 0;
+    const remaining = baseline_qty == null ? null : baseline_qty - consumed_boxes + delivered_boxes;
+    // box usage/day = the linked SKU's daily velocity (pouches/day) ÷ bags-per-box.
+    // 320g velocity arrives in CARTONS/day (ShipBob tracks the 4-pack) → ×4 to pouches first.
+    const unitDaily = s.linked_product_id
+      ? (velByProduct.get(s.linked_product_id) ?? 0) * (lp?.unit_size_g === 320 ? 4 : 1)
+      : 0;
     const daily = unitDaily > 0 ? unitDaily / units_per : null;
     const days_cover = remaining != null && daily && daily > 0 ? Math.round(remaining / daily) : null;
 
