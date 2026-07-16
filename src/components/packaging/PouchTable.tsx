@@ -1,13 +1,21 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import type { PouchRow } from '@/lib/packaging';
-import { PACK_STATUS_META } from '@/lib/packaging';
+import type { PouchRow, PackStatus } from '@/lib/packaging';
 import { setPouchBaseline, logPackagingDelivery } from '@/lib/packagingActions';
 import { flavourColor } from '@/lib/flavours';
 
 const fmt = (n: number | null) => (n == null ? '—' : n.toLocaleString('en-AU'));
 const SEV: Record<string, number> = { unset: 0, ok: 1, order_soon: 2, order_now: 3 };
+// Local copy of PACK_STATUS_META: importing it as a VALUE from '@/lib/packaging' pulls the
+// server-only Supabase/ShipBob clients into the browser bundle and crashes the page at load
+// (their env vars don't exist client-side). Type-only imports from there are fine — erased.
+const STATUS_META: Record<PackStatus, { label: string; bg: string }> = {
+  unset: { label: 'No baseline', bg: '#9ca3af' },
+  order_now: { label: 'Order now', bg: '#dc2626' },
+  order_soon: { label: 'Order soon', bg: '#d97706' },
+  ok: { label: 'Healthy', bg: '#059669' },
+};
 
 type SortKey = 'left' | 'srp' | 'packable' | 'days' | 'status';
 
@@ -72,7 +80,7 @@ export default function PouchTable({ rows }: { rows: PouchRow[] }) {
         </thead>
         <tbody className="divide-y divide-gray-100">
           {sorted.map((p) => {
-            const m = PACK_STATUS_META[p.status];
+            const m = STATUS_META[p.status];
             const d = daysMin(p);
             // delivery targets: the pouch packaging row (exists once a baseline is set) and,
             // for 320g, the linked SRP-carton row
