@@ -98,8 +98,8 @@ const tools: Anthropic.Tool[] = [
         order_kg: { type: 'number', description: 'exact total kg to order when the user specifies a size (e.g. 500, 1000, 1500). Omit to auto-size to demand. For 1kg bags, units == kg.' },
         items: {
           type: 'array',
-          description: 'optional explicit line override (product_id + qty_ordered units)',
-          items: { type: 'object', properties: { product_id: { type: 'string' }, qty_ordered: { type: 'number' } } },
+          description: 'EXTRA lines by SKU (e.g. sample packs: {sku:"BM80", qty_ordered:1000}). COMBINABLE with flavour: flavour builds the standard demand split and these are ADDED on top (same product merges). Without flavour, these are the whole PO.',
+          items: { type: 'object', properties: { sku: { type: 'string', description: 'product SKU, e.g. "BM80"' }, product_id: { type: 'string', description: 'internal id (only if you have it — sku preferred)' }, qty_ordered: { type: 'number' } }, required: ['qty_ordered'] },
         },
       },
     },
@@ -525,16 +525,32 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
     }));
   }
   if (name === 'draft_po') {
-    let items: { product_id: string; qty_ordered: number; unit_cost: null }[] | undefined;
+    let items: { product_id: string; qty_ordered: number; unit_cost: null }[] = [];
     let cartonNote = '';
     if (input.flavour) {
       const p = await proposeOneFlavour(String(input.flavour), 'ALTONA', input.order_kg ? Number(input.order_kg) : undefined);
       if (!p) return { error: `Couldn't build a PO for "${input.flavour}" — no matching flavour.` };
-      items = p.lines.map((l) => ({ product_id: l.product_id, qty_ordered: l.units, unit_cost: null }));
+      items = p.lines.map((l) => ({ product_id: l.product_id, qty_ordered: l.units, unit_cost: null as null }));
       const cartons = p.lines.filter((l) => l.cartons);
       cartonNote = cartons.length ? ` 320g lines = ${cartons.map((l) => `${l.units}u/${l.cartons}ctn`).join(', ')}.` : '';
-    } else if (input.items) {
-      items = (input.items as any[]).map((i) => ({ product_id: i.product_id, qty_ordered: i.qty_ordered, unit_cost: null }));
+    }
+    // Extra items MERGE with the flavour split (they used to be silently DISCARDED when a
+    // flavour was given — the BM80 sample line vanished from a drafted PO). SKU-addressed,
+    // fail-closed on unknowns.
+    if (Array.isArray(input.items) && (input.items as any[]).length) {
+      for (const it of input.items as any[]) {
+        const qty = Math.round(Number(it.qty_ordered));
+        if (!qty || qty < 1) return { error: `Bad qty for extra item ${it.sku || it.product_id}.` };
+        let pid = typeof it.product_id === 'string' && /^[0-9a-f-]{36}$/i.test(it.product_id) ? it.product_id : null;
+        if (!pid && it.sku) {
+          const { data: prod } = await supabaseLogistics.from('products').select('id').ilike('sku', String(it.sku).trim()).eq('active', true).maybeSingle();
+          pid = (prod as any)?.id ?? null;
+        }
+        if (!pid) return { error: `Couldn't resolve extra PO line "${it.sku || it.product_id}" to an active product — check the SKU. Nothing was drafted.` };
+        const existing = items.find((x) => x.product_id === pid);
+        if (existing) existing.qty_ordered += qty;
+        else items.push({ product_id: pid, qty_ordered: qty, unit_cost: null });
+      }
     }
     const res = await draftWhatsAppPO(items);
     if ('error' in res) return res;
