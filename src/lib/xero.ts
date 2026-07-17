@@ -166,6 +166,9 @@ export async function createXeroInvoice(opts: {
     Invoices: [{
       Type: 'ACCREC', Contact: { ContactID: opts.contactId },
       Date: new Date().toISOString().slice(0, 10),
+      // Wholesale terms: NET 30 on every invoice (Kate, Jul 2026 — invoices were going out
+      // with Xero's default immediate due date).
+      DueDate: new Date(Date.now() + 30 * 86400_000).toISOString().slice(0, 10),
       LineAmountTypes: 'Exclusive', Reference: opts.reference || undefined,
       Status: opts.status || 'DRAFT', LineItems: lineItems,
     }],
@@ -173,6 +176,28 @@ export async function createXeroInvoice(opts: {
   const res = await xeroPost('/Invoices', body);
   const inv = res.Invoices?.[0];
   return { id: inv?.InvoiceID, number: inv?.InvoiceNumber, total: Number(inv?.Total) || 0 };
+}
+
+// Invoice number / contact / reference for an invoice id (for AP-copy emails etc).
+export async function getInvoiceSummary(invoiceId: string): Promise<{ number: string; contact_name: string; reference: string | null } | null> {
+  try {
+    const r = await xeroGet(`/Invoices/${invoiceId}`);
+    const inv = r.Invoices?.[0];
+    return inv ? { number: inv.InvoiceNumber, contact_name: inv.Contact?.Name || '', reference: inv.Reference || null } : null;
+  } catch { return null; }
+}
+
+// The invoice as Xero's rendered PDF (base64) — for sending copies from our own inbox.
+export async function getInvoicePdf(invoiceId: string): Promise<string | null> {
+  try {
+    const auth = await getXeroAuth();
+    if (!auth) return null;
+    const res = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${invoiceId}`, {
+      headers: { Authorization: `Bearer ${auth.token}`, 'Xero-tenant-id': auth.tenant, Accept: 'application/pdf' },
+    });
+    if (!res.ok) return null;
+    return Buffer.from(await res.arrayBuffer()).toString('base64');
+  } catch { return null; }
 }
 
 // Authorise + email an invoice to the contact's email on file (Xero sends it).

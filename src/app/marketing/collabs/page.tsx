@@ -1,4 +1,5 @@
 import { Handshake, CalendarClock, PackageCheck } from 'lucide-react';
+import RefreshButton from '@/components/RefreshButton';
 import { listCollabs } from '@/lib/marketing';
 import CollabsTable from '@/components/marketing/CollabsTable';
 
@@ -22,6 +23,7 @@ export default async function CollabsPage() {
           <h1 className="text-xl font-bold text-caramel">Collabs</h1>
           <p className="text-sm text-gray-500">{collabs.length} partners &amp; collaborations</p>
         </div>
+        <RefreshButton />
       </div>
 
       {upcoming && (

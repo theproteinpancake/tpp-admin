@@ -1,6 +1,7 @@
 // Marketing: influencer gifting (ShipBob B2C) + collab tracking.
 import { supabaseLogistics } from './supabase-logistics';
 import { createB2COrder, getOrderTracking, getInventoryLevels, type B2CRecipient, getB2COrder } from './shipbob';
+import { countersForSkuLines, selectBox } from './boxLogic';
 
 // LIVE ShipBob fulfillable for a SKU at a site (not the once-a-day v_stock_current snapshot).
 // Returns null only if we can't resolve the inventory id / ShipBob doesn't answer.
@@ -34,13 +35,6 @@ export function siteFromCountry(c?: string): string | null {
   if (r === 'AU' || r === 'NZ') return 'ALTONA';
   if (r === 'UK') return 'MANCHESTER';
   return null;
-}
-
-// 520g bags: 1–2 fit PANSMALL (the common case); more → a larger outer.
-function boxForGift(size_g: number, qty: number): string {
-  if (size_g === 520 && qty <= 2) return 'PANSMALL';
-  if (qty <= 2) return 'PANSMALL';
-  return 'PANXLARGE';
 }
 
 async function resolveSku(flavour: string, size_g: number): Promise<{ sku: string; label: string; cogs: number | null } | null> {
@@ -121,8 +115,10 @@ export async function sendInfluencerGift(input: GiftInput):
     }
   }
 
-  const totalQty = prods.reduce((s2, p2) => s2 + p2.qty, 0);
-  const box = boxForGift(Math.max(...prods.map((p2) => p2.size_g)), totalQty);
+  // Box from the master box-logic spec (smallest box that genuinely fits) — the old shortcut
+  // shipped 3× 520g in a PANXLARGE (spec: PANMEDIUM) and paid the size difference every time.
+  const { counters } = countersForSkuLines(prods.map((p2) => ({ sku: p2.sku, size_g: p2.size_g, qty: p2.qty })));
+  const box = selectBox(counters);
 
   const recipient: B2CRecipient = {
     name: input.name, email: input.email, address1: input.address1, address2: input.address2,

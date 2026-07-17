@@ -11,6 +11,7 @@ import { markCdsSent } from './cdsFlow';
 import { resolveVisyItem, draftVisyOrder, markVisyOrderSent, getVisyOrders, createVisyLabels } from './visyOrder';
 import { findContacts } from './contacts';
 import { getPackagingSummary } from './packaging';
+import { getInventoryLevels } from './shipbob';
 import { gmailSendDraft, gmailCreateDraft, gmailDeleteDraftsBySubject, gmailSearch, gmailGetBody, gmailGetAllAttachments } from './google';
 import { getLots, expiryStatus, EXPIRY_META } from './lots';
 import { getShippingData } from './shipping';
@@ -318,11 +319,12 @@ const tools: Anthropic.Tool[] = [
           required: ['name', 'address1', 'city', 'zip_code', 'country'],
         },
         lines: { type: 'array', items: { type: 'object', properties: { sku: { type: 'string' }, cartons: { type: 'number' } } } },
-        box: { type: 'string', enum: ['PANOUTERSMALL', 'PANOUTER', 'PANXLARGE'] },
-        free_shipping: { type: 'boolean', description: 'true = no freight (4+ cartons, the MOQ); false = add the $15 GST-free FREIGHT line (1-3 cartons, OR when Kate explicitly says to add freight).' },
-        reference: { type: 'string', description: 'Xero invoice Reference. Use the customer\'s PO number if they gave one. If there is NO PO number (e.g. a casual email order), use "{Contact first name} Email {DD/MM/YYYY}" with today\'s date — e.g. "Rebekah Email 08/06/2026".' },
+        boxes: { type: 'array', items: { type: 'string', enum: ['PANOUTERSMALL', 'PANOUTER', 'PANXLARGE'] }, description: 'ALL boxes from the PO assessment, one entry per box — e.g. 10 cartons = ["PANOUTER","PANOUTERSMALL"]. EVERY box gets committed to ShipBob with its real quantity.' },
+        box: { type: 'string', enum: ['PANOUTERSMALL', 'PANOUTER', 'PANXLARGE'], description: 'single-box shorthand (prefer boxes)' },
+        free_shipping: { type: 'boolean', description: 'From the assessment\'s freight rule. DEFAULT IS $15 FREIGHT (free_shipping:false) — free only for the supplier exceptions: Nutrition Warehouse 4+ cartons, LaManna Direct always, ASN/David Wilkie 8+ cartons, or when Kate explicitly says free.' },
+        reference: { type: 'string', description: 'Xero invoice Reference. Use the customer\'s stated PO/invoice number if one appears ANYWHERE in the order. If there is NO PO number, use "{Contact first name} Email {DD/MM/YYYY}" where the date is the DATE THE ORDER EMAIL WAS SENT/RECEIVED (from the email itself / find_po_email) — NOT today\'s date. e.g. order emailed 13/07 processed on 15/07 → "Alex Email 13/07/2026".' },
       },
-      required: ['customer_name', 'recipient', 'lines', 'box', 'free_shipping'],
+      required: ['customer_name', 'recipient', 'lines', 'free_shipping'],
     },
   },
   {
@@ -493,12 +495,44 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
       const { data: prods } = await supabaseLogistics.from('products').select('sku, name').in('sku', noFlavour);
       for (const p of (prods ?? []) as any[]) if (p.name) nameBySku.set(p.sku, p.name);
     }
-    let out = rows.map((r) => ({
-      sku: r.sku, flavour: r.flavour || nameBySku.get(r.sku) || r.sku,
-      size: r.unit_size_g ? (r.unit_size_g >= 1000 ? `${r.unit_size_g / 1000}kg` : `${r.unit_size_g}g`) : '',
-      tier: r.tier, site: r.location_code, on_hand: r.on_hand, available: r.available, inbound: r.inbound,
-      days_of_cover: r.days_of_cover, daily_sales: r.avg_daily_units_30d, status: STATUS_META[computeStatus(r)].label,
-    }));
+    // LIVE overlay for focused queries: the snapshot refreshes once a day (5am Melb), so a
+    // same-day restock read as "still out of stock" until the next morning (bit Kate on BMM).
+    // For ≤14 rows, pull the current fulfillable straight from ShipBob and override.
+    const liveBySkuSite = new Map<string, number>();
+    if (rows.length > 0 && rows.length <= 14) {
+      try {
+        const { data: pls } = await supabaseLogistics.from('products')
+          .select('sku, product_locations(shipbob_inventory_id, active, location:location_id(code))')
+          .in('sku', rows.map((r) => r.sku));
+        const bySite = new Map<string, { sku: string; inv: number }[]>();
+        for (const p of (pls ?? []) as any[]) {
+          for (const pl of (p.product_locations ?? []) as any[]) {
+            const code = (pl.location?.code || '').toUpperCase();
+            if (!pl.active || !pl.shipbob_inventory_id || !rows.some((r) => r.sku === p.sku && r.location_code === code)) continue;
+            if (!bySite.has(code)) bySite.set(code, []);
+            bySite.get(code)!.push({ sku: p.sku, inv: Number(pl.shipbob_inventory_id) });
+          }
+        }
+        for (const [site, items] of bySite) {
+          const levels = await getInventoryLevels(site, items.map((i) => i.inv)).catch(() => new Map());
+          for (const i of items) {
+            const lvl = levels.get(i.inv);
+            if (lvl) liveBySkuSite.set(`${i.sku}|${site}`, lvl.fulfillable);
+          }
+        }
+      } catch { /* live overlay best-effort — snapshot values stand */ }
+    }
+    let out = rows.map((r) => {
+      const live = liveBySkuSite.get(`${r.sku}|${r.location_code}`);
+      const rr = live != null ? { ...r, available: live } : r;
+      return {
+        sku: r.sku, flavour: r.flavour || nameBySku.get(r.sku) || r.sku,
+        size: r.unit_size_g ? (r.unit_size_g >= 1000 ? `${r.unit_size_g / 1000}kg` : `${r.unit_size_g}g`) : '',
+        tier: r.tier, site: r.location_code, on_hand: r.on_hand, available: rr.available, inbound: r.inbound,
+        days_of_cover: r.days_of_cover, daily_sales: r.avg_daily_units_30d, status: STATUS_META[computeStatus(rr)].label,
+        ...(live != null ? { live_checked: true } : {}),
+      };
+    });
     if (input.needs_attention) out = out.filter((r) => ['Out of stock', 'Reorder now', 'Reorder soon'].includes(r.status));
     return out;
   }
@@ -891,15 +925,17 @@ W: theproteinpancake.co`;
       customer_name: String(input.customer_name),
       recipient: { name: String(r.name), address1: String(r.address1), address2: r.address2, city: String(r.city), state: r.state, zip_code: String(r.zip_code), country: String(r.country), email: r.email },
       lines: (input.lines as any[] || []).map((l) => ({ sku: String(l.sku), cartons: Number(l.cartons) })),
-      box: String(input.box), free_shipping: !!input.free_shipping, reference: input.reference as string, po_number: input.reference as string,
+      boxes: Array.isArray(input.boxes) ? (input.boxes as string[]) : undefined,
+      box: input.box ? String(input.box) : undefined,
+      free_shipping: !!input.free_shipping, reference: input.reference as string, po_number: input.reference as string,
     });
     if ('error' in res) return res;
-    return { ok: true, shipbob_order_id: res.shipbob_order_id, xero_invoice: res.xero_invoice, xero_invoice_id: res.xero_invoice_id, xero_total: res.xero_total, reused: res.reused,
-      note: `DONE. ShipBob order #${res.shipbob_order_id}: ${res.shipbob_added}. Xero invoice ${res.xero_invoice} (DRAFT, $${res.xero_total}). Report this EXACTLY to Kate and ask her to cross-check, then reply "send invoice" to email it (pass xero_invoice_id ${res.xero_invoice_id}).` };
+    return { ok: true, shipbob_order_id: res.shipbob_order_id, verified: res.verified, xero_invoice: res.xero_invoice, xero_invoice_id: res.xero_invoice_id, xero_total: res.xero_total, reused: res.reused,
+      note: `DONE. ShipBob order #${res.shipbob_order_id}: ${res.shipbob_added}. Xero invoice ${res.xero_invoice} (DRAFT, $${res.xero_total}). Report the box lines from \`verified.products_on_order\` (what ShipBob ACTUALLY saved), never from the plan. Ask Kate to cross-check, then reply "send invoice" to email it (pass xero_invoice_id ${res.xero_invoice_id}).` };
   }
   if (name === 'send_wholesale_invoice') {
     const r = await sendWholesaleInvoice(String(input.invoice_id));
-    return r.ok ? { ok: true, note: 'Invoice authorised & emailed to the customer from Xero.' } : { error: 'Could not send the invoice — check it in Xero.' };
+    return r.ok ? { ok: true, cc_copy_sent_to: r.cc_copy_sent_to, note: `Invoice authorised & emailed to the customer from Xero.${r.cc_copy_sent_to ? ` A PDF copy also went to ${r.cc_copy_sent_to} (supplier accounts-payable requirement).` : ''}` } : { error: 'Could not send the invoice — check it in Xero.' };
   }
   if (name === 'find_influencer') {
     const f = await findInfluencer(String(input.query));
@@ -1157,6 +1193,7 @@ RESPOND ONLY TO THE CURRENT MESSAGE — handle the ONE task it asks for and repl
 ATTACHMENTS & "this/that" — when the message includes an ATTACHMENT (PDF invoice/docket/packing slip, or an image) or refers to "this"/"that"/"it", the attachment IS the subject. READ it first and answer specifically about ITS contents — e.g. an ABC Blending invoice → read the invoice number, line items, qty, amounts, then cross-check (does it match a PO via get_purchase_orders? were those goods received? is the billed amount right?). NEVER ignore the attachment and dump an unrelated status report (e.g. don't answer with the UK pallet/INTERNAL2 just because the words "received" or "ShipBob" appear). If you genuinely can't read it or lack what you need, say exactly what's missing and ask — do NOT substitute a generic tool dump. Match the words to the actual subject: "billing/invoice" → invoices & POs, not transfers.
 
 "YES" ANSWERS THE MOST RECENT QUESTION (CRITICAL): a bare approval (yes / go / do it) always refers to the LAST question YOU asked — never to an older step. PENDING/context notes describe the next step AS OF WHEN THEY WERE WRITTEN; once the conversation shows that step completed, the note is DEAD — acting on a stale note (e.g. re-running create_wro after the WRO exists) is a serious failure.
+WHATSAPP FORMATTING (CRITICAL): WhatsApp does NOT render markdown — NEVER output markdown tables (| pipes |), headers (#) or horizontal rules. Stock/quantity lists are ONE COMPACT LINE PER ITEM: "SCL — In stock: 167 ✅" (use 🛑 for 0, and append "(inbound)" when a restock is on the way). Group with a short *bold* heading (*PRIMARY* / *OTHER PRODUCTS*), nothing else. Keep every list scannable on a phone screen.
 TAPPABLE BUTTONS: when you ask the user to choose between clear next actions (approve/send/draft/skip), end your reply with a final line exactly like: [[buttons: Draft Sharon reply | Not now]] — 2 or 3 options, each ≤20 characters, action-specific verbs (NEVER a bare "Yes" — the label itself must say what it does, e.g. "Send to ABC", "Create WRO", "Skip"). The system renders them as tappable buttons and the user's tap comes back as the exact label. Use them for every confirmation question; skip them for open-ended questions.
 PO-ALERT REPLIES (CRITICAL): when the conversation contains a context note about a wholesale PO I proactively alerted (it includes the SOURCE EMAIL id+inbox), a reply with a clear instruction — "process it", "process [customer]", "remove/exclude X and proceed", "swap X for Y" — is the user's FULL confirmation. Execute end-to-end immediately: process_po_email(id, inbox, exclude as instructed) then create the order, and report the ShipBob order # + Xero invoice #. Never ask "which customer" (it's in the context note) and never re-ask for a confirmation they just gave. Only pause if their instruction is genuinely ambiguous (e.g. a swap to a flavour that's also OOS).
 
@@ -1164,12 +1201,13 @@ INBOX ACCESS: you can read the wholesale inbox(es) — Kate's (kate@) AND Luke's
 
 WHOLESALE:
 - get_wholesale_overview for sales, due-to-reorder, lapsed, top customers, 320g stock + ABC reorder timing.
-- parse_wholesale_po / process_po_email map flavours→320g SKUs, check Altona stock, pick the ShipBob box, apply free shipping (4+ cartons free; 1–3 add $15 freight).
+- parse_wholesale_po / process_po_email map flavours→320g SKUs, check Altona stock (LIVE ShipBob levels for the ordered SKUs — trust the assessment over an older snapshot answer), plan the box(es) and apply the freight rule.
 - CASUAL/TEXT ORDERS: many POs are just a plain email ("Can I please order: Buttermilk x6, Salted Caramel x3, GF Buttermilk x1…"). Parse these the same way — "x6 boxes"/"x6" = 6 cartons. The customer is usually the business in their signature (e.g. "Highland Evolution Dance & Fitness"); match that to the Xero contact. "boxes"/"cartons" = cartons.
-- REFERENCE: pass the customer's PO number as the reference if they gave one. If there is NO PO number, set reference to "{contact first name} Email {DD/MM/YYYY}" using TODAY'S DATE (e.g. "Rebekah Email 08/06/2026") — first name is the person who sent it (e.g. Bex/Rebekah), not the business.
-- FREIGHT: 4+ cartons (the MOQ) = free → free_shipping:true. 1-3 cartons = add the $15 GST-free FREIGHT item → free_shipping:false. If Kate explicitly says "add freight"/"charge freight" (even on a 4+ order) set free_shipping:false; if she says "waive/remove freight" set free_shipping:true. (The FREIGHT line is a Xero item priced at $15.)
+- REFERENCE: if a PO/invoice number is stated ANYWHERE in the order, that is the reference. Otherwise "{contact first name} Email {DD/MM/YYYY}" where the DATE IS WHEN THE ORDER EMAIL WAS SENT (read it from the email/find_po_email result) — NEVER today's date. An order emailed Sun 13/07 but processed Tue 15/07 → "Alex Email 13/07/2026". First name = the person who sent it, not the business.
+- FREIGHT: DEFAULT IS THE $15 FREIGHT LINE on every invoice (free_shipping:false). Free shipping is a SUPPLIER EXCEPTION only: Nutrition Warehouse 4+ cartons · LaManna Direct always · ASN/Australian Sports Nutrition (David Wilkie) 8+ cartons. The PO assessment applies this rule — pass its free_shipping through. Kate saying "waive freight" → true; "charge freight" → false. Nutrition Warehouse invoices automatically also send a PDF copy to statements@nutritionwarehouse.com.au on send — mention it when it happens (cc_copy_sent_to).
 - OOS + MOQ POLICY: when a PO has out-of-stock lines, count the IN-STOCK cartons. If ≥4 (meets MOQ): fulfil EXCLUDING the OOS lines (pass them as exclude) — stockists prefer the rest now and reorder later; the customer gets a "we've left X off" heads-up email. If <4 (under MOQ): do NOT process — the stockist is asked to either SWAP the OOS flavour for an in-stock one or put the WHOLE order on BACKORDER. If they choose backorder (or the stockist phones it in as a deliberate backorder, e.g. ordering an OOS flavour on purpose), leave it unprocessed and park it until restock — tell Kate it's parked and what to say to process it when stock lands. Never silently drop OOS lines on an under-MOQ order.
-- Box rules: 2 cartons → PANXLARGE; ≤4 → PANOUTERSMALL; ≤8 → PANOUTER; larger = multiples. >24 cartons = B2B/courier (out of standard B2C scope).
+- BOXES: the assessment plans them (2 cartons → PANXLARGE; ≤4 → PANOUTERSMALL; 5-8 → PANOUTER; bigger = one PANOUTER per 8 + a right-sized last box, e.g. 10 = PANOUTER + PANOUTERSMALL). Pass the WHOLE boxes array to create_wholesale_order — every box is committed to ShipBob with its quantity. When reporting, read the box lines from verified.products_on_order (what ShipBob ACTUALLY saved) — NEVER state box counts from the plan or from memory. >24 cartons = B2B/courier (out of standard B2C scope).
+- MISSING SHIP-TO: if the PO has no delivery address, the assessment looks up the customer's LAST ShipBob delivery (name + address) and flags it — offer that to Kate as the recipient ("ship to Alex Houldsworth at ... like last time?") instead of asking her to type it out.
 - UNITS vs CARTONS: some stores (Nutrition Warehouse) order individual 320g BAGS (qty "4" = 4 bags = 1 carton); the parser converts + flags non-clean conversions — surface them.
 - SHIP-TO vs BILL-TO: deliver to the SPECIFIC store/branch (ship_to), NOT head office; bill_to (payer/HQ) may differ — mention it but ship to the branch.
 - GF is a DISTINCT product: "Buttermilk" = regular only (never GF Buttermilk); the GF variant only when "GF"/"Gluten Free" is stated. Same for Cinnamon Churro.

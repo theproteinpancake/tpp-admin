@@ -1,4 +1,5 @@
 import { Megaphone, Clock, CalendarDays, DollarSign } from 'lucide-react';
+import RefreshButton from '@/components/RefreshButton';
 import { listInfluencers, likelyToPost, influencerAnalytics } from '@/lib/marketing';
 import InfluencerTable from '@/components/marketing/InfluencerTable';
 
@@ -20,6 +21,7 @@ export default async function InfluencersPage() {
           <h1 className="text-xl font-bold text-caramel">Influencers</h1>
           <p className="text-sm text-gray-500">{(influencers as any[]).length} in the database · seeding pipeline</p>
         </div>
+        <RefreshButton />
       </div>
 
       {/* Analytics */}

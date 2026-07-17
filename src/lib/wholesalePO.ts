@@ -7,10 +7,34 @@ import { findInvoiceByReference } from './xero';
 
 const MODEL = 'claude-sonnet-4-6';
 
-// ShipBob B2C box rules (320g cartons): ≤24 cartons go as a Customer order.
-// 2 cartons → PANXLARGE; ≤4 → PANOUTERSMALL; ≤8 → PANOUTER; larger = multiple boxes.
-const PANOUTER_CAP = 8, PANOUTERSMALL_CAP = 4;
+import { planWholesaleBoxes } from './boxLogic';
+
 export const B2C_MAX_CARTONS = 24;
+
+// Freight policy (Kate, Jul 2026): every wholesale invoice carries the $15 FREIGHT line by
+// DEFAULT — free shipping is a per-supplier exception, not a carton-count rule.
+//   Nutrition Warehouse — free on 4+ cartons; every invoice also CC'd to their statements inbox
+//   LaManna Direct — always free
+//   ASN / Australian Sports Nutrition (David Wilkie) — free on 8+ cartons
+export function freightRule(customerName: string | null, totalCartons: number): { free: boolean; reason: string } {
+  const n = (customerName || '').toLowerCase();
+  if (/nutrition\s*warehouse/.test(n)) {
+    return totalCartons >= 4
+      ? { free: true, reason: 'Nutrition Warehouse — free shipping on 4+ cartons' }
+      : { free: false, reason: 'Nutrition Warehouse under 4 cartons — add $15 freight' };
+  }
+  if (/lamanna/.test(n)) return { free: true, reason: 'LaManna Direct — always free shipping' };
+  if (/australian\s*sports\s*nutrition|\basn\b|david\s*wilkie/.test(n)) {
+    return totalCartons >= 8
+      ? { free: true, reason: 'ASN — free shipping on 8+ cartons' }
+      : { free: false, reason: 'ASN under 8 cartons — add $15 freight' };
+  }
+  return { free: false, reason: 'standard — add $15 freight' };
+}
+// Accounts-payable copy address for a customer's invoices (null = none needed).
+export function freightCc(customerName: string | null): string | null {
+  return /nutrition\s*warehouse/i.test(customerName || '') ? 'statements@nutritionwarehouse.com.au' : null;
+}
 
 export interface POLine { sku: string; flavour: string; cartons: number; ordered_qty?: number; qty_basis?: string; flag?: string | null; }
 export interface ParsedPO {
@@ -141,20 +165,7 @@ export async function parseWholesalePOMulti(src: { text?: string; pdfs?: { filen
   return parsed;
 }
 
-// Box plan for N cartons of 320g (Altona). Packs into 8s, then a right-sized last box.
-function planBoxes(total: number): string[] {
-  if (total <= 0) return [];
-  if (total === 2) return ['PANXLARGE'];
-  if (total <= PANOUTERSMALL_CAP) return ['PANOUTERSMALL'];
-  if (total <= PANOUTER_CAP) return ['PANOUTER'];
-  const boxes: string[] = [];
-  let rem = total;
-  while (rem > PANOUTER_CAP) { boxes.push('PANOUTER'); rem -= PANOUTER_CAP; }
-  if (rem === 2) boxes.push('PANXLARGE');
-  else if (rem <= PANOUTERSMALL_CAP) boxes.push('PANOUTERSMALL');
-  else if (rem > 0) boxes.push('PANOUTER');
-  return boxes;
-}
+const planBoxes = planWholesaleBoxes;
 
 // Normalise a business name for matching (drop Pty/Ltd/punctuation/branch noise).
 function normName(s: string): string {
@@ -183,10 +194,19 @@ async function findWholesaleCustomer(name: string | null): Promise<{ id: string;
 }
 
 export async function assessPO(parsed: ParsedPO): Promise<POAssessment> {
-  // available cartons at Altona for each ordered SKU
+  // available cartons at Altona for each ordered SKU — snapshot first, then LIVE ShipBob
+  // overlay for the SKUs on this PO. The snapshot refreshes once a day (5am Melb), so a
+  // morning restock read as "still out of stock" for the rest of the day without this.
   const { data: stock } = await supabaseLogistics.from('v_stock_current')
     .select('sku, available').eq('location_code', 'ALTONA').eq('active', true);
   const availBySku = new Map((stock ?? []).map((r: any) => [r.sku, r.available || 0]));
+  try {
+    const { liveAvailable } = await import('./marketing');
+    await Promise.all(parsed.lines.map(async (l) => {
+      const live = await liveAvailable('ALTONA', l.sku);
+      if (live != null) availBySku.set(l.sku, live);
+    }));
+  } catch { /* live overlay best-effort — snapshot values stand */ }
 
   const lines: AssessedLine[] = parsed.lines.map((l) => {
     const available = Number(availBySku.get(l.sku) ?? 0);
@@ -195,7 +215,8 @@ export async function assessPO(parsed: ParsedPO): Promise<POAssessment> {
   const oos = lines.filter((l) => !l.ok).map((l) => ({ sku: l.sku, flavour: l.flavour, cartons: l.cartons, available: l.available }));
   const total = lines.reduce((s, l) => s + l.cartons, 0);
   const fulfillable = oos.length === 0 && lines.length > 0;
-  const free_shipping = total >= 4;        // 4+ cartons free; 1–3 → $15 freight
+  const freight = freightRule(parsed.customer_name, total);
+  const free_shipping = freight.free;
   const over = total > B2C_MAX_CARTONS;
 
   // Is this customer already on file in Xero/wholesale? (fuzzy match the store name)
@@ -220,6 +241,16 @@ export async function assessPO(parsed: ParsedPO): Promise<POAssessment> {
   }
 
   const flags = [...(parsed.flags || [])];
+  // No ship-to on the PO but we've shipped this customer before → surface the last ShipBob
+  // recipient (Xero contacts often lack the real delivery details — "Support Your Gym" ships
+  // to Alex Houldsworth). The agent proposes it to Kate; her confirmation makes it the address.
+  if (!parsed.ship_to && matched) {
+    try {
+      const { findLastShipBobRecipient } = await import('./wholesaleActions');
+      const prev = await findLastShipBobRecipient(matched.name);
+      if (prev) flags.push(`📦 No ship-to on this PO — last ShipBob delivery for ${matched.name} went to: ${[prev.name, prev.address1, prev.address2, prev.city, prev.state, prev.zip_code].filter(Boolean).join(', ')}${prev.email ? ` (${prev.email})` : ''} [order #${prev.from_order}]. Confirm with Kate, then use these details as the recipient.`);
+    } catch { /* best-effort */ }
+  }
   if (already_processed) flags.push(`🛑 ALREADY PROCESSED — PO ${parsed.po_number} already has${existing?.xero_invoice ? ` Xero invoice ${existing.xero_invoice}` : ''}${existing?.shipbob_order_id ? ` / ShipBob order #${existing.shipbob_order_id}` : ''}. Do NOT create another — confirm with the user first.`);
   if (!customer_on_file) flags.push(`🆕 "${parsed.customer_name || 'this customer'}" isn't on file in Xero — needs adding (capture name, ship-to address, email, ABN). Check carefully.`);
   else if (matched && normName(matched.name) !== normName(parsed.customer_name || '')) flags.push(`ℹ️ Matched to existing Xero contact "${matched.name}".`);
@@ -229,7 +260,7 @@ export async function assessPO(parsed: ParsedPO): Promise<POAssessment> {
 
   const cust = parsed.customer_name ? ` for *${parsed.customer_name}*` : '';
   const lineStr = lines.map((l) => `• ${l.flavour} (${l.sku}) ×${l.cartons} carton${l.cartons === 1 ? '' : 's'}${l.qty_basis === 'units' ? ` (ordered ${l.ordered_qty} units)` : ''}${l.ok ? '' : ` ⚠️ only ${l.available} in stock`}`).join('\n');
-  const ship = free_shipping ? 'FREE shipping (4+ cartons)' : 'add $15 freight (≤3 cartons)';
+  const ship = `${free_shipping ? 'FREE shipping' : '$15 freight'} (${freight.reason})`;
   const boxStr = fulfillable ? planBoxes(total).join(' + ') : '—';
   const addr = [parsed.ship_to ? `Ship to: ${parsed.ship_to}` : '', parsed.bill_to && parsed.bill_to !== parsed.customer_name ? `Bill to: ${parsed.bill_to}` : ''].filter(Boolean).join('\n');
   const summary = `Wholesale PO${cust}:\n${lineStr}\n\n${total} cartons · ${ship}\nBox: ${boxStr}${addr ? `\n${addr}` : ''}${flags.length ? `\n\n${flags.join('\n')}` : ''}${needs_review ? '\n\n⚠️ NEEDS KATE TO REVIEW before processing.' : ''}`;
