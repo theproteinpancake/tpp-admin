@@ -82,6 +82,7 @@ const groups: NavGroup[] = [
     section: 'marketing',
     items: [
       { name: 'Influencers', href: '/marketing/influencers', icon: Megaphone },
+      { name: 'Influencer Reporting', href: '/marketing/influencer-reporting', icon: BarChart3 },
       { name: 'Collabs', href: '/marketing/collabs', icon: Handshake },
     ],
   },

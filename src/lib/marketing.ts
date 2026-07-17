@@ -322,6 +322,30 @@ export async function influencerAnalytics() {
   };
 }
 
+// Gifting ACTION report: of the gifts sent in a window, how many creators did anything
+// (post_type !== 'None') — combined + per region, with the post-type mix. "Action" is
+// whatever Kate has recorded on the dashboard (Story / Reel / Reel + Story / ...).
+export async function influencerActionReport(days: number | null) {
+  const { data } = await supabaseLogistics.from('influencers')
+    .select('region, post_type, date_initiated');
+  const cutoff = days ? new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10) : null;
+  // All-time includes the imported historical rows that predate send-date tracking
+  // (71 of the first 82 have no date_initiated); dated windows require a date.
+  const rows = ((data ?? []) as any[]).filter((i) => (cutoff ? i.date_initiated && i.date_initiated >= cutoff : true));
+  const acted = (i: any) => !!i.post_type && i.post_type !== 'None';
+  const bucket = (list: any[]) => {
+    const by_type: Record<string, number> = {};
+    for (const i of list) { const t = i.post_type || 'None'; by_type[t] = (by_type[t] || 0) + 1; }
+    const actioned = list.filter(acted).length;
+    return { sent: list.length, actioned, rate: list.length ? Math.round((actioned / list.length) * 100) : null, by_type };
+  };
+  const regions = [...new Set(rows.map((i) => i.region || 'OTHER'))].sort();
+  return {
+    combined: bucket(rows),
+    by_region: regions.map((r) => ({ region: r, ...bucket(rows.filter((i) => (i.region || 'OTHER') === r)) })),
+  };
+}
+
 // "Most likely to post next" = shipped/delivered, longest since they got stock, not yet posted.
 export async function likelyToPost(limit = 5) {
   const all = await listInfluencers();
