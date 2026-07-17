@@ -92,16 +92,18 @@ export function selectBox(c: BoxCounters): string {
   return 'PANOUTER';
 }
 
-// Multi-box plan for a WHOLESALE order of N 320g cartons (the spec's single-box contract
-// covers ≤8; wholesale routinely exceeds it). Fill PANOUTERs (8 cartons each), then the
-// smallest box that fits the remainder — 2 cartons ride cheaper in a PANXLARGE.
-// e.g. 10 → PANOUTER + PANOUTERSMALL · 16 → 2× PANOUTER · 8 → 1× PANOUTER · 4 → PANOUTERSMALL.
+// Multi-box plan for a WHOLESALE order of N 320g SRP cartons (the spec's single-box contract
+// covers ≤8; wholesale routinely exceeds it). Luke's mapping (Jul 2026): fill PANOUTERs
+// (8 cartons each); a remainder of exactly 2 rides in a PANXLARGE, ≤4 in a PANOUTERSMALL,
+// 5-8 in a PANOUTER. e.g. 2 → PANXLARGE · 4 → PANOUTERSMALL · 6/8 → PANOUTER ·
+// 10 → PANOUTER+PANXLARGE · 12 → PANOUTER+PANOUTERSMALL · 14/16 → 2× PANOUTER ·
+// 18 → 2× PANOUTER+PANXLARGE · 20 → 2× PANOUTER+PANOUTERSMALL.
 export function planWholesaleBoxes(totalCartons: number): string[] {
   if (totalCartons <= 0) return [];
   const boxes: string[] = [];
   let rem = totalCartons;
   while (rem > 8) { boxes.push('PANOUTER'); rem -= 8; }
-  if (rem === 2 && boxes.length === 0) boxes.push('PANXLARGE');
+  if (rem === 2) boxes.push('PANXLARGE');
   else if (rem <= 4) boxes.push('PANOUTERSMALL');
   else boxes.push('PANOUTER');
   return boxes;

@@ -8,7 +8,7 @@ import { gmailSearch, gmailGetBody, gmailGetAllAttachments, gmailGetThreadLatest
 import { processWholesalePOMulti } from './wholesalePO';
 import { getRestockPhrase } from './restock';
 import { xlsxToText } from './xlsx';
-import { sendWhatsApp, sendWhatsAppTemplate, waAddr, KATE_NUMBER } from './whatsapp';
+import { sendWhatsApp, sendWhatsAppTemplate, sendWhatsAppButtons, waAddr, KATE_NUMBER } from './whatsapp';
 import { getConfig } from './settings';
 import { getTemplateSid } from './waTemplates';
 import { recordProactiveContext } from './stockAgent';
@@ -178,19 +178,26 @@ export async function runWholesalePoScour(): Promise<{ scanned: number; new_pos:
     // Quantity warnings from the parser (mismatch vs email / non-divisible bags / assumed basis)
     const qtyFlags = (a!.flags || []).filter((f) => /🛑|≈|corrected cartons|basis assumed/.test(f));
     let msg: string, action: string;
+    // Tap-to-reply buttons follow every actionable ping (Luke: NEVER swap between "type this
+    // reply" and buttons — buttons always). The tap comes back as the exact label; the
+    // context note below tells the agent what each label means for THIS PO.
+    let buttons: string[] | null = null;
     if (!a!.customer_on_file) {
-      action = `🆕 Not in Xero yet — add them (name, ship-to, email, ABN), then reply and I'll process it.`;
+      action = `🆕 Not in Xero yet — add them (name, ship-to, email, ABN), then tap *Added — process*.`;
       msg = `🛒 *New PO* from ${cust}${a!.po_number ? ` (#${a!.po_number})` : ''}\n${lineStr}\n\n${action}\nShip to: ${a!.ship_to || '—'}`;
+      buttons = ['Added — process', 'Hold off'];
     } else if (a!.fulfillable) {
       action = qtyFlags.length
-        ? `⚠️ CHECK QUANTITIES first: ${qtyFlags[0]} — confirm the lines, then reply "process ${cust}".`
-        : `✅ Stock's good — reply "process ${cust}" and I'll create the ShipBob order + draft the Xero invoice.`;
+        ? `⚠️ CHECK QUANTITIES first: ${qtyFlags[0]} — if the lines are right, tap *Quantities correct*.`
+        : `✅ Stock's good — tap *Create order* and I'll create the ShipBob order + draft the Xero invoice.`;
       msg = `🛒 *New PO* from ${cust}${a!.po_number ? ` (#${a!.po_number})` : ''}\n${lineStr}\n📦 ${a!.boxes.join(' + ')} · ${a!.free_shipping ? 'free shipping' : '+$15 freight'}\n\n${action}`;
+      buttons = qtyFlags.length ? ['Quantities correct', 'Hold off'] : ['Create order', 'Hold off'];
     } else if (meetsMoq) {
       // ≥4 in-stock cartons: fulfil excluding OOS, customer just gets a heads-up.
       const oos = a!.oos.map((o) => o.flavour).join(', ');
-      action = `⚠️ OOS ${oos}, but ${inStockCartons} in-stock cartons meets MOQ — reply "process ${cust}" and I'll create the ShipBob order + Xero invoice EXCLUDING ${oos}.${draftId ? ` The we've-left-it-off email is drafted in your inbox — send it once processed.` : ''}`;
+      action = `⚠️ OOS ${oos}, but ${inStockCartons} in-stock cartons meets MOQ — tap *Process excl OOS* and I'll create the ShipBob order + Xero invoice EXCLUDING ${oos}.${draftId ? ` The we've-left-it-off email is drafted in your inbox — send it once processed.` : ''}`;
       msg = `🛒 *New PO* from ${cust}${a!.po_number ? ` (#${a!.po_number})` : ''}\n${lineStr}\n\n${action}`;
+      buttons = ['Process excl OOS', 'Hold off'];
     } else {
       // <4 in-stock cartons: under MOQ — ask them to swap or backorder.
       const oos = a!.oos.map((o) => o.flavour).join(', ');
@@ -210,6 +217,7 @@ export async function runWholesalePoScour(): Promise<{ scanned: number; new_pos:
       });
     }
     if (!ok) ok = await sendWhatsApp(KATE_NUMBER, msg);
+    if (ok && buttons) await sendWhatsAppButtons(KATE_NUMBER, 'Tap an option 👇', buttons).catch(() => false);
     if (ok) {
       notified++;
       // give the agent memory of this alert so Kate's reply ("process it", "remove X and proceed") has context
@@ -219,7 +227,7 @@ export async function runWholesalePoScour(): Promise<{ scanned: number; new_pos:
         : meetsMoq ? `OOS: ${oosNames}, but the ${inStockCartons} in-stock cartons MEET the 4-carton MOQ. If Kate says "process", process EXCLUDING ${oosNames} (pass them as exclude). A we've-left-it-off email is drafted in Kate's inbox for after processing.`
         : `OOS: ${oosNames} — in-stock portion (${inStockCartons}) is UNDER the 4-carton MOQ, so we asked the stockist to swap or backorder (draft in Kate's inbox). If Kate says they chose a swap, process with the swap; if backorder, leave it parked until restock — do not process now.`;
       const qtyNote = qtyFlags.length ? `\nQUANTITY WARNINGS: ${qtyFlags.join(' | ')} — this order is NOT one-shot: restate the lines and get Kate's explicit confirmation of quantities before processing.` : '';
-      const ctx = `Wholesale PO from ${cust}${a!.po_number ? ` (PO ${a!.po_number})` : ''}.\nLines: ${lineInline}.${qtyNote}\n${state}\nShip to: ${a!.ship_to || '—'}.\nStockist reply address: ${replyAddr} (use this for any email to them — NOT the system sender).\nSOURCE EMAIL: id "${c.id}" in inbox "${c.inbox}" — to action this PO call process_po_email with that exact id+inbox (plus exclude for any flavours to leave off). When Kate replies with a clear action on THIS alert ("process it", "process excluding X", "swap X for Y and go"), that reply IS her confirmation — execute end-to-end (process_po_email → create_wholesale_order) and report the ShipBob order + Xero invoice numbers. Do NOT re-ask for confirmation she already gave.`;
+      const ctx = `Wholesale PO from ${cust}${a!.po_number ? ` (PO ${a!.po_number})` : ''}.\nLines: ${lineInline}.${qtyNote}\n${state}\nShip to: ${a!.ship_to || '—'}.\nStockist reply address: ${replyAddr} (use this for any email to them — NOT the system sender).\nSOURCE EMAIL: id "${c.id}" in inbox "${c.inbox}" — to action this PO call process_po_email with that exact id+inbox (plus exclude for any flavours to leave off). When Kate replies with a clear action on THIS alert ("process it", "process excluding X", "swap X for Y and go") OR taps a button ("Create order" / "Process excl OOS" / "Quantities correct" / "Added — process" all mean PROCESS THIS PO as described above; "Hold off" means park it, take no action), that IS her confirmation — execute end-to-end (process_po_email → create_wholesale_order) and report the ShipBob order + Xero invoice numbers. Do NOT re-ask for confirmation she already gave.`;
       await recordProactiveContext(waAddr(KATE_NUMBER), ctx).catch(() => {});
     }
   }
@@ -242,12 +250,13 @@ export async function runWholesalePoScour(): Promise<{ scanned: number; new_pos:
       const snippet = (latest.snippet || '').replace(/\s+/g, ' ').slice(0, 280);
       const tpl = await getTemplateSid('tpp_wholesale_reply');
       let ok = false;
-      if (tpl) ok = await sendWhatsAppTemplate(KATE_NUMBER, tpl, { '1': cust, '2': snippet || '(see the thread)', '3': `Reply "process ${cust}" to action the swap / send-the-rest, or tell me what they chose.` });
-      if (!ok) ok = await sendWhatsApp(KATE_NUMBER, `↩️ *${cust} replied* about their OOS order:\n"${snippet}"\n\nReply "*process ${cust}*" or tell me what they chose.`);
+      if (tpl) ok = await sendWhatsAppTemplate(KATE_NUMBER, tpl, { '1': cust, '2': snippet || '(see the thread)', '3': `Tap *Process order* to action what they chose (swap / send-the-rest), or tell me what they said.` });
+      if (!ok) ok = await sendWhatsApp(KATE_NUMBER, `↩️ *${cust} replied* about their OOS order:\n"${snippet}"\n\nTap *Process order* to action what they chose, or tell me.`);
+      if (ok) await sendWhatsAppButtons(KATE_NUMBER, 'Tap an option 👇', ['Process order', 'Hold off']).catch(() => false);
       if (ok) {
         replyPings++;
         await supabaseLogistics.from('wholesale_po_log').update({ reply_notified_at: new Date().toISOString() }).eq('id', w.id);
-        await recordProactiveContext(waAddr(KATE_NUMBER), `${cust} replied about their out-of-stock order with: "${snippet}". Awaiting Kate's instruction to process the swap / send-the-rest for ${cust}.`).catch(() => {});
+        await recordProactiveContext(waAddr(KATE_NUMBER), `${cust} replied about their out-of-stock order with: "${snippet}". Awaiting Kate's instruction. A "Process order" tap or a clear reply = process the swap / send-the-rest for ${cust} end-to-end; "Hold off" = park it.`).catch(() => {});
       }
     }
   } catch { /* reply-watch is best-effort */ }

@@ -5,7 +5,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { supabaseLogistics } from './supabase-logistics';
 import { gmailSearch } from './google';
 import { getTemplateSid } from './waTemplates';
-import { sendWhatsApp, sendWhatsAppTemplate, allowedNumbers, senderRole } from './whatsapp';
+import { sendWhatsApp, sendWhatsAppTemplate, sendWhatsAppButtons, allowedNumbers, senderRole } from './whatsapp';
 import { recordProactiveContext } from './stockAgent';
 import { createXeroBill } from './xeroBills';
 
@@ -130,11 +130,19 @@ async function applyEvents(events: any[]): Promise<number> {
   const owners = allowedNumbers().filter((to) => senderRole(to) === 'owner');
   if (!owners.length) return 0;
   let fired = 0;
-  const ping = async (tplKey: string, vars: Record<string, string>, ctx: string) => {
+  // buttons: tap-to-reply options following the ping (Luke: confirmations always offer
+  // buttons, never "type this exact reply"). Best-effort — the templated ping is the signal.
+  const ping = async (tplKey: string, vars: Record<string, string>, ctx: string, buttons?: string[]) => {
     const sid = await getTemplateSid(tplKey);
     if (!sid) return false;
     let ok = false;
-    for (const to of owners) { if (await sendWhatsAppTemplate(to, sid, vars)) { ok = true; await recordProactiveContext(to, ctx).catch(() => {}); } }
+    for (const to of owners) {
+      if (await sendWhatsAppTemplate(to, sid, vars)) {
+        ok = true;
+        if (buttons?.length) await sendWhatsAppButtons(to, 'Tap an option 👇', buttons).catch(() => false);
+        await recordProactiveContext(to, ctx).catch(() => {});
+      }
+    }
     if (ok) fired++;
     return ok;
   };
@@ -175,8 +183,9 @@ async function applyEvents(events: any[]): Promise<number> {
         if (po && po.wro_status !== 'received_pending') {
           await supabaseLogistics.from('purchase_orders').update({ wro_status: 'received_pending' }).eq('id', po.id);
           const ref = po.po_number || po.reference;
-          await ping('tpp_stock_received', { '1': ev.location || 'the fulfilment centre', '2': `${ref}${po.reference && po.po_number ? ` — ${po.reference}` : ''}`.slice(0, 280), '3': `Looks received per a ShipBob email — reply "confirm" and I'll mark it received (or tell me if not).`.slice(0, 280) },
-            `A ShipBob email suggests ${ref} (${po.reference}) was RECEIVED at ${ev.location || 'the FC'} — I have NOT marked it yet. If the user replies "confirm"/"yes/yep", call mark_po_received for "${po.po_number || ref}". If they say no/not yet, leave it.`);
+          await ping('tpp_stock_received', { '1': ev.location || 'the fulfilment centre', '2': `${ref}${po.reference && po.po_number ? ` — ${po.reference}` : ''}`.slice(0, 280), '3': `Looks received per a ShipBob email — tap *Mark received* (or tell me if not).`.slice(0, 280) },
+            `A ShipBob email suggests ${ref} (${po.reference}) was RECEIVED at ${ev.location || 'the FC'} — I have NOT marked it yet. A "Mark received" tap or "confirm"/"yes/yep" reply → call mark_po_received for "${po.po_number || ref}". "Not yet" or no/negative → leave it.`,
+            ['Mark received', 'Not yet']);
         }
       }
     } catch { /* per-event best-effort */ }
