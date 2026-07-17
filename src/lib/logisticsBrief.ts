@@ -6,6 +6,7 @@ import { computeStatus } from './stock';
 import { getConfig } from './settings';
 import { getTemplateSid } from './waTemplates';
 import { sendWhatsApp, sendWhatsAppTemplate, allowedNumbers, senderRole } from './whatsapp';
+import { stockImageUrl } from './stockImage';
 import { recordProactiveContext } from './stockAgent';
 import { melbDate, melbLongDate } from './tz';
 
@@ -97,6 +98,14 @@ export async function sendLogisticsBrief(): Promise<{ sent: number; text: string
     let ok = false;
     if (sid) ok = await sendWhatsAppTemplate(to, sid, vars);
     if (!ok) ok = await sendWhatsApp(to, text);
+    // Dashboard-style stock cards ride along with the text brief (live ShipBob numbers,
+    // pouch shots, 320g in cartons) — the text stays the actionable summary, the cards are
+    // the glanceable numbers. Best-effort: outside a 24h session the freeform media message
+    // may not deliver; the templated brief above is the guaranteed signal.
+    if (ok) {
+      await sendWhatsApp(to, '🇦🇺 Altona', stockImageUrl('ALTONA')).catch(() => false);
+      await sendWhatsApp(to, '🇬🇧 Manchester', stockImageUrl('MANCHESTER')).catch(() => false);
+    }
     if (ok) { sent++; await recordProactiveContext(to, `This is the LOGISTICS BRIEF I just sent. If the user replies about it (e.g. "stop showing X in the UK", "don't remind me of these SKUs"), use update_logistics_brief_excludes:\n${text}`).catch(() => {}); }
   }
   return { sent, text };
