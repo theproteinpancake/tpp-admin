@@ -12,6 +12,7 @@ import { resolveVisyItem, draftVisyOrder, markVisyOrderSent, getVisyOrders, crea
 import { findContacts } from './contacts';
 import { getPackagingSummary } from './packaging';
 import { getInventoryLevels } from './shipbob';
+import { stockImageUrl } from './stockImage';
 import { gmailSendDraft, gmailCreateDraft, gmailDeleteDraftsBySubject, gmailSearch, gmailGetBody, gmailGetAllAttachments } from './google';
 import { getLots, expiryStatus, EXPIRY_META } from './lots';
 import { getShippingData } from './shipping';
@@ -83,6 +84,11 @@ const tools: Anthropic.Tool[] = [
     name: 'get_po_forecast',
     description: 'The 3-month rolling ABC purchase-order schedule for Altona — which SKUs to order in which month (live velocity, 30-day lead), grouped by month. Use for "what\'s my PO schedule", "what do I need to order over the next few months", "June/July PO plan".',
     input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'stock_snapshot',
+    description: 'Attach a DASHBOARD-STYLE STOCK CARD IMAGE (per-flavour availability with product shots, live ShipBob numbers, 320g in cartons) to your reply. USE THIS for any general stock update request ("stock update", "how\'s stock looking", "what\'s in stock") instead of dumping numbers as text — send the image with a 1-2 line highlight (e.g. what\'s out or low). For a SPECIFIC SKU question use get_stock text instead.',
+    input_schema: { type: 'object', properties: { site: { type: 'string', enum: ['ALTONA', 'MANCHESTER'], description: 'default ALTONA (AU). MANCHESTER for UK.' } } },
   },
   {
     name: 'get_reorder_recommendations',
@@ -525,11 +531,17 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
     let out = rows.map((r) => {
       const live = liveBySkuSite.get(`${r.sku}|${r.location_code}`);
       const rr = live != null ? { ...r, available: live } : r;
+      // 320g rows: EVERYTHING in cartons of 4. available/velocity are ShipBob-native cartons,
+      // but inbound comes from po_items in POUCHES — unconverted, a 120-carton PO read as
+      // "480 inbound" next to a carton availability (misquoted to Kate, Jul 2026).
+      const is320 = r.unit_size_g === 320;
       return {
         sku: r.sku, flavour: r.flavour || nameBySku.get(r.sku) || r.sku,
         size: r.unit_size_g ? (r.unit_size_g >= 1000 ? `${r.unit_size_g / 1000}kg` : `${r.unit_size_g}g`) : '',
-        tier: r.tier, site: r.location_code, on_hand: r.on_hand, available: rr.available, inbound: r.inbound,
+        tier: r.tier, site: r.location_code, on_hand: r.on_hand, available: rr.available,
+        inbound: is320 ? Math.round((r.inbound || 0) / 4) : r.inbound,
         days_of_cover: r.days_of_cover, daily_sales: r.avg_daily_units_30d, status: STATUS_META[computeStatus(rr)].label,
+        ...(is320 ? { unit: 'CARTONS of 4 (all figures incl. inbound — quote cartons, never bags)' } : {}),
         ...(live != null ? { live_checked: true } : {}),
       };
     });
@@ -552,6 +564,11 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
     return f.months.length
       ? f.months.map((m) => ({ month: m.label, total_units: m.units, order_now: m.key === new Date().toISOString().slice(0, 7), items: m.items.map((i) => ({ flavour: i.flavour, size: i.size, units: i.units, cartons: i.cartons, order_by: i.order_by })) }))
       : { note: 'Nothing to order in the next 3 months — stock + inbound cover projected demand.' };
+  }
+  if (name === 'stock_snapshot') {
+    const site = String(input.site || 'ALTONA').toUpperCase();
+    _media.push(stockImageUrl(site));
+    return { attached: true, site, note: `Stock card image attached (live ShipBob numbers, ${site}). Keep your text to 1-2 lines — call out anything OUT OF STOCK or low, don't repeat the table. 320g figures on the card are CARTONS of 4.` };
   }
   if (name === 'get_reorder_recommendations') {
     const props = await proposeFlavourPOs('ALTONA');
@@ -1194,6 +1211,7 @@ ATTACHMENTS & "this/that" — when the message includes an ATTACHMENT (PDF invoi
 
 "YES" ANSWERS THE MOST RECENT QUESTION (CRITICAL): a bare approval (yes / go / do it) always refers to the LAST question YOU asked — never to an older step. PENDING/context notes describe the next step AS OF WHEN THEY WERE WRITTEN; once the conversation shows that step completed, the note is DEAD — acting on a stale note (e.g. re-running create_wro after the WRO exists) is a serious failure.
 WHATSAPP FORMATTING (CRITICAL): WhatsApp does NOT render markdown — NEVER output markdown tables (| pipes |), headers (#) or horizontal rules. Stock/quantity lists are ONE COMPACT LINE PER ITEM: "SCL — In stock: 167 ✅" (use 🛑 for 0, and append "(inbound)" when a restock is on the way). Group with a short *bold* heading (*PRIMARY* / *OTHER PRODUCTS*), nothing else. Keep every list scannable on a phone screen.
+STOCK UPDATES ARE AN IMAGE: for any general stock update ("stock update", "how's stock", "what can I sell") call stock_snapshot — it attaches a dashboard-style card — and keep your text to a 1-2 line highlight (what's out/low/inbound). Only use get_stock text lines for specific-SKU questions. 320g IS ALWAYS CARTONS: every 320g figure you quote (available AND inbound) is cartons of 4 — get_stock already converts; never quote bags.
 TAPPABLE BUTTONS: when you ask the user to choose between clear next actions (approve/send/draft/skip), end your reply with a final line exactly like: [[buttons: Draft Sharon reply | Not now]] — 2 or 3 options, each ≤20 characters, action-specific verbs (NEVER a bare "Yes" — the label itself must say what it does, e.g. "Send to ABC", "Create WRO", "Skip"). The system renders them as tappable buttons and the user's tap comes back as the exact label. Use them for every confirmation question; skip them for open-ended questions.
 PO-ALERT REPLIES (CRITICAL): when the conversation contains a context note about a wholesale PO I proactively alerted (it includes the SOURCE EMAIL id+inbox), a reply with a clear instruction — "process it", "process [customer]", "remove/exclude X and proceed", "swap X for Y" — is the user's FULL confirmation. Execute end-to-end immediately: process_po_email(id, inbox, exclude as instructed) then create the order, and report the ShipBob order # + Xero invoice #. Never ask "which customer" (it's in the context note) and never re-ask for a confirmation they just gave. Only pause if their instruction is genuinely ambiguous (e.g. a swap to a flavour that's also OOS).
 
