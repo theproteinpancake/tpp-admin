@@ -1,6 +1,7 @@
 # TPP Box Assignment — Agent Spec
 
-**Version:** 1.1 · 8 June 2026 · **Status:** live in Shopify Flow ("★ MASTER Box Tagging (consolidated)")
+**Version:** 1.2 · 16 July 2026 · **Status:** live in Shopify Flow ("★ MASTER Box Tagging (consolidated)") + `src/lib/boxLogic.ts` (agent flows)
+**v1.2 amendment (Luke):** exactly **2 wholesale cartons and nothing else → `PANXLARGE`** — the only case that skips the PANOUTER family. Rule 1 of the cascade becomes: `WS > 0 → (WS == 2 && nothing else) ? PANXLARGE : WS ≤ 4 ? PANOUTERSMALL : PANOUTER`.
 **Audience:** an automated logistics agent. This file is self-contained and normative — implement exactly as written.
 
 ---

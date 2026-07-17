@@ -56,7 +56,12 @@ export function countersForSkuLines(lines: { sku: string; size_g?: number; qty: 
 // §4 cascade — NORMATIVE, first match wins. Direct port of the spec's reference implementation.
 export function selectBox(c: BoxCounters): string {
   const { MED, LRG, SYR, ACC, PAN, WAF, WS, SMP } = c;
-  if (WS > 0) return WS <= 4 ? 'PANOUTERSMALL' : 'PANOUTER';
+  if (WS > 0) {
+    // Luke's refinement (Jul 2026): exactly 2 SRP cartons and nothing else ride in a
+    // PANXLARGE — the ONLY case that skips the PANOUTER family for wholesale cartons.
+    if (WS === 2 && MED + LRG + SYR + ACC + PAN + WAF + SMP === 0) return 'PANXLARGE';
+    return WS <= 4 ? 'PANOUTERSMALL' : 'PANOUTER';
+  }
   if (WAF > 0) return MED + 2 * LRG > 8 ? 'PANOUTER' : 'PANXXLARGE';
   if (MED === 0 && LRG === 0 && SYR === 0 && ACC === 0 && PAN === 0) {
     if (SMP > 0) return SMP <= 12 ? 'PANSMALL' : 'PANXLARGE';
@@ -135,7 +140,8 @@ export function runSpecTestVectors(): string[] {
     [[4, 0, 0, 0, 1, 0, 0, 0], 'PANXXLARGE'],
     [[0, 0, 0, 0, 0, 1, 0, 0], 'PANXXLARGE'], [[3, 0, 0, 0, 0, 1, 0, 0], 'PANXXLARGE'],
     [[0, 3, 0, 0, 0, 1, 0, 0], 'PANXXLARGE'], [[0, 6, 0, 0, 0, 1, 0, 0], 'PANOUTER'],
-    [[0, 0, 0, 0, 0, 0, 1, 0], 'PANOUTERSMALL'], [[0, 0, 0, 0, 0, 0, 4, 0], 'PANOUTERSMALL'],
+    [[0, 0, 0, 0, 0, 0, 1, 0], 'PANOUTERSMALL'], [[0, 0, 0, 0, 0, 0, 2, 0], 'PANXLARGE'],
+    [[0, 0, 0, 0, 0, 0, 4, 0], 'PANOUTERSMALL'],
     [[0, 0, 0, 0, 0, 0, 5, 0], 'PANOUTER'], [[0, 0, 0, 2, 0, 0, 0, 0], 'PANLARGE'],
     [[0, 0, 1, 0, 0, 0, 0, 0], 'PANSMALL'], [[0, 0, 3, 0, 0, 0, 0, 0], 'PANSMALL'],
     [[0, 0, 0, 0, 0, 0, 0, 5], 'PANSMALL'],

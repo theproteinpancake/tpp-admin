@@ -57,6 +57,7 @@ export interface POAssessment {
   bill_to: string | null;
   ship_to: string | null;
   contact_email: string | null;     // best human reply address from the PO body (not the relay/system sender)
+  previous_recipient: { name: string; address1?: string; address2?: string; city?: string; state?: string; zip_code?: string; country?: string; email?: string; from_order: string } | null; // customer's last ShipBob delivery — the shipping source of truth
   customer_on_file: boolean;        // matched an existing Xero/wholesale customer?
   needs_review: boolean;            // true if Kate must check (new customer / flags)
   flags: string[];
@@ -241,15 +242,20 @@ export async function assessPO(parsed: ParsedPO): Promise<POAssessment> {
   }
 
   const flags = [...(parsed.flags || [])];
-  // No ship-to on the PO but we've shipped this customer before → surface the last ShipBob
-  // recipient (Xero contacts often lack the real delivery details — "Support Your Gym" ships
-  // to Alex Houldsworth). The agent proposes it to Kate; her confirmation makes it the address.
-  if (!parsed.ship_to && matched) {
+  // The customer's LAST ShipBob delivery is the SHIPPING source of truth — Xero contact
+  // profiles are billing data and regularly lack/mangle the delivery details ("Support Your
+  // Gym" ships to Alex Houldsworth). Fetched for EVERY known customer so the agent can default
+  // to it whenever the PO itself doesn't state a full ship-to.
+  let previous_recipient: POAssessment['previous_recipient'] = null;
+  if (matched) {
     try {
       const { findLastShipBobRecipient } = await import('./wholesaleActions');
-      const prev = await findLastShipBobRecipient(matched.name);
-      if (prev) flags.push(`📦 No ship-to on this PO — last ShipBob delivery for ${matched.name} went to: ${[prev.name, prev.address1, prev.address2, prev.city, prev.state, prev.zip_code].filter(Boolean).join(', ')}${prev.email ? ` (${prev.email})` : ''} [order #${prev.from_order}]. Confirm with Kate, then use these details as the recipient.`);
+      previous_recipient = await findLastShipBobRecipient(matched.name);
     } catch { /* best-effort */ }
+  }
+  if (!parsed.ship_to && previous_recipient) {
+    const prev = previous_recipient;
+    flags.push(`📦 No ship-to on this PO — last ShipBob delivery for ${matched!.name} went to: ${[prev.name, prev.address1, prev.address2, prev.city, prev.state, prev.zip_code].filter(Boolean).join(', ')}${prev.email ? ` (${prev.email})` : ''} [order #${prev.from_order}]. Confirm with Kate, then use these details as the recipient.`);
   }
   if (already_processed) flags.push(`🛑 ALREADY PROCESSED — PO ${parsed.po_number} already has${existing?.xero_invoice ? ` Xero invoice ${existing.xero_invoice}` : ''}${existing?.shipbob_order_id ? ` / ShipBob order #${existing.shipbob_order_id}` : ''}. Do NOT create another — confirm with the user first.`);
   if (!customer_on_file) flags.push(`🆕 "${parsed.customer_name || 'this customer'}" isn't on file in Xero — needs adding (capture name, ship-to address, email, ABN). Check carefully.`);
@@ -268,7 +274,7 @@ export async function assessPO(parsed: ParsedPO): Promise<POAssessment> {
   return {
     po_number: parsed.po_number, already_processed, existing,
     customer_name: parsed.customer_name, bill_to: parsed.bill_to, ship_to: parsed.ship_to,
-    contact_email: parsed.contact_email ?? null,
+    contact_email: parsed.contact_email ?? null, previous_recipient,
     customer_on_file, needs_review, flags,
     lines, total_cartons: total, fulfillable, oos, boxes: fulfillable ? planBoxes(total) : [],
     free_shipping, over_b2c_limit: over, summary,
