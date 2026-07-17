@@ -8,7 +8,8 @@ export function stockImageToken(): string {
   return createHash('sha256').update(`stock-image:${process.env.CRON_SECRET || ''}`).digest('hex').slice(0, 16);
 }
 
-export function stockImageUrl(site: string): string {
+export function stockImageUrl(site: string, sizes?: number[]): string {
   // t= busts WhatsApp/Twilio media caching so a fresh request renders fresh numbers
-  return `${APP_URL}/api/whatsapp/stock-image?site=${encodeURIComponent(site)}&k=${stockImageToken()}&t=${Date.now()}`;
+  const sz = sizes?.length ? `&sizes=${sizes.join(',')}` : '';
+  return `${APP_URL}/api/whatsapp/stock-image?site=${encodeURIComponent(site)}${sz}&k=${stockImageToken()}&t=${Date.now()}`;
 }

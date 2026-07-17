@@ -25,6 +25,9 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   if (url.searchParams.get('k') !== stockImageToken()) return new Response('not found', { status: 404 });
   const site = (url.searchParams.get('site') || 'ALTONA').toUpperCase();
+  // ?sizes=320 scopes the card ("320g stock update" → just the wholesale column)
+  const sizeParam = (url.searchParams.get('sizes') || '').split(',').map(Number).filter((g) => [320, 520, 1000].includes(g));
+  const SIZES = sizeParam.length ? sizeParam : [320, 520, 1000];
   const origin = process.env.PUBLIC_APP_URL || `${url.protocol}//${url.host}`;
 
   const { data } = await supabaseLogistics.from('v_stock_current')
@@ -52,7 +55,6 @@ export async function GET(req: Request) {
   } catch { /* snapshot values stand */ }
 
   // group by flavour; per-size cells. 320g: available + inbound in CARTONS (inbound is pouches ÷ 4).
-  const SIZES = [320, 520, 1000];
   const byFlavour = new Map<string, Record<number, { avail: number; inbound: number; cover: number | null }>>();
   for (const r of rows) {
     if (!r.flavour || !SIZES.includes(r.unit_size_g)) continue;
@@ -82,9 +84,9 @@ export async function GET(req: Request) {
         <div style={{ display: 'flex', flexDirection: 'column', marginTop: 26, background: 'white', borderRadius: 16, padding: 6 }}>
           <div style={{ display: 'flex', padding: '10px 18px', fontSize: 17, color: '#9ca3af', alignItems: 'center' }}>
             <span style={{ flex: 1 }}>Flavour</span>
-            <span style={{ width: 190, textAlign: 'right' }}>320g wholesale (ctns)</span>
-            <span style={{ width: 130, textAlign: 'right' }}>520g</span>
-            <span style={{ width: 130, textAlign: 'right' }}>1kg</span>
+            {SIZES.includes(320) && <span style={{ width: 190, textAlign: 'right' }}>320g wholesale (ctns)</span>}
+            {SIZES.includes(520) && <span style={{ width: 130, textAlign: 'right' }}>520g</span>}
+            {SIZES.includes(1000) && <span style={{ width: 130, textAlign: 'right' }}>1kg</span>}
           </div>
           {flavours.map((f) => {
             const sz = byFlavour.get(f)!;
@@ -95,7 +97,7 @@ export async function GET(req: Request) {
                   ? <img src={`${origin}/products/${img}`} width={52} height={52} style={{ borderRadius: 10, objectFit: 'contain' }} />
                   : <div style={{ display: 'flex', width: 52, height: 52, borderRadius: 10, background: '#f3f4f6' }} />}
                 <span style={{ flex: 1, fontSize: 23, fontWeight: 600, color: '#111827', marginLeft: 16 }}>{f}</span>
-                {[320, 520, 1000].map((g) => {
+                {SIZES.map((g) => {
                   const c = sz[g];
                   return (
                     <div key={g} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: g === 320 ? 190 : 130 }}>
@@ -116,7 +118,7 @@ export async function GET(req: Request) {
               <span>{label}</span>
             </div>
           ))}
-          <span>320g figures are cartons of 4</span>
+          {SIZES.includes(320) && <span>320g figures are cartons of 4</span>}
         </div>
       </div>
     ),

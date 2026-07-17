@@ -87,8 +87,11 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: 'stock_snapshot',
-    description: 'Attach a DASHBOARD-STYLE STOCK CARD IMAGE (per-flavour availability with product shots, live ShipBob numbers, 320g in cartons) to your reply. USE THIS for any general stock update request ("stock update", "how\'s stock looking", "what\'s in stock") instead of dumping numbers as text — send the image with a 1-2 line highlight (e.g. what\'s out or low). For a SPECIFIC SKU question use get_stock text instead.',
-    input_schema: { type: 'object', properties: { site: { type: 'string', enum: ['ALTONA', 'MANCHESTER'], description: 'default ALTONA (AU). MANCHESTER for UK.' } } },
+    description: 'Attach a DASHBOARD-STYLE STOCK CARD IMAGE (per-flavour availability with product shots, live ShipBob numbers, 320g in cartons) to your reply. USE THIS whenever the answer covers MULTIPLE SKUs — "stock update", "how\'s stock", "320g stock", "what can I sell" — instead of dumping numbers as text: send the image and put ONLY the extras in text (reorder dates, what\'s out, ETAs; 1-3 lines). Scope with sizes when the ask is size-specific ("320g stock" → sizes:[320]). Only use get_stock text for a SINGLE-SKU question.',
+    input_schema: { type: 'object', properties: {
+      site: { type: 'string', enum: ['ALTONA', 'MANCHESTER'], description: 'default ALTONA (AU). MANCHESTER for UK.' },
+      sizes: { type: 'array', items: { type: 'number', enum: [320, 520, 1000] }, description: 'limit the card to these sizes, e.g. [320] for a wholesale/320g update. Omit for all sizes.' },
+    } },
   },
   {
     name: 'get_reorder_recommendations',
@@ -567,8 +570,9 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
   }
   if (name === 'stock_snapshot') {
     const site = String(input.site || 'ALTONA').toUpperCase();
-    _media.push(stockImageUrl(site));
-    return { attached: true, site, note: `Stock card image attached (live ShipBob numbers, ${site}). Keep your text to 1-2 lines — call out anything OUT OF STOCK or low, don't repeat the table. 320g figures on the card are CARTONS of 4.` };
+    const sizes = Array.isArray(input.sizes) ? (input.sizes as number[]).filter((g) => [320, 520, 1000].includes(Number(g))) : [];
+    _media.push(stockImageUrl(site, sizes.length ? sizes : undefined));
+    return { attached: true, site, sizes: sizes.length ? sizes : 'all', note: `Stock card image attached (live ShipBob numbers, ${site}). The card carries the availability — your text adds ONLY what it can't show (reorder-by dates, ETAs, what needs action), 1-3 lines, never a repeat of the numbers. 320g figures are CARTONS of 4.` };
   }
   if (name === 'get_reorder_recommendations') {
     const props = await proposeFlavourPOs('ALTONA');
@@ -1211,7 +1215,7 @@ ATTACHMENTS & "this/that" — when the message includes an ATTACHMENT (PDF invoi
 
 "YES" ANSWERS THE MOST RECENT QUESTION (CRITICAL): a bare approval (yes / go / do it) always refers to the LAST question YOU asked — never to an older step. PENDING/context notes describe the next step AS OF WHEN THEY WERE WRITTEN; once the conversation shows that step completed, the note is DEAD — acting on a stale note (e.g. re-running create_wro after the WRO exists) is a serious failure.
 WHATSAPP FORMATTING (CRITICAL): WhatsApp does NOT render markdown — NEVER output markdown tables (| pipes |), headers (#) or horizontal rules. Stock/quantity lists are ONE COMPACT LINE PER ITEM: "SCL — In stock: 167 ✅" (use 🛑 for 0, and append "(inbound)" when a restock is on the way). Group with a short *bold* heading (*PRIMARY* / *OTHER PRODUCTS*), nothing else. Keep every list scannable on a phone screen.
-STOCK UPDATES ARE AN IMAGE: for any general stock update ("stock update", "how's stock", "what can I sell") call stock_snapshot — it attaches a dashboard-style card — and keep your text to a 1-2 line highlight (what's out/low/inbound). Only use get_stock text lines for specific-SKU questions. 320g IS ALWAYS CARTONS: every 320g figure you quote (available AND inbound) is cartons of 4 — get_stock already converts; never quote bags.
+STOCK UPDATES ARE AN IMAGE: whenever the answer covers MULTIPLE SKUs ("stock update", "how's stock", "320g stock", "what can I sell") call stock_snapshot — it attaches a dashboard-style card (scope with sizes:[320] etc. when the ask is size-specific) — and put ONLY what the card can't show in text (reorder-by dates, restock ETAs, action needed; 1-3 lines). You may still call get_stock alongside to get dates/cover for that text. Only answer in text alone for a SINGLE-SKU question. 320g IS ALWAYS CARTONS: every 320g figure you quote (available AND inbound) is cartons of 4 — get_stock already converts; never quote bags.
 TAPPABLE BUTTONS: when you ask the user to choose between clear next actions (approve/send/draft/skip), end your reply with a final line exactly like: [[buttons: Draft Sharon reply | Not now]] — 2 or 3 options, each ≤20 characters, action-specific verbs (NEVER a bare "Yes" — the label itself must say what it does, e.g. "Send to ABC", "Create WRO", "Skip"). The system renders them as tappable buttons and the user's tap comes back as the exact label. Use them for every confirmation question; skip them for open-ended questions.
 PO-ALERT REPLIES (CRITICAL): when the conversation contains a context note about a wholesale PO I proactively alerted (it includes the SOURCE EMAIL id+inbox), a reply with a clear instruction — "process it", "process [customer]", "remove/exclude X and proceed", "swap X for Y" — is the user's FULL confirmation. Execute end-to-end immediately: process_po_email(id, inbox, exclude as instructed) then create the order, and report the ShipBob order # + Xero invoice #. Never ask "which customer" (it's in the context note) and never re-ask for a confirmation they just gave. Only pause if their instruction is genuinely ambiguous (e.g. a swap to a flavour that's also OOS).
 
@@ -1436,7 +1440,11 @@ export async function askStockAgent(question: string, phone?: string, images?: A
   let answer = '';
   let emptyRetries = 0;
   for (let i = 0; i < 14; i++) { // tool budget — complex POs (multi-size + samples + stock checks) legitimately need >8 rounds
-    const resp = await client.messages.create({ model: MODEL, max_tokens: 1500, system: systemBlocks, tools: cachedTools, messages });
+    // 4000 not 1500: Sonnet 5 spends part of the budget on internal thinking blocks — at 1500
+    // a thinking-heavy turn hit max_tokens BEFORE any visible text/tool_use (live: a "SEND"
+    // approval died with stop=max_tokens blocks=[thinking]). Wire format caps the REPLY;
+    // prompt rules keep messages short.
+    const resp = await client.messages.create({ model: MODEL, max_tokens: 4000, system: systemBlocks, tools: cachedTools, messages });
     if (resp.stop_reason === 'tool_use') {
       const results: Anthropic.ToolResultBlockParam[] = [];
       for (const block of resp.content) {
