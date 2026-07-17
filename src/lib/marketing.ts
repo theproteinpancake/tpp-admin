@@ -325,13 +325,21 @@ export async function influencerAnalytics() {
 // Gifting ACTION report: of the gifts sent in a window, how many creators did anything
 // (post_type !== 'None') — combined + per region, with the post-type mix. "Action" is
 // whatever Kate has recorded on the dashboard (Story / Reel / Reel + Story / ...).
-export async function influencerActionReport(days: number | null) {
+// Filter is EITHER a rolling window (days) or a calendar year of the send date — year chips
+// are built from `years` in the result (every distinct year seen in date_initiated).
+export async function influencerActionReport(days: number | null, year?: number | null) {
   const { data } = await supabaseLogistics.from('influencers')
     .select('region, post_type, date_initiated');
+  const all = (data ?? []) as any[];
+  const years = [...new Set(all.map((i) => (i.date_initiated ? Number(i.date_initiated.slice(0, 4)) : null)).filter(Boolean))].sort((a, b) => (b as number) - (a as number)) as number[];
   const cutoff = days ? new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10) : null;
   // All-time includes the imported historical rows that predate send-date tracking
-  // (71 of the first 82 have no date_initiated); dated windows require a date.
-  const rows = ((data ?? []) as any[]).filter((i) => (cutoff ? i.date_initiated && i.date_initiated >= cutoff : true));
+  // (71 of the first 82 have no date_initiated); dated windows and year filters require a date.
+  const rows = all.filter((i) => {
+    if (year) return i.date_initiated && i.date_initiated.startsWith(`${year}-`);
+    if (cutoff) return i.date_initiated && i.date_initiated >= cutoff;
+    return true;
+  });
   const acted = (i: any) => !!i.post_type && i.post_type !== 'None';
   const bucket = (list: any[]) => {
     const by_type: Record<string, number> = {};
@@ -343,6 +351,7 @@ export async function influencerActionReport(days: number | null) {
   return {
     combined: bucket(rows),
     by_region: regions.map((r) => ({ region: r, ...bucket(rows.filter((i) => (i.region || 'OTHER') === r)) })),
+    years,
   };
 }
 

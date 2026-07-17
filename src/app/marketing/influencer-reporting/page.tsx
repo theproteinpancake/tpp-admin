@@ -19,8 +19,11 @@ const REGION_FLAGS: Record<string, string> = { AU: '🇦🇺', UK: '🇬🇧', N
 
 export default async function InfluencerReportingPage({ searchParams }: { searchParams: Promise<{ range?: string }> }) {
   const sp = await searchParams;
-  const range = RANGES.find((r) => r.key === (sp.range || '30d')) || RANGES[0];
-  const [report, likely, stats] = await Promise.all([influencerActionReport(range.days), likelyToPost(5), influencerAnalytics()]);
+  // range param is a rolling-window key (30d/90d/12mo/all) OR a calendar year ("2025")
+  const yearParam = /^\d{4}$/.test(sp.range || '') ? Number(sp.range) : null;
+  const range = yearParam ? null : RANGES.find((r) => r.key === (sp.range || '30d')) || RANGES[0];
+  const [report, likely, stats] = await Promise.all([influencerActionReport(range?.days ?? null, yearParam), likelyToPost(5), influencerAnalytics()]);
+  const windowLabel = yearParam ? `sent in ${yearParam}` : range!.label.toLowerCase();
   const maxMonth = Math.max(1, ...stats.months.map((m) => m.count));
   const c = report.combined;
   const typeOrder = (t: string) => (t === 'None' ? 99 : 0);
@@ -44,8 +47,14 @@ export default async function InfluencerReportingPage({ searchParams }: { search
           <div className="flex flex-wrap gap-1.5">
             {RANGES.map((r) => (
               <Link key={r.key} href={`/marketing/influencer-reporting?range=${r.key}`}
-                className={`rounded-full px-3 py-1 text-xs font-medium ${r.key === range.key ? 'bg-caramel text-white' : 'border border-gray-300 text-gray-600 hover:bg-cream/50'}`}>
+                className={`rounded-full px-3 py-1 text-xs font-medium ${r.key === range?.key ? 'bg-caramel text-white' : 'border border-gray-300 text-gray-600 hover:bg-cream/50'}`}>
                 {r.label}
+              </Link>
+            ))}
+            {report.years.map((y) => (
+              <Link key={y} href={`/marketing/influencer-reporting?range=${y}`}
+                className={`rounded-full px-3 py-1 text-xs font-medium ${y === yearParam ? 'bg-caramel text-white' : 'border border-gray-300 text-gray-600 hover:bg-cream/50'}`}>
+                {y}
               </Link>
             ))}
           </div>
@@ -57,7 +66,7 @@ export default async function InfluencerReportingPage({ searchParams }: { search
           <>
             <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
               <span className="text-3xl font-bold text-caramel">{c.rate}%</span>
-              <span className="text-sm text-gray-600">{c.actioned} of {c.sent} gifted influencer{c.sent === 1 ? '' : 's'} took an action ({range.label.toLowerCase()})</span>
+              <span className="text-sm text-gray-600">{c.actioned} of {c.sent} gifted influencer{c.sent === 1 ? '' : 's'} took an action ({windowLabel})</span>
             </div>
             {/* action bar */}
             <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-gray-100">
