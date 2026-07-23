@@ -87,6 +87,10 @@ async function flavourSizes(site: string) {
   const byFlavour = new Map<string, any[]>();
   for (const r of (data ?? []) as any[]) {
     if (!r.flavour) continue;
+    // 80g sample packs are NEVER auto-ordered (Luke, Jul 2026): they joined a Cinnamon
+    // 500kg split as "the OOS one" the day after activation. Explicit orders still work —
+    // draft_po's items path (e.g. BM80 ×1000) bypasses this split entirely.
+    if (r.unit_size_g === 80) continue;
     if (!byFlavour.has(r.flavour)) byFlavour.set(r.flavour, []);
     byFlavour.get(r.flavour)!.push(r);
   }

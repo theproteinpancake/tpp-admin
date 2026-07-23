@@ -28,12 +28,16 @@ export async function getPoForecast(site = 'ALTONA', nowMs?: number): Promise<{ 
 
   for (const r of (rows ?? []) as any[]) {
     if (r.category !== 'mix') continue; // ABC produces the mix range
-    const daily = Number(r.avg_daily_units_30d) || Number(r.avg_daily_units_90d) || 0;
+    if (r.unit_size_g === 80) continue; // sample packs: ordered only on explicit request, never forecast
+    // 320g units trap: ShipBob feeds available + velocity in CARTONS of 4, but PO units and
+    // inbound (po_items) are POUCHES — convert so the forecast quantities are pouches.
+    const cs = r.unit_size_g === 320 ? 4 : 1;
+    const daily = (Number(r.avg_daily_units_30d) || Number(r.avg_daily_units_90d) || 0) * cs;
     if (daily <= 0) continue;
     const tier = (r.tier as 'primary' | 'secondary') || 'secondary';
     const target = POLICY[tier].targetDays;
     const safety = POLICY[tier].safetyDays;
-    const covered = (r.available ?? 0) + (r.inbound ?? 0);
+    const covered = (r.available ?? 0) * cs + (r.inbound ?? 0);
     const coverDays = covered / daily;
     // place the order this many days from now so stock arrives before it dips below safety
     const orderByDays = Math.max(0, Math.round(coverDays - safety - LEAD_DAYS));

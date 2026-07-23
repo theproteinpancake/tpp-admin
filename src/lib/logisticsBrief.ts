@@ -27,14 +27,18 @@ const sizeLabel = (g: any) => g == null ? '' : Number(g) >= 1000 ? ` ${Number(g)
 function stockLine(r: any): string {
   const st = computeStatus(r);
   const cover = r.days_of_cover != null ? `${Math.round(r.days_of_cover)}d` : '—';
-  const inb = Number(r.inbound) > 0 ? ` (+${Number(r.inbound)} in)` : '';
+  // 320g inbound arrives in POUCHES (po_items) but the audience thinks in CARTONS of 4
+  const inbN = r.unit_size_g === 320 ? Math.round(Number(r.inbound) / 4) : Number(r.inbound);
+  const inb = Number(r.inbound) > 0 ? ` (+${inbN}${r.unit_size_g === 320 ? ' ctn' : ''} in)` : '';
   return `${r.flavour}${sizeLabel(r.unit_size_g)} ${st === 'oos' ? 'OOS' : cover}${inb}`;
 }
 // Top-N most urgent SELLABLE SKUs at a site (primary tier, OOS first, then lowest days of cover).
 // `exclude` = SKU codes the owner asked to hide for this site.
 function topStock(rows: any[], code: string, exclude: string[] = [], n = 6): string {
   const hidden = new Set(exclude.map((s) => s.toUpperCase()));
-  const ranked = rows.filter((r) => r.location_code === code && r.flavour && r.tier === 'primary' && !hidden.has(String(r.sku || '').toUpperCase()))
+  // 80g sample packs are deliberately not replenished on velocity — their OOS states are
+  // noise here (they filled half the UK line the day they were activated).
+  const ranked = rows.filter((r) => r.location_code === code && r.flavour && r.tier === 'primary' && r.unit_size_g !== 80 && !hidden.has(String(r.sku || '').toUpperCase()))
     .map((r) => ({ r, k: computeStatus(r) === 'oos' ? -1 : (r.days_of_cover ?? 9999) }))
     .sort((a, b) => a.k - b.k).slice(0, n);
   return ranked.map((x) => stockLine(x.r)).join(' · ') || 'all healthy';
