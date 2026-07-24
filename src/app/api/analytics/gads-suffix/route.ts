@@ -56,9 +56,7 @@ async function handle(req: NextRequest) {
     const res = await fetch(`https://googleads.googleapis.com/${ADS_VERSION}/customers/${cid}:mutate`, {
       method: 'POST', headers,
       body: JSON.stringify({
-        mutateOperations: [{
-          customerOperation: { update: { resourceName: `customers/${cid}`, finalUrlSuffix: SUFFIX }, updateMask: 'final_url_suffix' },
-        }],
+        operation: { update: { resourceName: `customers/${cid}`, finalUrlSuffix: SUFFIX }, updateMask: 'final_url_suffix' },
       }),
     });
     const j = await res.json();
