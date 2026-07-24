@@ -10,13 +10,24 @@ export const POLICY = {
   primary:   { targetDays: 30, safetyDays: 14 },
   secondary: { targetDays: 21, safetyDays: 10 },
 };
+// Non-mix products reorder on SUPPLIER LEAD TIME, not the mix tiers: velocity shifts made
+// ShipBob's static low-stock alerts fire too late (the Flipper went OOS off the back of one).
+// reorder_now = cover inside the lead time (order today or stock out); reorder_soon = within
+// a month of that point.
+export const CATEGORY_LEAD_DAYS: Record<string, number> = { syrup: 30, accessory: 60 };
 
 export type StockStatus = 'oos' | 'reorder_now' | 'reorder_soon' | 'healthy' | 'inbound' | 'unknown';
 
-export function computeStatus(row: Pick<StockRow, 'available' | 'days_of_cover' | 'tier' | 'inbound'>): StockStatus {
+export function computeStatus(row: Pick<StockRow, 'available' | 'days_of_cover' | 'tier' | 'inbound'> & { category?: string | null }): StockStatus {
   const base = ((): StockStatus => {
     if (row.available <= 0) return 'oos';
     if (row.days_of_cover == null) return 'unknown';
+    const lead = row.category ? CATEGORY_LEAD_DAYS[row.category] : undefined;
+    if (lead != null) {
+      if (row.days_of_cover < lead) return 'reorder_now';
+      if (row.days_of_cover < lead + 30) return 'reorder_soon';
+      return 'healthy';
+    }
     const p = POLICY[row.tier];
     if (row.days_of_cover < p.safetyDays) return 'reorder_now';
     if (row.days_of_cover < p.targetDays) return 'reorder_soon';

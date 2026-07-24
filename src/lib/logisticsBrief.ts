@@ -2,7 +2,7 @@
 // outstanding inbound (open Xero POs not yet billed), and ONLY new fulfilment-cost outliers.
 // Sent via the tpp_logistics_brief template (delivers any time) with a free-form fallback.
 import { supabaseLogistics } from './supabase-logistics';
-import { computeStatus } from './stock';
+import { computeStatus, CATEGORY_LEAD_DAYS } from './stock';
 import { getConfig } from './settings';
 import { getTemplateSid } from './waTemplates';
 import { sendWhatsApp, sendWhatsAppTemplate, allowedNumbers, senderRole } from './whatsapp';
@@ -24,9 +24,17 @@ const longDate = () => melbLongDate();
 const shortDate = (s: string) => new Date(s + 'T00:00:00Z').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 
 const sizeLabel = (g: any) => g == null ? '' : Number(g) >= 1000 ? ` ${Number(g) / 1000}kg` : ` ${Number(g)}g`;
+// Short labels for the flavourless gear/syrup SKUs when they earn a brief slot.
+const GEAR_LABEL: Record<string, string> = {
+  MSS: 'Syrup', MSS8: 'Syrup ctn-8', ACCP: 'Pancake Pan', ACCF: 'Flipper', ACCS: 'Scraper', TWM: 'Waffle Maker',
+};
 function stockLine(r: any): string {
   const st = computeStatus(r);
   const cover = r.days_of_cover != null ? `${Math.round(r.days_of_cover)}d` : '—';
+  if (!r.flavour && GEAR_LABEL[r.sku]) {
+    const inb2 = Number(r.inbound) > 0 ? ` (+${Number(r.inbound)} in)` : '';
+    return `${GEAR_LABEL[r.sku]} ${st === 'oos' ? 'OOS' : `${cover} (${CATEGORY_LEAD_DAYS[r.category] || '?'}d lead)`}${inb2}`;
+  }
   // 320g inbound arrives in POUCHES (po_items) but the audience thinks in CARTONS of 4
   const inbN = r.unit_size_g === 320 ? Math.round(Number(r.inbound) / 4) : Number(r.inbound);
   const inb = Number(r.inbound) > 0 ? ` (+${inbN}${r.unit_size_g === 320 ? ' ctn' : ''} in)` : '';
@@ -38,9 +46,14 @@ function topStock(rows: any[], code: string, exclude: string[] = [], n = 6): str
   const hidden = new Set(exclude.map((s) => s.toUpperCase()));
   // 80g sample packs are deliberately not replenished on velocity — their OOS states are
   // noise here (they filled half the UK line the day they were activated).
-  const ranked = rows.filter((r) => r.location_code === code && r.flavour && r.tier === 'primary' && r.unit_size_g !== 80 && !hidden.has(String(r.sku || '').toUpperCase()))
+  const mix = rows.filter((r) => r.location_code === code && r.flavour && r.tier === 'primary' && r.unit_size_g !== 80 && !hidden.has(String(r.sku || '').toUpperCase()));
+  // Gear/syrup earn a slot ONLY when their lead-time status says act (velocity-aware — the
+  // Flipper OOS'd because a static ShipBob alert fired too late for its 60-day lead).
+  const gear = rows.filter((r) => r.location_code === code && GEAR_LABEL[r.sku] && !hidden.has(String(r.sku || '').toUpperCase()))
+    .filter((r) => ['oos', 'reorder_now', 'reorder_soon'].includes(computeStatus(r)));
+  const ranked = [...mix, ...gear]
     .map((r) => ({ r, k: computeStatus(r) === 'oos' ? -1 : (r.days_of_cover ?? 9999) }))
-    .sort((a, b) => a.k - b.k).slice(0, n);
+    .sort((a, b) => a.k - b.k).slice(0, gear.length ? n + 2 : n);
   return ranked.map((x) => stockLine(x.r)).join(' · ') || 'all healthy';
 }
 
@@ -60,7 +73,7 @@ async function fulfilmentWatch(): Promise<string> {
 
 export async function buildLogisticsBrief(): Promise<{ vars: Record<string, string>; text: string }> {
   const [stockRes, trRes, poRes, watch] = await Promise.all([
-    supabaseLogistics.from('v_stock_current').select('sku,flavour,unit_size_g,tier,location_code,available,inbound,days_of_cover').eq('active', true),
+    supabaseLogistics.from('v_stock_current').select('sku,flavour,unit_size_g,tier,category,location_code,available,inbound,days_of_cover').eq('active', true),
     supabaseLogistics.from('internal_transfers').select('reference,status,eta'),
     supabaseLogistics.from('purchase_orders').select('reference,status,xero_status'),
     fulfilmentWatch(),

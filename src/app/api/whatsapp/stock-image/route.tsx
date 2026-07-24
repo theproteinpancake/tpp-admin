@@ -1,7 +1,7 @@
 import { ImageResponse } from 'next/og';
 import { supabaseLogistics } from '@/lib/supabase-logistics';
 import { getInventoryLevels } from '@/lib/shipbob';
-import { stockImageToken } from '@/lib/stockImage';
+import { stockImageToken, FLAVOUR_IMG, SKU_IMG } from '@/lib/stockImage';
 
 export const runtime = 'nodejs';
 
@@ -10,16 +10,15 @@ export const runtime = 'nodejs';
 // shown in CARTONS of 4 — including inbound (po_items store pouches; ÷4 here) — because
 // that's the unit Kate and ShipBob think in. Guarded by a static token derived from
 // CRON_SECRET (same public-by-obscurity model as the PO image, which Twilio must fetch).
-const FLAVOUR_IMG: Record<string, string> = {
-  'Buttermilk': 'buttermilk.png',
-  'Chocolate': 'chocolate.png',
-  'Cinnamon Churro': 'cinnamonchurro.png',
-  'Cookies & Cream': 'cookesandcream.png',
-  'GF Buttermilk': 'gfbuttermilk.png',
-  'GF Cinnamon Churro': 'gfcininamonchurro.png',
-  'Maple': 'maple.png',
-  'Salted Caramel': 'saltedcaramel.png',
-};
+// Syrup + accessories ("Other products" section, full card only) — photo + short label by SKU.
+const OTHER_PRODUCTS: { sku: string; label: string; img: string }[] = [
+  { sku: 'MSS', label: 'Maple Syrup (single)', img: SKU_IMG.MSS },
+  { sku: 'MSS8', label: 'Maple Syrup (ctn of 8)', img: SKU_IMG.MSS8 },
+  { sku: 'ACCP', label: 'The Pancake Pan', img: SKU_IMG.ACCP },
+  { sku: 'ACCF', label: 'The Flipper', img: SKU_IMG.ACCF },
+  { sku: 'ACCS', label: 'The Scraper', img: SKU_IMG.ACCS },
+  { sku: 'TWM', label: 'The Waffle Maker', img: SKU_IMG.TWM },
+];
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -31,16 +30,21 @@ export async function GET(req: Request) {
   const origin = process.env.PUBLIC_APP_URL || `${url.protocol}//${url.host}`;
 
   const { data } = await supabaseLogistics.from('v_stock_current')
-    .select('product_id,sku,flavour,unit_size_g,available,inbound,days_of_cover')
-    .eq('active', true).eq('location_code', site).eq('category', 'mix');
-  const rows = (data ?? []) as any[];
+    .select('product_id,sku,flavour,unit_size_g,available,inbound,days_of_cover,category')
+    .eq('active', true).eq('location_code', site).in('category', ['mix', 'syrup', 'accessory']);
+  const all = (data ?? []) as any[];
+  const rows = all.filter((r) => r.category === 'mix');
   if (!rows.length) return new Response('no stock data', { status: 404 });
+  // syrup + accessories: only on the full (unscoped) card
+  const others = sizeParam.length ? [] : OTHER_PRODUCTS
+    .map((o) => ({ ...o, r: all.find((r) => r.sku === o.sku) }))
+    .filter((o) => o.r);
 
   // LIVE ShipBob overlay (one batched call) so the card never shows the stale 5am snapshot.
   try {
     const { data: pls } = await supabaseLogistics.from('products')
       .select('sku, product_locations(shipbob_inventory_id, active, location:location_id(code))')
-      .in('sku', rows.map((r) => r.sku));
+      .in('sku', all.map((r) => r.sku));
     const invBySku = new Map<string, number>();
     for (const p of (pls ?? []) as any[]) {
       for (const pl of (p.product_locations ?? []) as any[]) {
@@ -48,7 +52,7 @@ export async function GET(req: Request) {
       }
     }
     const levels = await getInventoryLevels(site, [...invBySku.values()]);
-    for (const r of rows) {
+    for (const r of all) {
       const lvl = invBySku.has(r.sku) ? levels.get(invBySku.get(r.sku)!) : undefined;
       if (lvl) r.available = lvl.fulfillable;
     }
@@ -68,7 +72,7 @@ export async function GET(req: Request) {
     !c ? '#d1d5db' : c.avail <= 0 ? '#dc2626' : c.cover != null && c.cover < 45 ? '#d97706' : '#059669';
   const dateStr = new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'short', timeZone: 'Australia/Melbourne' });
   const rowH = 78;
-  const height = 210 + flavours.length * rowH + 60;
+  const height = 210 + flavours.length * rowH + 60 + (others.length ? 60 + Math.ceil(others.length / 2) * 64 : 0);
 
   return new ImageResponse(
     (
@@ -111,6 +115,23 @@ export async function GET(req: Request) {
           })}
         </div>
 
+        {others.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', marginTop: 16, background: 'white', borderRadius: 16, padding: '10px 6px' }}>
+            <span style={{ fontSize: 17, color: '#9ca3af', padding: '0 18px 6px' }}>Other products</span>
+            <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+              {others.map((o) => {
+                const c = { avail: o.r.available || 0, cover: o.r.days_of_cover != null ? Number(o.r.days_of_cover) : null };
+                return (
+                  <div key={o.sku} style={{ display: 'flex', alignItems: 'center', width: '50%', padding: '6px 18px', height: 64 }}>
+                    <img src={`${origin}/products/${o.img}`} width={44} height={44} style={{ borderRadius: 9, objectFit: 'contain' }} />
+                    <span style={{ flex: 1, fontSize: 20, fontWeight: 600, color: '#111827', marginLeft: 14 }}>{o.label}</span>
+                    <span style={{ fontSize: 23, fontWeight: 700, color: cellColor(c) }}>{c.avail.toLocaleString('en-AU')}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
         <div style={{ display: 'flex', marginTop: 18, fontSize: 17, color: '#9ca3af', gap: 24, alignItems: 'center' }}>
           {[['#059669', 'healthy'], ['#d97706', 'under 45 days cover'], ['#dc2626', 'out of stock']].map(([col, label]) => (
             <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>

@@ -12,7 +12,7 @@ import { resolveVisyItem, draftVisyOrder, markVisyOrderSent, getVisyOrders, crea
 import { findContacts } from './contacts';
 import { getPackagingSummary } from './packaging';
 import { getInventoryLevels } from './shipbob';
-import { stockImageUrl } from './stockImage';
+import { stockImageUrl, expiryImageUrl } from './stockImage';
 import { gmailSendDraft, gmailCreateDraft, gmailDeleteDraftsBySubject, gmailSearch, gmailGetBody, gmailGetAllAttachments } from './google';
 import { getLots, expiryStatus, EXPIRY_META } from './lots';
 import { getShippingData } from './shipping';
@@ -92,6 +92,11 @@ const tools: Anthropic.Tool[] = [
       site: { type: 'string', enum: ['ALTONA', 'MANCHESTER'], description: 'default ALTONA (AU). MANCHESTER for UK.' },
       sizes: { type: 'array', items: { type: 'number', enum: [320, 520, 1000] }, description: 'limit the card to these sizes, e.g. [320] for a wholesale/320g update. Omit for all sizes.' },
     } },
+  },
+  {
+    name: 'expiry_snapshot',
+    description: 'Attach a DASHBOARD-STYLE BEST-BEFORE CARD IMAGE (soonest-dated lots in stock, product shots, lot numbers, colour-coded days-left) to your reply. USE THIS for any expiry / best-before / shelf-life update covering multiple lots ("expiry update", "what\'s expiring", "best before dates") — send the image and put ONLY the extras in text (anything needing action, e.g. a lot under 90 days; 1-2 lines). For a single-lot question use get_expiring_stock text.',
+    input_schema: { type: 'object', properties: { site: { type: 'string', enum: ['ALTONA', 'MANCHESTER'], description: 'default ALTONA (AU). MANCHESTER for UK.' } } },
   },
   {
     name: 'get_reorder_recommendations',
@@ -487,7 +492,7 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
   }
   if (name === 'get_stock') {
     let q = supabaseLogistics.from('v_stock_current')
-      .select('sku,flavour,unit_size_g,tier,location_code,on_hand,available,inbound,days_of_cover,avg_daily_units_30d,trend')
+      .select('sku,flavour,unit_size_g,tier,category,location_code,on_hand,available,inbound,days_of_cover,avg_daily_units_30d,trend')
       .eq('active', true);
     if (input.site) q = q.eq('location_code', input.site);
     if (input.tier) q = q.eq('tier', input.tier);
@@ -573,6 +578,11 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
     const sizes = Array.isArray(input.sizes) ? (input.sizes as number[]).filter((g) => [320, 520, 1000].includes(Number(g))) : [];
     _media.push(stockImageUrl(site, sizes.length ? sizes : undefined));
     return { attached: true, site, sizes: sizes.length ? sizes : 'all', note: `Stock card image attached (live ShipBob numbers, ${site}). The card carries the availability — your text adds ONLY what it can't show (reorder-by dates, ETAs, what needs action), 1-3 lines, never a repeat of the numbers. 320g figures are CARTONS of 4.` };
+  }
+  if (name === 'expiry_snapshot') {
+    const site = String(input.site || 'ALTONA').toUpperCase();
+    _media.push(expiryImageUrl(site));
+    return { attached: true, site, note: `Best-before card image attached (${site}, soonest first). Your text adds ONLY what needs action (lots under 90 days, disposal calls) in 1-2 lines — never repeat the table. 320g on-hand on the card is CARTONS of 4.` };
   }
   if (name === 'get_reorder_recommendations') {
     const props = await proposeFlavourPOs('ALTONA');
@@ -1216,7 +1226,7 @@ ATTACHMENTS & "this/that" — when the message includes an ATTACHMENT (PDF invoi
 
 "YES" ANSWERS THE MOST RECENT QUESTION (CRITICAL): a bare approval (yes / go / do it) always refers to the LAST question YOU asked — never to an older step. PENDING/context notes describe the next step AS OF WHEN THEY WERE WRITTEN; once the conversation shows that step completed, the note is DEAD — acting on a stale note (e.g. re-running create_wro after the WRO exists) is a serious failure.
 WHATSAPP FORMATTING (CRITICAL): WhatsApp does NOT render markdown — NEVER output markdown tables (| pipes |), headers (#) or horizontal rules. Stock/quantity lists are ONE COMPACT LINE PER ITEM: "SCL — In stock: 167 ✅" (use 🛑 for 0, and append "(inbound)" when a restock is on the way). Group with a short *bold* heading (*PRIMARY* / *OTHER PRODUCTS*), nothing else. Keep every list scannable on a phone screen.
-STOCK UPDATES ARE AN IMAGE: whenever the answer covers MULTIPLE SKUs ("stock update", "how's stock", "320g stock", "what can I sell") call stock_snapshot — it attaches a dashboard-style card (scope with sizes:[320] etc. when the ask is size-specific) — and put ONLY what the card can't show in text (reorder-by dates, restock ETAs, action needed; 1-3 lines). You may still call get_stock alongside to get dates/cover for that text. Only answer in text alone for a SINGLE-SKU question. 320g IS ALWAYS CARTONS: every 320g figure you quote (available AND inbound) is cartons of 4 — get_stock already converts; never quote bags.
+STOCK UPDATES ARE AN IMAGE: whenever the answer covers MULTIPLE SKUs ("stock update", "how's stock", "320g stock", "what can I sell") call stock_snapshot — it attaches a dashboard-style card (scope with sizes:[320] etc. when the ask is size-specific) — and put ONLY what the card can't show in text (reorder-by dates, restock ETAs, action needed; 1-3 lines). You may still call get_stock alongside to get dates/cover for that text. Only answer in text alone for a SINGLE-SKU question. Same pattern for EXPIRY/best-before updates → expiry_snapshot (card) + 1-2 lines of action items. 320g IS ALWAYS CARTONS: every 320g figure you quote (available AND inbound) is cartons of 4 — get_stock already converts; never quote bags.
 TAPPABLE BUTTONS: when you ask the user to choose between clear next actions (approve/send/draft/skip), end your reply with a final line exactly like: [[buttons: Draft Sharon reply | Not now]] — 2 or 3 options, each ≤20 characters, action-specific verbs (NEVER a bare "Yes" — the label itself must say what it does, e.g. "Send to ABC", "Create WRO", "Skip"). The system renders them as tappable buttons and the user's tap comes back as the exact label. Use them for every confirmation question; skip them for open-ended questions.
 PO-ALERT REPLIES (CRITICAL): when the conversation contains a context note about a wholesale PO I proactively alerted (it includes the SOURCE EMAIL id+inbox), a reply with a clear instruction — "process it", "process [customer]", "remove/exclude X and proceed", "swap X for Y" — is the user's FULL confirmation. Execute end-to-end immediately: process_po_email(id, inbox, exclude as instructed) then create the order, and report the ShipBob order # + Xero invoice #. Never ask "which customer" (it's in the context note) and never re-ask for a confirmation they just gave. Only pause if their instruction is genuinely ambiguous (e.g. a swap to a flavour that's also OOS).
 
