@@ -9,6 +9,12 @@ const FILES: Record<string, string> = {
   cinnamonchurro: 'cinnamonchurro.webp',
   gfbuttermilk: 'gfbuttermilk.webp',
   gfcinnamonchurro: 'gfcininamonchurro.webp',
+  // gear + syrup (matched by product NAME — these have no flavour)
+  syrup: 'syrup.png',
+  flipper: 'flipper.png',
+  scraper: 'scraper.png',
+  pancakepan: 'pancakepan.png',
+  wafflemaker: 'wafflemaker.png',
 };
 
 const norm = (s: string) => s.toLowerCase().replace(/&/g, '').replace(/[^a-z]/g, '');
@@ -18,7 +24,13 @@ export function productImage(flavour: string | null | undefined): string | null 
   const isGF = /\bgf\b|gluten/i.test(flavour);
   const base = norm(flavour.replace(/^gf\s+/i, '').replace(/gluten\s*free/i, ''));
   // canonicalise a few spellings
-  const key = base.includes('cookie') ? 'cookiescream'
+  // syrup/gear names first — "Sugar Free Maple Syrup" must not fall into the 'maple' flavour
+  const key = base.includes('syrup') ? 'syrup'
+    : base.includes('waffle') ? 'wafflemaker'
+    : base.includes('flipper') ? 'flipper'
+    : base.includes('scraper') ? 'scraper'
+    : base.includes('pancakepan') ? 'pancakepan'
+    : base.includes('cookie') ? 'cookiescream'
     : base.includes('cinnamon') ? 'cinnamonchurro'
     : base.includes('buttermilk') ? 'buttermilk'
     : base.includes('saltedcaramel') || base === 'caramel' ? 'saltedcaramel'

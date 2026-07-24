@@ -66,7 +66,7 @@ function StockTable({ groups }: { groups: ProductGroup[] }) {
   for (const g of groups) {
     const key = g.flavour ?? g.name;
     let i = idx.get(key);
-    if (i == null) { i = byFlavour.length; idx.set(key, i); byFlavour.push({ flavour: key, thumb: g.flavour, variants: [] }); }
+    if (i == null) { i = byFlavour.length; idx.set(key, i); byFlavour.push({ flavour: key, thumb: g.flavour ?? g.name, variants: [] }); }
     byFlavour[i].variants.push(g);
   }
   for (const f of byFlavour) f.variants.sort((a, b) => (SIZE_ORDER[a.size_code ?? 'M'] ?? 1) - (SIZE_ORDER[b.size_code ?? 'M'] ?? 1));

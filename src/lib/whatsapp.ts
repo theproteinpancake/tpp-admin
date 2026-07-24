@@ -137,7 +137,9 @@ export async function fetchTwilioMedia(url: string): Promise<{ base64: string; m
 // POST a message to Twilio with RETRY on transient failures (network error, 5xx, 429).
 // 4xx errors are permanent (bad number, closed 24h window, rejected template) — no retry.
 // Briefs ride on this; a single network blip must not silently eat a morning brief.
-async function twilioSend(params: URLSearchParams, label: string): Promise<boolean> {
+// Returns the created message SID on success (truthy — callers treating it as boolean keep
+// working), so senders can poll delivery status and sequence follow-up messages.
+async function twilioSend(params: URLSearchParams, label: string): Promise<string | false> {
   const sid = SID(), auth = twilioAuthHeader();
   if (!sid || !auth) { console.error(`Twilio ${label}: missing credentials`); return false; }
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -148,7 +150,7 @@ async function twilioSend(params: URLSearchParams, label: string): Promise<boole
         headers: { Authorization: auth, 'Content-Type': 'application/x-www-form-urlencoded' },
         body: params,
       });
-      if (res.ok) return true;
+      if (res.ok) { try { return ((await res.json()).sid as string) || 'sent'; } catch { return 'sent'; } }
       const body = await res.text();
       if (res.status < 500 && res.status !== 429) { console.error(`Twilio ${label} failed (permanent)`, res.status, body.slice(0, 300)); return false; }
       console.error(`Twilio ${label} failed (attempt ${attempt + 1})`, res.status, body.slice(0, 200));
@@ -171,7 +173,26 @@ export async function sendWhatsAppTemplate(to: string, contentSid: string, varia
   const params = new URLSearchParams({ To: waAddr(to), ContentSid: contentSid, ContentVariables: JSON.stringify(variables) });
   if (msgService) params.set('MessagingServiceSid', msgService);
   else params.set('From', waAddr(from));
-  return twilioSend(params, 'template send');
+  return !!(await twilioSend(params, 'template send'));
+}
+
+// Wait until a sent message leaves Twilio's queue (status sent/delivered/read — or failed).
+// Media messages queue for seconds while Twilio fetches the media URL; sending an instant
+// text (e.g. quick-reply buttons) right after makes it ARRIVE FIRST. Poll before follow-ups.
+export async function waitUntilSent(messageSid: string, timeoutMs = 12_000): Promise<void> {
+  const acct = SID(), auth = twilioAuthHeader();
+  if (!acct || !auth || !messageSid || messageSid === 'sent') return;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`${TWILIO_API_BASE}/2010-04-01/Accounts/${acct}/Messages/${messageSid}.json`, { headers: { Authorization: auth } });
+      if (res.ok) {
+        const st = ((await res.json()).status as string) || '';
+        if (['sent', 'delivered', 'read', 'failed', 'undelivered'].includes(st)) return;
+      }
+    } catch { /* keep polling */ }
+    await new Promise((r) => setTimeout(r, 900));
+  }
 }
 
 // Fetch the body of a previously-sent message (used to give the agent reply context when the
@@ -202,7 +223,7 @@ export async function fetchTwilioPdf(url: string): Promise<{ base64: string } | 
   } catch { return null; }
 }
 
-export async function sendWhatsApp(to: string, body: string, mediaUrl?: string): Promise<boolean> {
+export async function sendWhatsApp(to: string, body: string, mediaUrl?: string): Promise<string | false> {
   const from = FROM();
   const msgService = process.env.TWILIO_MESSAGING_SERVICE_SID || '';
   if (!from && !msgService) { console.error('Twilio env missing'); return false; }

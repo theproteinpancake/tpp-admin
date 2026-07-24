@@ -63,7 +63,7 @@ export async function runCdsScour(): Promise<{ checked: number; drafted: string[
       const owners = allowedNumbers().filter((to) => senderRole(to) === 'owner');
       const summary = `🛃 ${t.reference} cleared UK customs (Maersk email: "${subject.slice(0, 70)}"). I've drafted the CDS email to ShipBob's receiving team (${SHIPBOB_APPOINTMENTS})${wro ? `, quoting ${wro}` : ' — ⚠️ no WRO on record, add it before sending'}${attachments.length ? `, with ${attachments.length} PDF${attachments.length > 1 ? 's' : ''} attached` : ' — ⚠️ no CDS PDF found on the email, attach manually'}. Tap *Send CDS email* to fire.`;
       for (const to of owners) {
-        const ok = await sendWhatsApp(to, summary);
+        const ok = !!(await sendWhatsApp(to, summary));
         if (ok) await sendWhatsAppButtons(to, 'Tap an option 👇', ['Send CDS email', 'Hold off']).catch(() => false);
         if (ok) await recordProactiveContext(to, `PENDING CDS EMAIL — ${t.reference} cleared customs and the CDS email to ${SHIPBOB_APPOINTMENTS} is drafted (draft_id="${draftId}"). If the user approves (a "Send CDS email" tap, or send / send it / yes / go), call send_email_draft with draft_id="${draftId}" IMMEDIATELY ("Hold off" = leave the draft parked) — do NOT re-draft. After a confirmed send, also call update_transfer_status only if they separately ask; the CDS send itself needs no status change.`).catch(() => {});
       }

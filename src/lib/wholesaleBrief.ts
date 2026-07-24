@@ -66,6 +66,6 @@ export async function sendWholesaleBrief(): Promise<{ sent: number; text: string
   const sid = await getTemplateSid('tpp_wholesale_brief');
   let ok = false;
   if (sid) ok = await sendWhatsAppTemplate(KATE_NUMBER, sid, vars);
-  if (!ok) ok = await sendWhatsApp(KATE_NUMBER, text);
+  if (!ok) ok = !!(await sendWhatsApp(KATE_NUMBER, text));
   return { sent: ok ? 1 : 0, text };
 }

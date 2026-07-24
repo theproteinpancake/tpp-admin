@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { after } from 'next/server';
 import { askStockAgent, type AgentImage, type AgentDoc } from '@/lib/stockAgent';
-import { isAllowed, sendWhatsApp, sendWhatsAppButtons, fetchTwilioMedia, fetchTwilioMessageBody, fetchTwilioPdf } from '@/lib/whatsapp';
+import { isAllowed, sendWhatsApp, sendWhatsAppButtons, waitUntilSent, fetchTwilioMedia, fetchTwilioMessageBody, fetchTwilioPdf } from '@/lib/whatsapp';
 import { supabaseLogistics } from '@/lib/supabase-logistics';
 
 export const maxDuration = 180; // debounce window + agent + docket parse
@@ -129,11 +129,14 @@ export async function POST(req: NextRequest) {
       // media is a LIST (e.g. two PO previews drafted in one run) — text rides with the first,
       // the rest follow as their own messages so nothing is silently dropped.
       const [firstMedia, ...restMedia] = answer.media ?? [];
-      await sendWhatsApp(from, answer.text, firstMedia);
-      for (const m of restMedia) await sendWhatsApp(from, '📎', m);
-      // Tappable quick-reply buttons follow the text as their own short message (interactive
-      // bodies must be short + single-line). Fallback: list the options as plain text.
+      let lastSid: string | false = await sendWhatsApp(from, answer.text, firstMedia);
+      for (const m of restMedia) lastSid = await sendWhatsApp(from, '📎', m);
+      // Tappable quick-reply buttons follow as their own message — but ONLY after the content
+      // has actually left Twilio's queue. Media messages queue while Twilio fetches/renders
+      // our image URLs, so an instantly-sent buttons message ARRIVED FIRST (Luke saw the
+      // buttons above the PO it was asking about). Fallback: plain-text options.
       if (answer.buttons?.length) {
+        if (typeof lastSid === 'string') await waitUntilSent(lastSid).catch(() => {});
         const ok = await sendWhatsAppButtons(from, 'Tap an option 👇', answer.buttons).catch(() => false);
         if (!ok) await sendWhatsApp(from, `Reply with one of: ${answer.buttons.join(' / ')}`);
       }

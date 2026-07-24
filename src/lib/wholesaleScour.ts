@@ -216,7 +216,7 @@ export async function runWholesalePoScour(): Promise<{ scanned: number; new_pos:
         '3': action.slice(0, 600),
       });
     }
-    if (!ok) ok = await sendWhatsApp(KATE_NUMBER, msg);
+    if (!ok) ok = !!(await sendWhatsApp(KATE_NUMBER, msg));
     if (ok && buttons) await sendWhatsAppButtons(KATE_NUMBER, 'Tap an option 👇', buttons).catch(() => false);
     if (ok) {
       notified++;
@@ -251,7 +251,7 @@ export async function runWholesalePoScour(): Promise<{ scanned: number; new_pos:
       const tpl = await getTemplateSid('tpp_wholesale_reply');
       let ok = false;
       if (tpl) ok = await sendWhatsAppTemplate(KATE_NUMBER, tpl, { '1': cust, '2': snippet || '(see the thread)', '3': `Tap *Process order* to action what they chose (swap / send-the-rest), or tell me what they said.` });
-      if (!ok) ok = await sendWhatsApp(KATE_NUMBER, `↩️ *${cust} replied* about their OOS order:\n"${snippet}"\n\nTap *Process order* to action what they chose, or tell me.`);
+      if (!ok) ok = !!(await sendWhatsApp(KATE_NUMBER, `↩️ *${cust} replied* about their OOS order:\n"${snippet}"\n\nTap *Process order* to action what they chose, or tell me.`));
       if (ok) await sendWhatsAppButtons(KATE_NUMBER, 'Tap an option 👇', ['Process order', 'Hold off']).catch(() => false);
       if (ok) {
         replyPings++;

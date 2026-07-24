@@ -70,7 +70,7 @@ async function handle(req: NextRequest) {
     for (const to of owners) {
       let ok = false;
       if (sid) ok = await sendWhatsAppTemplate(to, sid, { '1': melbLongDate(), '2': what, '3': detail });
-      if (!ok) ok = await sendWhatsApp(to, text);
+      if (!ok) ok = !!(await sendWhatsApp(to, text));
       if (ok) sent++;
     }
   }

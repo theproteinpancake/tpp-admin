@@ -22,7 +22,7 @@ async function handle(req: NextRequest) {
   for (const f of (due ?? []) as any[]) {
     let ok = false;
     if (sid) ok = await sendWhatsAppTemplate(f.phone, sid, { '1': melbLongDate(), '2': String(f.message).replace(/\s+/g, ' ').slice(0, 550) });
-    if (!ok) ok = await sendWhatsApp(f.phone, `⏰ *Follow-up*\n\n${f.message}\n\nReply "done", "snooze a day", or tell me what to do next.`);
+    if (!ok) ok = !!(await sendWhatsApp(f.phone, `⏰ *Follow-up*\n\n${f.message}\n\nReply "done", "snooze a day", or tell me what to do next.`));
     if (ok) {
       sent++;
       await supabaseLogistics.from('agent_followups').update({ status: 'sent', sent_at: new Date().toISOString() }).eq('id', f.id);

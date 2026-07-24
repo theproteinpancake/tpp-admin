@@ -92,7 +92,7 @@ async function handle(req: NextRequest) {
     for (const to of owners) {
       let ok = false;
       if (sid) ok = await sendWhatsAppTemplate(to, sid, { '1': melbLongDate(), '2': what, '3': detail });
-      if (!ok) ok = await sendWhatsApp(to, `🚨 *Watchdog* — ${melbLongDate()}\n\n${fresh.map((i) => `• ${i.label} — ${i.detail}`).join('\n')}`);
+      if (!ok) ok = !!(await sendWhatsApp(to, `🚨 *Watchdog* — ${melbLongDate()}\n\n${fresh.map((i) => `• ${i.label} — ${i.detail}`).join('\n')}`));
       if (ok) sent++;
     }
     fresh.forEach((i) => { seen[i.key] = today; });

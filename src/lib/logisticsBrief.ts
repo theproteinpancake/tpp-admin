@@ -114,7 +114,7 @@ export async function sendLogisticsBrief(): Promise<{ sent: number; text: string
   for (const to of owners) {
     let ok = false;
     if (sid) ok = await sendWhatsAppTemplate(to, sid, vars);
-    if (!ok) ok = await sendWhatsApp(to, text);
+    if (!ok) ok = !!(await sendWhatsApp(to, text));
     // Dashboard-style stock cards ride along with the text brief (live ShipBob numbers,
     // pouch shots, 320g in cartons) — the text stays the actionable summary, the cards are
     // the glanceable numbers. Best-effort: outside a 24h session the freeform media message

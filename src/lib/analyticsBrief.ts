@@ -186,7 +186,7 @@ export async function sendSalesReview(kind: 'daily' | 'weekly'): Promise<{ sent:
     // In-session: free-form first (no caps). Out-of-session: template first. Email = the
     // never-fails last resort so the owner is never left without their numbers again.
     const inSession = await hasOpenSession(to).catch(() => false);
-    const channels: (() => Promise<boolean>)[] = inSession
+    const channels: (() => Promise<boolean | string>)[] = inSession
       ? [() => sendWhatsApp(to, text), ...(sid ? [() => sendWhatsAppTemplate(to, sid!, vars)] : [])]
       : [...(sid ? [() => sendWhatsAppTemplate(to, sid!, vars)] : []), () => sendWhatsApp(to, text)];
     let ok = false;
