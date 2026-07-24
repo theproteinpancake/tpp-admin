@@ -15,13 +15,13 @@ export const PACK_STATUS_META: Record<PackStatus, { label: string; bg: string }>
 // capped by whichever runs out first (pouches OR cartons). `binding` = cartons are the limit.
 export interface SrpOnRow {
   pack_id: string; units_per: number; boxes_baseline: number | null; boxes_consumed: number;
-  boxes_delivered: number; boxes_remaining: number | null;
+  boxes_delivered: number; boxes_inbound: number; boxes_remaining: number | null;
   packable_bags: number | null; binding: boolean; days_cover: number | null; status: PackStatus;
 }
 export interface PouchRow {
   product_id: string; pack_id: string | null; sku: string; flavour: string | null; size: string;
   baseline_qty: number | null; baseline_date: string | null;
-  consumed: number; delivered: number; remaining: number | null; daily: number | null;
+  consumed: number; delivered: number; inbound: number; remaining: number | null; daily: number | null;
   days_cover: number | null; lead_days: number; status: PackStatus;
   srp: SrpOnRow | null;          // attached SRP carton constraint (320g only)
   packable: number | null;       // usable 4-packs in bags = min(pouch remaining, srp packable)
@@ -49,9 +49,17 @@ export async function getPouchTracking(): Promise<PouchRow[]> {
   ]);
   // Deliveries ADD stock (VISY SRP boxes → ABC, pouch drops); only those on/after the row's
   // baseline count — a fresh stock-take baseline already includes anything delivered before it.
+  // Future-dated rows are ORDERS PLACED (e.g. with the Chinese pouch manufacturer) — they show
+  // as inbound and roll into stock automatically when their date arrives.
+  const today = new Date().toISOString().slice(0, 10);
   const deliveredSince = (packagingId: string | null, since: string | null) =>
     packagingId && since
-      ? (dels ?? []).filter((d: any) => d.packaging_id === packagingId && String(d.delivered_on) >= since)
+      ? (dels ?? []).filter((d: any) => d.packaging_id === packagingId && String(d.delivered_on) >= since && String(d.delivered_on) <= today)
+          .reduce((s: number, d: any) => s + (d.qty || 0), 0)
+      : 0;
+  const inboundFor = (packagingId: string | null) =>
+    packagingId
+      ? (dels ?? []).filter((d: any) => d.packaging_id === packagingId && String(d.delivered_on) > today)
           .reduce((s: number, d: any) => s + (d.qty || 0), 0)
       : 0;
 
@@ -61,8 +69,18 @@ export async function getPouchTracking(): Promise<PouchRow[]> {
   // CARTONS/day — but pouch counts here are POUCHES. Scale to pouches/day or 320g cover
   // reads 4× too long (same conversion the PO builder needs).
   const velByProduct = new Map((vel ?? []).map((v: any) => [v.product_id, Number(v.avg_daily_units_30d) || 0]));
+  // Pouches are consumed when ABC PACKS A PO, not when a bag retails — so the real usage rate
+  // is trailing PO volume (180d, smooths the lumpiness of 500kg batches). Retail velocity is
+  // only the fallback for SKUs with no PO history in the window.
+  const PO_WINDOW_DAYS = 180;
+  const poCutoff = new Date(Date.now() - PO_WINDOW_DAYS * 86400_000).toISOString().slice(0, 10);
+  const poDailyByProduct = new Map<string, number>();
+  for (const i of (poItems ?? []) as any[]) {
+    if ((i.po?.created_at ?? '').slice(0, 10) < poCutoff) continue;
+    poDailyByProduct.set(i.product_id, (poDailyByProduct.get(i.product_id) || 0) + (i.qty_ordered || 0) / PO_WINDOW_DAYS);
+  }
   const pouchDaily = (productId: string, unitSizeG: number | null) =>
-    (velByProduct.get(productId) ?? 0) * (unitSizeG === 320 ? 4 : 1);
+    poDailyByProduct.get(productId) || (velByProduct.get(productId) ?? 0) * (unitSizeG === 320 ? 4 : 1);
   const consumedSince = (productId: string, since: string | null) =>
     since ? (poItems ?? []).filter((i: any) => i.product_id === productId && (i.po?.created_at ?? '').slice(0, 10) >= since)
       .reduce((s: number, i: any) => s + (i.qty_ordered || 0), 0) : 0;
@@ -75,6 +93,7 @@ export async function getPouchTracking(): Promise<PouchRow[]> {
     // consumed = units ordered on POs placed on/after the baseline date
     const consumed = consumedSince(p.id, baseline_date);
     const delivered = deliveredSince(pack?.id ?? null, baseline_date);
+    const inbound = inboundFor(pack?.id ?? null);
     const remaining = baseline_qty == null ? null : baseline_qty - consumed + delivered;
     const daily = pack?.daily_usage != null ? Number(pack.daily_usage) : (pouchDaily(p.id, p.unit_size_g) || null);
     const days_cover = remaining != null && daily && daily > 0 ? Math.round(remaining / daily) : null;
@@ -98,6 +117,7 @@ export async function getPouchTracking(): Promise<PouchRow[]> {
       const boxes_baseline = sp.baseline_qty ?? null;
       const boxes_consumed = Math.round(consumedSince(p.id, sp.baseline_date) / units_per);
       const boxes_delivered = deliveredSince(sp.id, sp.baseline_date);
+      const boxes_inbound = inboundFor(sp.id);
       const boxes_remaining = boxes_baseline == null ? null : boxes_baseline - boxes_consumed + boxes_delivered;
       const packable_bags = boxes_remaining == null ? null : boxes_remaining * units_per;
       const srpDaily = daily && daily > 0 ? daily : null; // bags/day; packable is in bags too
@@ -112,11 +132,11 @@ export async function getPouchTracking(): Promise<PouchRow[]> {
       const binding = packable_bags != null && remaining != null && packable_bags < remaining;
       packable = packable_bags != null && remaining != null ? Math.min(remaining, packable_bags) : (packable_bags ?? remaining);
       rowStatus = worse(status, srpStatus);
-      srp = { pack_id: sp.id, units_per, boxes_baseline, boxes_consumed, boxes_delivered, boxes_remaining, packable_bags, binding, days_cover: srpDays, status: srpStatus };
+      srp = { pack_id: sp.id, units_per, boxes_baseline, boxes_consumed, boxes_delivered, boxes_inbound, boxes_remaining, packable_bags, binding, days_cover: srpDays, status: srpStatus };
     }
     return {
       product_id: p.id, pack_id: pack?.id ?? null, sku: p.sku, flavour: p.flavour, size: sizeLabel(p.unit_size_g),
-      baseline_qty, baseline_date, consumed, delivered, remaining, daily, days_cover, lead_days, status: rowStatus,
+      baseline_qty, baseline_date, consumed, delivered, inbound, remaining, daily, days_cover, lead_days, status: rowStatus,
       srp, packable,
     };
   });

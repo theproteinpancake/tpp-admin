@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from 'react';
 import type { PouchRow, PackStatus } from '@/lib/packaging';
-import { setPouchBaseline, logPackagingDelivery } from '@/lib/packagingActions';
 import { flavourColor } from '@/lib/flavours';
 
 const fmt = (n: number | null) => (n == null ? '—' : n.toLocaleString('en-AU'));
@@ -32,9 +31,9 @@ const sortVal = (p: PouchRow, k: SortKey): number | null => {
 };
 
 export default function PouchTable({ rows }: { rows: PouchRow[] }) {
-  // Default: least packable stock first — "what can I actually still pack" is the number
-  // Luke scans for, and the scarcest SKU should always be the top row.
-  const [key, setKey] = useState<SortKey>('packable');
+  // Default: soonest-to-run-out first — "when do I need to order" is the question this page
+  // answers. Every numeric header still click-sorts both ways.
+  const [key, setKey] = useState<SortKey>('days');
   const [dir, setDir] = useState<'asc' | 'desc'>('asc');
 
   const sorted = useMemo(() => {
@@ -75,19 +74,12 @@ export default function PouchTable({ rows }: { rows: PouchRow[] }) {
             {header('Packable', 'packable')}
             {header('~Days cover', 'days')}
             {header('Status', 'status')}
-            {header('Baseline / log delivery')}
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100">
           {sorted.map((p) => {
             const m = STATUS_META[p.status];
             const d = daysMin(p);
-            // delivery targets: the pouch packaging row (exists once a baseline is set) and,
-            // for 320g, the linked SRP-carton row
-            const targets = [
-              ...(p.pack_id ? [{ id: p.pack_id, label: 'Pouches' }] : []),
-              ...(p.srp ? [{ id: p.srp.pack_id, label: 'SRP boxes' }] : []),
-            ];
             return (
               <tr key={p.product_id} className="hover:bg-cream/30">
                 <td className="px-4 py-3">
@@ -98,14 +90,15 @@ export default function PouchTable({ rows }: { rows: PouchRow[] }) {
                   </div>
                 </td>
                 <td className="px-4 py-3 text-sm font-semibold text-caramel">
-                  {fmt(p.remaining)}
-                  {p.delivered > 0 && <span className="block text-[10px] font-normal text-emerald-600">incl. +{fmt(p.delivered)} delivered</span>}
+                  <span className={p.remaining != null && p.remaining < 0 ? 'text-red-600' : ''}>{fmt(p.remaining)}</span>
+                  {p.remaining != null && p.remaining < 0 && <span className="block text-[10px] font-normal text-red-500">count is off — run a stock-take above</span>}
+                  {p.inbound > 0 && <span className="block text-[10px] font-normal text-tppblue">+{fmt(p.inbound)} on order</span>}
                 </td>
                 <td className="px-4 py-3 text-sm">
                   {p.srp ? (
                     <span className={p.srp.binding ? 'font-semibold text-red-600' : 'text-gray-700'}>
                       {fmt(p.srp.boxes_remaining)} <span className="text-[11px] font-normal text-gray-400">boxes → {fmt(p.srp.packable_bags)} bags</span>
-                      {p.srp.boxes_delivered > 0 && <span className="block text-[10px] font-normal text-emerald-600">incl. +{fmt(p.srp.boxes_delivered)} delivered</span>}
+                      {p.srp.boxes_inbound > 0 && <span className="block text-[10px] font-normal text-tppblue">+{fmt(p.srp.boxes_inbound)} boxes on order</span>}
                       {p.srp.binding && <span className="block text-[10px] font-medium uppercase tracking-wide text-red-500">⚠ boxes are the limit</span>}
                     </span>
                   ) : <span className="text-gray-300">—</span>}
@@ -114,37 +107,12 @@ export default function PouchTable({ rows }: { rows: PouchRow[] }) {
                   {fmt(p.packable)}
                   {p.srp?.binding && <span className="block text-[10px] font-normal text-gray-400">of {fmt(p.remaining)} pouches</span>}
                 </td>
-                <td className="px-4 py-3 text-sm text-gray-600">{d != null ? `${d}d` : '—'}</td>
-                <td className="px-4 py-3">
-                  <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold text-white" style={{ backgroundColor: m.bg }}>{m.label}</span>
+                <td className="px-4 py-3 text-sm text-gray-600">
+                  {d != null ? `${d}d` : '—'}
+                  {p.daily != null && p.daily > 0 && <span className="block text-[10px] text-gray-400">~{Math.round(p.daily * 7).toLocaleString('en-AU')}/wk packed</span>}
                 </td>
                 <td className="px-4 py-3">
-                  <form action={async (fd) => { await setPouchBaseline(fd); }} className="flex items-center gap-1.5">
-                    <input type="hidden" name="product_id" value={p.product_id} />
-                    <input name="baseline_qty" type="number" defaultValue={p.baseline_qty ?? ''} placeholder="baseline"
-                      className="w-20 rounded-md border border-gray-300 px-2 py-1 text-xs focus:border-caramel focus:outline-none" />
-                    <input name="lead_days" type="number" defaultValue={p.lead_days} title="lead days"
-                      className="w-12 rounded-md border border-gray-300 px-2 py-1 text-xs focus:border-caramel focus:outline-none" />
-                    <button type="submit" className="rounded-md bg-caramel px-2 py-1 text-[11px] font-medium text-white hover:opacity-90">Save</button>
-                  </form>
-                  {targets.length > 0 && (
-                    <form action={async (fd) => { await logPackagingDelivery(fd); }} className="mt-1.5 flex items-center gap-1.5">
-                      <input name="qty" type="number" min={1} placeholder="+ delivery"
-                        className="w-20 rounded-md border border-gray-300 px-2 py-1 text-xs focus:border-caramel focus:outline-none" />
-                      {targets.length > 1 ? (
-                        <select name="packaging_id" defaultValue={targets[targets.length - 1].id}
-                          className="rounded-md border border-gray-300 px-1.5 py-1 text-xs focus:border-caramel focus:outline-none">
-                          {targets.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-                        </select>
-                      ) : (
-                        <>
-                          <input type="hidden" name="packaging_id" value={targets[0].id} />
-                          <span className="text-[11px] text-gray-400">{targets[0].label.toLowerCase()}</span>
-                        </>
-                      )}
-                      <button type="submit" className="rounded-md border border-caramel px-2 py-1 text-[11px] font-medium text-caramel hover:bg-cream/50">Log</button>
-                    </form>
-                  )}
+                  <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold text-white" style={{ backgroundColor: m.bg }}>{m.label}</span>
                 </td>
               </tr>
             );

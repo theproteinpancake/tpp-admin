@@ -4,6 +4,7 @@ import { flavourColor } from '@/lib/flavours';
 import { deletePackaging } from '@/lib/packagingActions';
 import CustomPackagingForm from '@/components/packaging/CustomPackagingForm';
 import PouchTable from '@/components/packaging/PouchTable';
+import PackagingCommand from '@/components/packaging/PackagingCommand';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -59,7 +60,8 @@ export default async function PackagingPage() {
           <Package2 className="h-5 w-5 text-caramel" />
           <h2 className="text-lg font-semibold text-caramel">Empty pouches (ABC)</h2>
         </div>
-        <p className="mb-3 text-xs text-gray-500">Baseline = ABC&apos;s stock-take. Every PO after that date auto-deducts; logged deliveries (VISY SRP boxes, pouch drops) auto-add. Click a column header to sort — default is least packable stock first.</p>
+        <p className="mb-3 text-xs text-gray-500">Every PO placed auto-deducts pouches; deliveries and orders you log above auto-add. Usage rate = actual PO volume over the last 6 months, so days cover reflects how fast ABC really packs. Click a column header to sort — default is soonest to run out.</p>
+        <PackagingCommand />
         <PouchTable rows={pouches} />
       </section>
 
