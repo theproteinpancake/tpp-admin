@@ -1,4 +1,9 @@
 // ShipBob write helpers (WRO creation). Uses the per-site PAT (already write-scoped).
+// API VERSION: legacy /1.0 + /2.0 paths are SUNSET on 31 Jul 2026 — everything here runs on
+// the dated version below (12-month support windows; bump twice yearly). Migration notes:
+// channel + inventory-level responses are paginated ({items}), quantities moved from
+// /inventory/{id} to /inventory-level, cancel is /receiving/{id}:cancel.
+export const SB = 'https://api.shipbob.com/2026-01';
 const TOKENS: Record<string, string | undefined> = {
   ALTONA: process.env.SHIPBOB_API_TOKEN,
   MANCHESTER: process.env.SHIPBOB_API_TOKEN_UK,
@@ -54,7 +59,7 @@ export async function createWRO(opts: {
     })),
   };
 
-  const res = await fetch('https://api.shipbob.com/1.0/receiving', {
+  const res = await fetch(`${SB}/receiving`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -68,7 +73,7 @@ export async function createWRO(opts: {
 export async function cancelWRO(site: string, id: number): Promise<boolean> {
   const token = TOKENS[site];
   if (!token) return false;
-  const res = await fetch(`https://api.shipbob.com/1.0/receiving/${id}/cancel`, {
+  const res = await fetch(`${SB}/receiving/${id}:cancel`, {
     method: 'POST', headers: { Authorization: `Bearer ${token}` },
   });
   return res.ok;
@@ -81,11 +86,22 @@ export async function getWROLabels(site: string, id: number): Promise<string | n
   const token = TOKENS[site];
   if (!token) return null;
   try {
-    const res = await fetch(`https://api.shipbob.com/2.0/receiving/${id}/labels`, {
+    const res = await fetch(`${SB}/receiving/${id}/labels`, {
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/pdf' },
     });
     if (!res.ok) return null;
-    const buf = Buffer.from(await res.arrayBuffer());
+    let buf = Buffer.from(await res.arrayBuffer());
+    // 2026-01 may respond with JSON carrying a label URI instead of raw PDF bytes — follow it.
+    if (buf.subarray(0, 4).toString('latin1') !== '%PDF') {
+      try {
+        const j = JSON.parse(buf.toString('utf8'));
+        const uri = j?.uri || j?.url || j?.labels_uri || j?.box_labels_uri;
+        if (!uri) return null;
+        const res2 = await fetch(uri, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res2.ok) return null;
+        buf = Buffer.from(await res2.arrayBuffer());
+      } catch { return null; }
+    }
     if (buf.length > 1000 && buf.subarray(0, 4).toString('latin1') === '%PDF') return buf.toString('base64');
   } catch { /* labels optional */ }
   return null;
@@ -99,13 +115,14 @@ export async function getShipbobChannelId(site: string): Promise<number | null> 
   const token = TOKENS[site];
   if (!token) return null;
   try {
-    const res = await fetch('https://api.shipbob.com/1.0/channel', { headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetch(`${SB}/channel`, { headers: { Authorization: `Bearer ${token}` } });
     if (!res.ok) return null;
-    const channels = await res.json();
+    const j = await res.json();
+    const channels = Array.isArray(j) ? j : j?.items || []; // 2026-01 paginates: { items, next, prev }
     // MUST use the channel that can WRITE orders (the PAT/SMA channel) — the
     // Shopify/Amazon/Triple Whale channels are read-only and 403 on order create.
-    const writable = (channels || []).find((c: any) => (c.scopes || []).includes('orders_write'))
-      || (channels || []).find((c: any) => (c.scopes || []).some((s: string) => /write/i.test(s)));
+    const writable = channels.find((c: any) => (c.scopes || []).includes('orders_write'))
+      || channels.find((c: any) => (c.scopes || []).some((s: string) => /write/i.test(s)));
     if (writable?.id) { _channelCache[site] = writable.id; return writable.id; }
   } catch { /* ignore */ }
   return null;
@@ -147,7 +164,7 @@ export async function createB2COrder(opts: {
   const channelId = await getShipbobChannelId(opts.site);
   const headers: Record<string, string> = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
   if (channelId) headers['shipbob_channel_id'] = String(channelId);
-  const res = await fetch('https://api.shipbob.com/1.0/order', {
+  const res = await fetch(`${SB}/order`, {
     method: 'POST', headers, body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`ShipBob order create failed: ${res.status}${channelId ? '' : ' (no channel id found)'} ${await res.text()}`);
@@ -161,7 +178,7 @@ export async function createB2COrder(opts: {
 export async function getB2COrder(site: string, id: number): Promise<any | null> {
   const token = TOKENS[site];
   if (!token) return null;
-  const res = await fetch(`https://api.shipbob.com/1.0/order/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+  const res = await fetch(`${SB}/order/${id}`, { headers: { Authorization: `Bearer ${token}` } });
   return res.ok ? res.json() : null;
 }
 
@@ -169,7 +186,7 @@ export async function getOrderTracking(site: string, id: number): Promise<{ stat
   const token = TOKENS[site];
   if (!token) return null;
   try {
-    const res = await fetch(`https://api.shipbob.com/1.0/order/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetch(`${SB}/order/${id}`, { headers: { Authorization: `Bearer ${token}` } });
     if (!res.ok) return null;
     const o = await res.json();
     const sh = (o.shipments || [])[0] || {};
@@ -189,7 +206,7 @@ export async function findRecentOrderByReference(site: string, reference: string
   if (!token || !reference) return null;
   try {
     for (let page = 1; page <= 4; page++) {
-      const res = await fetch(`https://api.shipbob.com/1.0/order?Page=${page}&Limit=100&SortOrder=Newest`, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(`${SB}/order?Page=${page}&Limit=100&SortOrder=Newest`, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) return null;
       const batch = await res.json();
       if (!batch?.length) return null;
@@ -208,7 +225,7 @@ export async function findRecentOrderByReference(site: string, reference: string
 
 export async function getWRO(site: string, id: number): Promise<any> {
   const token = TOKENS[site];
-  const res = await fetch(`https://api.shipbob.com/1.0/receiving/${id}`, {
+  const res = await fetch(`${SB}/receiving/${id}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw new Error(`ShipBob get WRO failed: ${res.status}`);
@@ -221,16 +238,23 @@ export async function getInventoryLevels(site: string, ids: number[]): Promise<M
   const token = TOKENS[site];
   const out = new Map<number, { fulfillable: number; onhand: number }>();
   if (!token || !ids.length) return out;
-  await Promise.all(ids.map(async (id) => {
-    try {
-      const res = await fetch(`https://api.shipbob.com/1.0/inventory/${id}`, { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) return;
-      const inv = await res.json();
-      out.set(id, {
-        fulfillable: Number(inv.total_fulfillable_quantity) || 0,
-        onhand: Number(inv.total_onhand_quantity) || 0,
-      });
-    } catch { /* skip ids that error */ }
-  }));
+  // 2026-01 moved quantities off /inventory/{id} onto /inventory-level (bulk, paginated) and
+  // renamed total_onhand_quantity → total_on_hand_quantity. One batched call replaces the
+  // per-id fan-out.
+  try {
+    let url: string | null = `${SB}/inventory-level?InventoryIds=${ids.join(',')}&PageSize=100`;
+    for (let page = 0; page < 5 && url; page++) {
+      const res: Response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) break;
+      const j: any = await res.json();
+      for (const inv of j?.items || []) {
+        out.set(Number(inv.inventory_id), {
+          fulfillable: Number(inv.total_fulfillable_quantity) || 0,
+          onhand: Number(inv.total_on_hand_quantity) || 0,
+        });
+      }
+      url = j?.next ? (String(j.next).startsWith('http') ? String(j.next) : `https://api.shipbob.com${j.next}`) : null;
+    }
+  } catch { /* absent ids just mean no live overlay */ }
   return out;
 }

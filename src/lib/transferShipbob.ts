@@ -24,15 +24,17 @@ async function lotsForInventory(site: string, inventoryId: number): Promise<RawL
   const token = process.env[site === 'MANCHESTER' ? 'SHIPBOB_API_TOKEN_UK' : 'SHIPBOB_API_TOKEN'];
   if (!token) return [];
   const fc = FC_ID[site];
-  const res = await fetch(`https://api.shipbob.com/1.0/inventory/${inventoryId}`, { headers: { Authorization: `Bearer ${token}` } });
+  // 2026-01: lots moved to /inventory-level/{id}/lots — expiration_date became lot_date and
+  // the per-FC breakdown became locations[].location_id (same id space as the FC ids).
+  const res = await fetch(`https://api.shipbob.com/2026-01/inventory-level/${inventoryId}/lots`, { headers: { Authorization: `Bearer ${token}` } });
   if (!res.ok) return [];
   const inv = await res.json();
   const out: RawLot[] = [];
-  for (const l of (inv.fulfillable_quantity_by_lot ?? []) as any[]) {
-    if (!l.lot_number || !l.expiration_date) continue;
-    const atFc = (l.fulfillable_quantity_by_fulfillment_center ?? []).find((f: any) => f.id === fc);
+  for (const l of (inv.lots ?? []) as any[]) {
+    if (!l.lot_number || !l.lot_date) continue;
+    const atFc = (l.locations ?? []).find((f: any) => f.location_id === fc);
     const qty = Number(atFc?.fulfillable_quantity ?? l.fulfillable_quantity) || 0;
-    if (qty > 0) out.push({ lot_number: l.lot_number, expiration_date: String(l.expiration_date).slice(0, 10), qty });
+    if (qty > 0) out.push({ lot_number: l.lot_number, expiration_date: String(l.lot_date).slice(0, 10), qty });
   }
   return out.sort((a, b) => b.expiration_date.localeCompare(a.expiration_date)); // longest date first
 }
