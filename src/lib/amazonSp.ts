@@ -92,4 +92,51 @@ export async function fetchAmazonSalesWeek(startIso: string, endIso: string, fxG
   return { au: round2(au), uk: round2(uk), orders, warnings };
 }
 
+// Daily sales for the last N days, bucketed by MELBOURNE calendar day (how Luke reads
+// "yesterday"), AU in AUD + UK in GBP (native — the agent reports both as-is).
+export interface AmazonDailyRow { date: string; au_sales: number; au_orders: number; uk_sales_gbp: number; uk_orders: number }
+export async function fetchAmazonDaily(days = 7): Promise<{ rows: AmazonDailyRow[]; warnings: string[] } | null> {
+  if (!amazonSpConfigured()) return null;
+  const n = Math.min(Math.max(Math.round(days) || 7, 1), 30);
+  const createdAfter = new Date(Date.now() - n * 86400_000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const createdBefore = new Date(Date.now() - 3 * 60_000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const melbDay = (iso: string) => new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Australia/Melbourne' });
+  const byDay = new Map<string, AmazonDailyRow>();
+  const warnings: string[] = [];
+  for (const m of MARKETS) {
+    try {
+      const token = await getAccessToken(m.refreshTokenEnv);
+      let nextToken: string | undefined, pages = 0;
+      do {
+        const params = new URLSearchParams({ MarketplaceIds: m.marketplaceId, CreatedAfter: createdAfter, CreatedBefore: createdBefore });
+        if (nextToken) params.set('NextToken', nextToken);
+        const res = await fetch(`${m.endpoint}/orders/v0/orders?${params}`, { headers: { 'x-amz-access-token': token } });
+        if (!res.ok) throw new Error(`${m.label} ${res.status}: ${(await res.text()).slice(0, 120)}`);
+        const j = await res.json();
+        for (const o of (j.payload?.Orders || [])) {
+          if (o.OrderStatus === 'Canceled' || !o.PurchaseDate) continue;
+          const d = melbDay(o.PurchaseDate);
+          if (!byDay.has(d)) byDay.set(d, { date: d, au_sales: 0, au_orders: 0, uk_sales_gbp: 0, uk_orders: 0 });
+          const row = byDay.get(d)!;
+          const amt = Number(o.OrderTotal?.Amount) || 0;
+          if (m.label === 'UK') { row.uk_sales_gbp = round2(row.uk_sales_gbp + amt); row.uk_orders++; }
+          else { row.au_sales = round2(row.au_sales + amt); row.au_orders++; }
+        }
+        nextToken = j.payload?.NextToken;
+        pages++;
+      } while (nextToken && pages < 20);
+    } catch (e) {
+      warnings.push(`${m.label}: ${String((e as Error).message || e).slice(0, 120)}`);
+    }
+  }
+  if (warnings.length === MARKETS.length) throw new Error(warnings.join(' | '));
+  // fill empty days so a $0 day is VISIBLE (that's often the whole point of asking)
+  for (let i = 0; i < n; i++) {
+    const d = melbDay(new Date(Date.now() - i * 86400_000).toISOString());
+    if (!byDay.has(d)) byDay.set(d, { date: d, au_sales: 0, au_orders: 0, uk_sales_gbp: 0, uk_orders: 0 });
+  }
+  const rows = [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date)).slice(-n);
+  return { rows, warnings };
+}
+
 const round2 = (n: number) => Math.round(n * 100) / 100;

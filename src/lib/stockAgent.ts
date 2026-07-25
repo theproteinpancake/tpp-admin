@@ -13,6 +13,7 @@ import { findContacts } from './contacts';
 import { getPackagingSummary } from './packaging';
 import { getInventoryLevels } from './shipbob';
 import { stockImageUrl, expiryImageUrl } from './stockImage';
+import { fetchAmazonDaily } from './amazonSp';
 import { gmailSendDraft, gmailCreateDraft, gmailDeleteDraftsBySubject, gmailSearch, gmailGetBody, gmailGetAllAttachments } from './google';
 import { getLots, expiryStatus, EXPIRY_META } from './lots';
 import { getShippingData } from './shipping';
@@ -92,6 +93,11 @@ const tools: Anthropic.Tool[] = [
       site: { type: 'string', enum: ['ALTONA', 'MANCHESTER'], description: 'default ALTONA (AU). MANCHESTER for UK.' },
       sizes: { type: 'array', items: { type: 'number', enum: [320, 520, 1000] }, description: 'limit the card to these sizes, e.g. [320] for a wholesale/320g update. Omit for all sizes.' },
     } },
+  },
+  {
+    name: 'get_amazon_sales',
+    description: 'Daily Amazon sales for the last N days (default 7, max 30), straight from Amazon SP-API: per Melbourne calendar day, AU sales (AUD) + UK sales (GBP) + order counts. Use for "how are Amazon sales", "last week of Amazon", "was Amazon really $0 yesterday". Today\'s row is PARTIAL (day in progress) — always say so.',
+    input_schema: { type: 'object', properties: { days: { type: 'number', description: 'how many days back (1-30), default 7' } } },
   },
   {
     name: 'expiry_snapshot',
@@ -578,6 +584,16 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
     const sizes = Array.isArray(input.sizes) ? (input.sizes as number[]).filter((g) => [320, 520, 1000].includes(Number(g))) : [];
     _media.push(stockImageUrl(site, sizes.length ? sizes : undefined));
     return { attached: true, site, sizes: sizes.length ? sizes : 'all', note: `Stock card image attached (live ShipBob numbers, ${site}). The card carries the availability — your text adds ONLY what it can't show (reorder-by dates, ETAs, what needs action), 1-3 lines, never a repeat of the numbers. 320g figures are CARTONS of 4.` };
+  }
+  if (name === 'get_amazon_sales') {
+    const r = await fetchAmazonDaily(input.days ? Number(input.days) : 7);
+    if (!r) return { error: 'Amazon SP-API not configured.' };
+    const totals = r.rows.reduce((a, d) => ({ au: a.au + d.au_sales, uk: a.uk + d.uk_sales_gbp, orders: a.orders + d.au_orders + d.uk_orders }), { au: 0, uk: 0, orders: 0 });
+    return {
+      days: r.rows, totals: { au_sales_aud: Math.round(totals.au * 100) / 100, uk_sales_gbp: Math.round(totals.uk * 100) / 100, orders: totals.orders },
+      ...(r.warnings.length ? { warnings: r.warnings } : {}),
+      note: 'AU figures are AUD, UK figures are GBP (native). The LAST row is TODAY (Melbourne) and is partial — say so when quoting it. One compact line per day, no tables.',
+    };
   }
   if (name === 'expiry_snapshot') {
     const site = String(input.site || 'ALTONA').toUpperCase();
@@ -1163,6 +1179,7 @@ CRITICAL RULE — never say you can't do something logistics-related without FIR
 
 Your full toolkit:
 - get_action_center — the proactive cross-site priority list (transfers due, POs, packaging, expiry, billing). Lead with this for "what needs my attention" and when opening a proactive check-in; then offer to action the top items. It returns the items NUMBERED (and saves that numbering); when the user replies with numbers about them ("1, 3 done", "disregard 2 and 5", "8 — I provisioned Manildra so it's underway"), call mark_brief_done with those numbers + any note/decision so they clear and won't resurface. Confirm what you cleared. (Only treat a bare-number reply as this if you actually showed the numbered list recently.)
+- get_amazon_sales — daily Amazon sales (AU in AUD, UK in GBP) for the last N days, live from Amazon. Use for any "how's Amazon going" / "$0 Amazon?" question.
 - get_stock — live on-hand, available, days of cover, inbound, velocity, status, per SKU per site (FINISHED goods/syrup/accessories). NEVER invent a product name from its SKU letters — use the name/flavour the tool returns (ACCS=The Scraper, ACCP=The Pancake Pan, ACCF=The Flipper, TWM=The Waffle Maker); if a row's name is just the SKU, say the SKU, don't guess.
 - get_packaging_stock — our PACKAGING: empty pouches + shelf-ready SRP cartons ABC holds, and the shipping cartons ShipBob Altona holds (live). Use this for ANY packaging/pouch/SRP/carton question and for "what does ABC have on hand" — ABC holds EMPTIES (pouches + SRP cartons), NOT finished product. Don't answer packaging questions from get_stock. 320g is carton-limited when SRP cartons × 4 < pouches — call that out.
 - get_expiring_stock — batch/lot best-before dates, days left, soonest-expiring stock (BOTH sites). This covers ALL expiry / shortest-dated / batch / best-before questions.
@@ -1292,7 +1309,7 @@ const WHOLESALE_EXCLUDED_TOOLS = new Set([
   'suggest_transfer', 'create_transfer', 'update_transfer_status', 'send_transfer_docs', 'draft_transfer_email',
   'preview_transfer_shipbob', 'create_transfer_wro', 'update_transfer_lines',
   'get_uk_pallet_contacts', 'check_docket', 'parse_docket', 'create_wro', 'draft_sharon_reply', 'send_email_draft',
-  'mark_po_received', 'get_action_center', 'mark_brief_done', 'get_shipping_billing', 'update_logistics_brief_excludes',
+  'mark_po_received', 'get_action_center', 'mark_brief_done', 'get_shipping_billing', 'update_logistics_brief_excludes', 'get_amazon_sales',
   'order_packaging', 'get_visy_orders',
 ]);
 export function toolsForRole(role: 'wholesale' | 'owner') {
