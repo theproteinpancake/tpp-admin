@@ -12,6 +12,7 @@ import { getConfig, setConfig } from './settings';
 import { getTemplateSid } from './waTemplates';
 import { recordProactiveContext } from './stockAgent';
 import { melbDate, melbMidnightUtc, dowMon0, addDays } from './tz';
+import { fetchAmazonDaily } from './amazonSp';
 import { cashBriefLine } from './cashflow';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -19,7 +20,7 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 export interface ReviewMetrics {
   kind: 'day' | 'week'; period: string;
   online: number; orders: number; aov: number; cr: number | null;
-  wholesale: number; amazon: number; total: number;
+  wholesale: number; amazon: number; amazon_detail?: string | null; total: number;
   roas: number | null; cpa: number | null; nc_roas: number | null; nc_cpa: number | null;
   net: number;
 }
@@ -42,7 +43,7 @@ export function reviewText(m: ReviewMetrics): string {
     ...(m.cr != null ? [`CR ${pc(m.cr)}`] : []),
     `${m.orders} orders`,
     `${d0(m.wholesale)} wholesale`,
-    `${d0(m.amazon)} amazon`,
+    `${d0(m.amazon)} amazon${m.amazon_detail ? ` (${m.amazon_detail})` : ''}`,
     `Total sales ${d0(m.total)}`,
     ``,
     `ROAS ${xx(m.roas)}`,
@@ -59,7 +60,7 @@ export function reviewVars(m: ReviewMetrics): Record<string, string> {
   return {
     '1': `${m.kind === 'week' ? 'Week' : 'Daily'} · ${m.period}`,
     '2': `${d0(m.online)} · ${m.orders} orders · AOV ${d2(m.aov)}${m.cr != null ? ` · CR ${pc(m.cr)}` : ''}`,
-    '3': `${d0(m.wholesale)} wholesale · ${d0(m.total)} total`,
+    '3': `${d0(m.wholesale)} wholesale · ${d0(m.amazon)} amazon${m.amazon_detail ? ` (${m.amazon_detail})` : ''} · ${d0(m.total)} total`,
     '4': `ROAS ${xx(m.roas)} · CPA ${d2(m.cpa)} · NC ROAS ${xx(m.nc_roas)} · NC CPA ${d2(m.nc_cpa)}`,
     '5': d0(m.net),
   };
@@ -78,6 +79,7 @@ export async function weekMetrics(weekStart: string): Promise<ReviewMetrics | nu
     kind: 'week', period: `${fmtLong(weekStart)} – ${fmtLong(end)}`,
     online, orders: nn(r.orders), aov: nn(r.aov), cr: r.cr != null ? nn(r.cr) : null,
     wholesale, amazon, total: online + wholesale + amazon,
+    amazon_detail: (r.amazon_sales_au != null || r.amazon_sales_uk != null) ? `AU ${d0(nn(r.amazon_sales_au))} · UK ${d0(nn(r.amazon_sales_uk))}` : null,
     roas: r.meta_roas != null ? nn(r.meta_roas) : null, cpa: r.meta_cpa != null ? nn(r.meta_cpa) : null,
     nc_roas: r.meta_nc_roas != null ? nn(r.meta_nc_roas) : null, nc_cpa: r.meta_nc_cpa != null ? nn(r.meta_nc_cpa) : null,
     net,
@@ -90,13 +92,15 @@ export async function dayMetrics(date: string): Promise<ReviewMetrics> {
   const next = addDays(date, 1);
   const fromTs = melbMidnightUtc(date);
   const toTs = melbMidnightUtc(next);
-  const [shop, cogsRes, meta, sb, wh, roll] = await Promise.all([
+  const daysBack = Math.max(2, Math.ceil((Date.now() - new Date(date + 'T00:00:00').getTime()) / 86400_000) + 1);
+  const [shop, cogsRes, meta, sb, wh, roll, amz] = await Promise.all([
     shopifyOrders(date, next).catch(() => null),
     shopifyWeekCOGS(date, next).catch(() => null),
     fetchMetaWeek(date, next).catch(() => null),
     supabaseLogistics.from('shipment_costs').select('cost,currency').gte('ship_date', date).lt('ship_date', next),
     supabaseLogistics.from('wholesale_orders').select('total').gte('order_date', date).lt('order_date', next),
     Promise.resolve(supabaseLogistics.rpc('attribution_rollup', { p_from: fromTs, p_to: toTs, p_model: 'last' })).then((r: any) => r.data).catch(() => null),
+    fetchAmazonDaily(Math.min(daysBack, 30)).catch(() => null),
   ]);
   const online = nn(shop?.online_sales);
   const cogs = cogsRes?.cogs != null ? cogsRes.cogs : online * a.online_cogs_pct;
@@ -105,11 +109,18 @@ export async function dayMetrics(date: string): Promise<ReviewMetrics> {
   const m = ((roll ?? []) as any[]).find((x) => x.source === 'meta');
   const ncRev = m ? nn(m.nc_revenue) : 0, ncOrd = m ? nn(m.nc_orders) : 0;
   const adSpend = nn(meta?.spend);
+  // Amazon for THIS calendar day (Melbourne) — the report runs for yesterday, so the day is
+  // complete by send time (was hardcoded 0 before; a $209 Saturday reported as $0 amazon).
+  const amzRow = amz?.rows.find((x) => x.date === date);
+  const amazon = amzRow ? r2(amzRow.au_sales + amzRow.uk_sales_gbp * a.fx_gbp_aud) : 0;
+  const amazon_detail = amzRow && (amzRow.au_sales > 0 || amzRow.uk_sales_gbp > 0)
+    ? `AU ${d0(amzRow.au_sales)}${amzRow.uk_sales_gbp > 0 ? ` · UK £${amzRow.uk_sales_gbp}` : ' · UK £0'}`
+    : null;
   const net = (online - cogs) + wholesale * a.wholesale_margin - adSpend - shipbob - online * a.payment_fee_pct - (a.wages_per_day || 0);
   return {
     kind: 'day', period: fmtDow(date),
     online, orders: nn(shop?.orders), aov: nn(shop?.aov), cr: null,
-    wholesale, amazon: 0, total: online + wholesale,
+    wholesale, amazon, amazon_detail, total: online + wholesale + amazon,
     roas: meta?.roas ?? null, cpa: meta?.cpa ?? null,
     // Prefer Meta incrementality for NC (most accurate); fall back to click attribution.
     nc_roas: meta && meta.inc_conversions > 0 ? meta.nc_roas : (adSpend ? r2(ncRev / adSpend) : null),

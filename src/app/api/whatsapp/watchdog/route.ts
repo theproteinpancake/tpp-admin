@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseLogistics } from '@/lib/supabase-logistics';
 import { fetchMetaWeek } from '@/lib/meta';
+import { fetchAmazonDaily } from '@/lib/amazonSp';
 import { getSalesForecast } from '@/lib/forecast';
 import { getTemplateSid } from '@/lib/waTemplates';
 import { sendWhatsApp, sendWhatsAppTemplate, allowedNumbers, senderRole } from '@/lib/whatsapp';
@@ -59,6 +60,30 @@ async function checks(): Promise<Issue[]> {
     for (const r of hot.slice(0, 4)) {
       const size = r.unit_size_g >= 1000 ? `${r.unit_size_g / 1000}kg` : `${r.unit_size_g}g`;
       issues.push({ key: `stockout:${r.sku}:${r.location_code}`, label: `${r.flavour} ${size} stocking out (${r.location_code === 'ALTONA' ? 'AU' : 'UK'})`, detail: `${Math.round(r.days_of_cover)}d cover, nothing inbound — needs a PO/transfer now.` });
+    }
+  } catch { /* best-effort */ }
+
+  // 4. Amazon market health — AU vs UK, complete days only (today excluded). Two triggers:
+  // a market that flatlines for 3+ days after having sales, or a week-on-week collapse.
+  try {
+    const amz = await fetchAmazonDaily(15);
+    if (amz) {
+      const complete = amz.rows.filter((r) => r.date < today);
+      for (const mkt of ['AU', 'UK'] as const) {
+        const val = (r: any) => (mkt === 'AU' ? r.au_sales : r.uk_sales_gbp);
+        const ords = (r: any) => (mkt === 'AU' ? r.au_orders : r.uk_orders);
+        const cur = mkt === 'AU' ? '$' : '£';
+        const last7 = complete.slice(-7), prior7 = complete.slice(-14, -7);
+        const sum = (rows: any[], f: (r: any) => number) => rows.reduce((a, r) => a + f(r), 0);
+        let streak = 0;
+        for (let i = complete.length - 1; i >= 0 && val(complete[i]) === 0; i--) streak++;
+        const priorOrders = sum(complete.slice(0, complete.length - streak), ords);
+        if (streak >= 3 && priorOrders >= 3) {
+          issues.push({ key: `amazon_zero:${mkt}`, label: `Amazon ${mkt}: no sales for ${streak} days`, detail: `${mkt} has been ${cur}0 since ${complete[complete.length - streak]?.date} (it was selling before that). Check listings/Buy Box/stock. 7d: AU $${Math.round(sum(last7, (r: any) => r.au_sales))} · UK £${Math.round(sum(last7, (r: any) => r.uk_sales_gbp))}.` });
+        } else if (sum(prior7, val) >= 150 && sum(last7, val) < sum(prior7, val) * 0.4) {
+          issues.push({ key: `amazon_drop:${mkt}`, label: `Amazon ${mkt} sales down sharply`, detail: `Last 7d ${cur}${Math.round(sum(last7, val))} vs ${cur}${Math.round(sum(prior7, val))} the week before (−${Math.round((1 - sum(last7, val) / sum(prior7, val)) * 100)}%).` });
+        }
+      }
     }
   } catch { /* best-effort */ }
 
