@@ -25,6 +25,26 @@ module.exports = {
         'maple-bacon': '#DB5B42',
         cinnamon: '#9D442B',
         'maple-orange': '#fbb033',
+
+        // Staff task board (Reece's tracker). His components use semantic names
+        // (bg-surface, text-ink, border-line…) rather than raw colours, so rebranding
+        // is entirely this block — every card, dialog and chip follows.
+        canvas: '#f7eddb',        // page bg   = cream
+        surface: '#faf4e8',       // cards     = paper
+        sunken: '#f2e6d2',        // wells / inset panels
+        line: '#e6d8bf',          // warm borders (was cool grey)
+        'line-strong': '#d6c3a2',
+        ink: '#3b2a1d',           // primary text — warm near-black, not slate
+        'ink-soft': '#6d5a48',
+        'ink-mute': '#9c8a76',
+        accent: '#bd6930',        // caramel
+        'accent-soft': '#f3e2cc',
+        // Priority stays semantic — these are signals, not decoration. Medium borrows
+        // the brand blue; urgent/high keep conventional red/amber.
+        urgent: '#dc2626',
+        high: '#d97706',
+        medium: '#7dadd4',
+        low: '#a89880',
       },
       fontFamily: {
         sans: ['var(--font-recoleta)', 'Georgia', 'serif'],

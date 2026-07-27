@@ -7,6 +7,7 @@ export function sectionHome(s: Section): string {
     : s === 'logistics' ? '/logistics/assistant'
     : s === 'wholesale' ? '/wholesale'
     : s === 'analytics' ? '/analytics'
+    : s === 'staff' ? '/staff/todos'
     : '/marketing/influencers';
 }
 

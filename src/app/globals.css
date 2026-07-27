@@ -50,3 +50,71 @@ h1, h2, h3, h4, .font-display {
 /* Hidden-scrollbar horizontal strips (filter toolbars) */
 .hide-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
 .hide-scrollbar::-webkit-scrollbar { display: none; }
+
+/* ------------------------------------------------------------------ *
+ * Staff task board (ported from Reece's standalone tracker).
+ * His @theme colour tokens now live in tailwind.config.js; these are the
+ * behaviours Tailwind can't express. Declared under @layer utilities so they
+ * still accept variants (sm:fade-scroll-end) under Tailwind v3.
+ * ------------------------------------------------------------------ */
+@layer utilities {
+  /* A control that fades in on hover for a mouse, and is simply always there on a
+     touch screen — where there is no hover, so a hidden control isn't subtle, it's
+     missing. Keyed on pointer capability, not width: an iPad at 1024px is a finger. */
+  .reveal-on-hover { transition: opacity 0.15s ease; }
+  @media (pointer: fine) {
+    .reveal-on-hover { opacity: 0; }
+    .group:hover .reveal-on-hover,
+    .group:focus-within .reveal-on-hover,
+    .reveal-on-hover:focus-visible { opacity: 1; }
+  }
+
+  /* Grows a control's touch target past its painted box, so a 24px icon is a 44px
+     tap without punching a 44px hole in the layout. */
+  .tap-target { position: relative; }
+  .tap-target::after { content: ""; position: absolute; inset: -0.625rem; }
+
+  /* Softens the foot of a scroll area so the last card dissolves at the edge rather
+     than being sliced by it. Pair with bottom padding of at least the same size. */
+  .fade-scroll-end {
+    --fade-scroll-size: 2rem;
+    mask-image: linear-gradient(to bottom, #000 calc(100% - var(--fade-scroll-size)), transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--fade-scroll-size)), transparent 100%);
+  }
+  .fade-scroll-x-end {
+    mask-image: linear-gradient(to right, #000 calc(100% - 1.75rem), transparent);
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 1.75rem), transparent);
+  }
+
+  .card-shadow {
+    box-shadow: 0 1px 2px rgba(59, 42, 29, 0.06), 0 1px 1px rgba(59, 42, 29, 0.04);
+  }
+}
+
+/* The original card while its copy is being dragged. */
+.is-dragging { opacity: 0.3; }
+.drag-ghost {
+  position: fixed; pointer-events: none; z-index: 100; top: 0; left: 0;
+  will-change: transform; transform-origin: top left; rotate: 1.5deg;
+}
+
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pop-in { from { opacity: 0; transform: translateY(6px) scale(0.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes slide-up { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes view-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes pane-from-right { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes pane-from-left { from { opacity: 0; transform: translateX(-16px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes card-in { from { opacity: 0; transform: translateY(-6px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+
+.animate-fade-in { animation: fade-in 0.16s ease-out; }
+.animate-pop-in { animation: pop-in 0.18s cubic-bezier(0.2, 0.8, 0.3, 1); }
+.animate-slide-up { animation: slide-up 0.22s cubic-bezier(0.2, 0.8, 0.3, 1); }
+.animate-view-in { animation: view-in 0.24s cubic-bezier(0.2, 0.8, 0.3, 1); }
+.animate-pane-from-right { animation: pane-from-right 0.26s cubic-bezier(0.2, 0.8, 0.3, 1); }
+.animate-pane-from-left { animation: pane-from-left 0.26s cubic-bezier(0.2, 0.8, 0.3, 1); }
+.animate-card-in { animation: card-in 0.3s cubic-bezier(0.2, 0.8, 0.3, 1); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+  .drag-ghost { rotate: none; }
+}

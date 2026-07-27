@@ -4,10 +4,9 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import {
+import { ListTodo,
   LayoutDashboard,
   Clapperboard,
-  Landmark,
   TrendingUp,
   UtensilsCrossed,
   Users,
@@ -32,7 +31,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
-type Section = 'analytics' | 'app' | 'logistics' | 'wholesale' | 'marketing';
+type Section = 'analytics' | 'app' | 'logistics' | 'wholesale' | 'marketing' | 'staff';
 type NavItem = { name: string; href: string; icon: LucideIcon };
 type NavGroup = { label: string; section: Section; ownerOnly?: boolean; items: NavItem[] };
 type Me = { name: string | null; email: string; role: string; sections: Section[]; isOwner: boolean };
@@ -45,14 +44,6 @@ const groups: NavGroup[] = [
       { name: 'Analytics', href: '/analytics', icon: BarChart3 },
       { name: 'Sales & Data', href: '/analytics/master', icon: Table2 },
       { name: 'Ads', href: '/analytics/ads', icon: Clapperboard },
-    ],
-  },
-  {
-    label: 'Money',
-    section: 'analytics',
-    ownerOnly: true,
-    items: [
-      { name: 'Money', href: '/money', icon: Landmark },
     ],
   },
   {
@@ -84,6 +75,13 @@ const groups: NavGroup[] = [
       { name: 'Influencers', href: '/marketing/influencers', icon: Megaphone },
       { name: 'Influencer Reporting', href: '/marketing/influencer-reporting', icon: BarChart3 },
       { name: 'Collabs', href: '/marketing/collabs', icon: Handshake },
+    ],
+  },
+  {
+    label: 'Staff',
+    section: 'staff',
+    items: [
+      { name: 'To do lists', href: '/staff/todos', icon: ListTodo },
     ],
   },
   {

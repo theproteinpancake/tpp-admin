@@ -89,15 +89,15 @@ export function readRemember(cookie?: string | null): string | null {
 
 // ---------- Roles & section access ----------
 // Top-level dashboard sections, matched against URL prefixes by the nav + page guards.
-export const ALL_SECTIONS = ['analytics', 'logistics', 'wholesale', 'marketing', 'app'] as const;
+export const ALL_SECTIONS = ['analytics', 'logistics', 'wholesale', 'marketing', 'app', 'staff'] as const;
 export type Section = (typeof ALL_SECTIONS)[number];
 
 export const ROLES: { value: string; label: string; sections: Section[] }[] = [
   { value: 'owner', label: 'Owner (full access)', sections: [...ALL_SECTIONS] },
-  { value: 'wholesale', label: 'Wholesale & Marketing', sections: ['wholesale', 'marketing'] },
-  { value: 'marketing', label: 'Marketing only', sections: ['marketing'] },
-  { value: 'logistics', label: 'Logistics & App', sections: ['app', 'logistics'] },
-  { value: 'staff', label: 'Staff (custom)', sections: [] },
+  { value: 'wholesale', label: 'Wholesale & Marketing', sections: ['wholesale', 'marketing', 'staff'] },
+  { value: 'marketing', label: 'Marketing only', sections: ['marketing', 'staff'] },
+  { value: 'logistics', label: 'Logistics & App', sections: ['app', 'logistics', 'staff'] },
+  { value: 'staff', label: 'Staff (custom)', sections: ['staff'] },
 ];
 
 export function isOwner(user?: { role?: string } | null): boolean {
@@ -108,10 +108,11 @@ export function isOwner(user?: { role?: string } | null): boolean {
 export function allowedSections(user?: { role?: string; sections?: string[] | null } | null): Section[] {
   if (!user) return [];
   if (isOwner(user)) return [...ALL_SECTIONS];
-  if (Array.isArray(user.sections) && user.sections.length) {
-    return user.sections.filter((s): s is Section => (ALL_SECTIONS as readonly string[]).includes(s));
-  }
-  return ROLES.find((r) => r.value === user.role)?.sections ?? [];
+  const base = Array.isArray(user.sections) && user.sections.length
+    ? user.sections.filter((s): s is Section => (ALL_SECTIONS as readonly string[]).includes(s))
+    : ROLES.find((r) => r.value === user.role)?.sections ?? [];
+  // Everyone with a login gets their own to-do list, whatever their section scoping says.
+  return base.includes('staff') ? base : [...base, 'staff'];
 }
 
 export function canAccess(user: { role?: string; sections?: string[] | null } | null, section: Section): boolean {
