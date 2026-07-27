@@ -79,7 +79,15 @@ async function checks(): Promise<Issue[]> {
         for (let i = complete.length - 1; i >= 0 && val(complete[i]) === 0; i--) streak++;
         const priorOrders = sum(complete.slice(0, complete.length - streak), ords);
         if (streak >= 3 && priorOrders >= 3) {
-          issues.push({ key: `amazon_zero:${mkt}`, label: `Amazon ${mkt}: no sales for ${streak} days`, detail: `${mkt} has been ${cur}0 since ${complete[complete.length - streak]?.date} (it was selling before that). Check listings/Buy Box/stock. 7d: AU $${Math.round(sum(last7, (r: any) => r.au_sales))} · UK £${Math.round(sum(last7, (r: any) => r.uk_sales_gbp))}.` });
+          // Wording matters: quoting a "7d total" that still contained the LAST sale read as a
+          // contradiction ("£0 since 21/07 ... UK £18"). Anchor on the last sale instead, and
+          // compare the OTHER market over the same zero stretch.
+          const lastSale = complete[complete.length - streak - 1];
+          const streakRows = complete.slice(complete.length - streak);
+          const otherLabel = mkt === 'AU' ? 'UK' : 'AU';
+          const otherVal = (r: any) => (mkt === 'AU' ? r.uk_sales_gbp : r.au_sales);
+          const otherCur = mkt === 'AU' ? '£' : '$';
+          issues.push({ key: `amazon_zero:${mkt}`, label: `Amazon ${mkt}: no sales for ${streak} days`, detail: `Last ${mkt} sale was ${cur}${Math.round(val(lastSale))} on ${lastSale?.date}; nothing since. ${otherLabel} did ${otherCur}${Math.round(sum(streakRows, otherVal))} over those same ${streak} days. Check ${mkt} listings/Buy Box/stock.` });
         } else if (sum(prior7, val) >= 150 && sum(last7, val) < sum(prior7, val) * 0.4) {
           issues.push({ key: `amazon_drop:${mkt}`, label: `Amazon ${mkt} sales down sharply`, detail: `Last 7d ${cur}${Math.round(sum(last7, val))} vs ${cur}${Math.round(sum(prior7, val))} the week before (−${Math.round((1 - sum(last7, val) / sum(prior7, val)) * 100)}%).` });
         }
@@ -101,18 +109,21 @@ async function handle(req: NextRequest) {
   if (!dry && (h < 8 || h > 21)) return NextResponse.json({ ok: true, skipped: 'outside waking hours' });
 
   const found = await checks();
-  // dedupe: each issue key alerts once per day
+  // Dedupe: a PERSISTING condition (stockout, Amazon flatline) re-alerts WEEKLY, not daily —
+  // Luke: "I don't like being spammed". Point-in-time checks self-date their keys, so they
+  // still fire at most once per occurrence day.
   const seenRaw = await getConfig('watchdog_alerted');
   let seen: Record<string, string> = {};
   try { seen = seenRaw ? JSON.parse(seenRaw) : {}; } catch { seen = {}; }
   const today = melbDate(0);
-  const fresh = found.filter((i) => seen[i.key] !== today);
+  const weekAgo = melbDate(-7);
+  const fresh = found.filter((i) => !seen[i.key] || seen[i.key] <= weekAgo);
 
   let sent = 0;
   if (fresh.length && !dry) {
     const owners = allowedNumbers().filter((to) => senderRole(to) === 'owner');
     const sid = await getTemplateSid('tpp_system_alert');
-    const what = fresh.map((i) => i.label).join(' · ').slice(0, 550);
+    const what = `Watchdog: ${fresh.map((i) => i.label).join(' · ')}`.slice(0, 550); // the shared template header reads "system check" — label these so they're distinguishable
     const detail = fresh.map((i) => i.detail).join(' ').slice(0, 550);
     for (const to of owners) {
       let ok = false;
@@ -121,8 +132,8 @@ async function handle(req: NextRequest) {
       if (ok) sent++;
     }
     fresh.forEach((i) => { seen[i.key] = today; });
-    // prune old entries
-    for (const k of Object.keys(seen)) if (seen[k] !== today) delete seen[k];
+    // prune entries old enough to have re-alerted (keep the 7-day dedupe memory)
+    for (const k of Object.keys(seen)) if (seen[k] <= weekAgo) delete seen[k];
     await setConfig('watchdog_alerted', JSON.stringify(seen)).catch(() => {});
   }
   return NextResponse.json({ ok: true, found, fresh: fresh.map((i) => i.key), alerted: sent, dry });

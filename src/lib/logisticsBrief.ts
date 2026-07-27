@@ -5,7 +5,7 @@ import { supabaseLogistics } from './supabase-logistics';
 import { computeStatus, CATEGORY_LEAD_DAYS } from './stock';
 import { getConfig } from './settings';
 import { getTemplateSid } from './waTemplates';
-import { sendWhatsApp, sendWhatsAppTemplate, allowedNumbers, senderRole } from './whatsapp';
+import { sendWhatsApp, sendWhatsAppTemplate, waitUntilSent, allowedNumbers, senderRole } from './whatsapp';
 import { stockImageUrl } from './stockImage';
 import { recordProactiveContext } from './stockAgent';
 import { melbDate, melbLongDate } from './tz';
@@ -106,24 +106,26 @@ export async function buildLogisticsBrief(): Promise<{ vars: Record<string, stri
   return { vars, text };
 }
 
+// Luke's call (27 Jul): the text overview was noise next to the cards — the morning brief is
+// now JUST the two stock card images (AU then UK, sequenced so they arrive in order). The
+// text summary is still built: it goes to the agent's context (so replies about the brief
+// work) and is the fallback if both images fail to send (e.g. out-of-session).
 export async function sendLogisticsBrief(): Promise<{ sent: number; text: string }> {
   const { vars, text } = await buildLogisticsBrief();
-  const sid = await getTemplateSid('tpp_logistics_brief');
   const owners = allowedNumbers().filter((to) => senderRole(to) === 'owner');
+  const date = melbLongDate();
   let sent = 0;
   for (const to of owners) {
-    let ok = false;
-    if (sid) ok = await sendWhatsAppTemplate(to, sid, vars);
-    if (!ok) ok = !!(await sendWhatsApp(to, text));
-    // Dashboard-style stock cards ride along with the text brief (live ShipBob numbers,
-    // pouch shots, 320g in cartons) — the text stays the actionable summary, the cards are
-    // the glanceable numbers. Best-effort: outside a 24h session the freeform media message
-    // may not deliver; the templated brief above is the guaranteed signal.
-    if (ok) {
-      await sendWhatsApp(to, '🇦🇺 Altona', stockImageUrl('ALTONA')).catch(() => false);
-      await sendWhatsApp(to, '🇬🇧 Manchester', stockImageUrl('MANCHESTER')).catch(() => false);
+    const au = await sendWhatsApp(to, `🥞 Morning stock — ${date}`, stockImageUrl('ALTONA')).catch(() => false as const);
+    if (typeof au === 'string') await waitUntilSent(au).catch(() => {});
+    const uk = await sendWhatsApp(to, '🇬🇧 Manchester', stockImageUrl('MANCHESTER')).catch(() => false as const);
+    let ok = !!(au || uk);
+    if (!ok) {
+      const sid = await getTemplateSid('tpp_logistics_brief');
+      if (sid) ok = await sendWhatsAppTemplate(to, sid, vars);
+      if (!ok) ok = !!(await sendWhatsApp(to, text));
     }
-    if (ok) { sent++; await recordProactiveContext(to, `This is the LOGISTICS BRIEF I just sent. If the user replies about it (e.g. "stop showing X in the UK", "don't remind me of these SKUs"), use update_logistics_brief_excludes:\n${text}`).catch(() => {}); }
+    if (ok) { sent++; await recordProactiveContext(to, `MORNING STOCK CARDS just sent (AU + UK images). The underlying data, for answering follow-ups (user replies like "stop showing X" → update_logistics_brief_excludes):\n${text}`).catch(() => {}); }
   }
   return { sent, text };
 }
