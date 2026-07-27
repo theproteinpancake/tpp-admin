@@ -9,6 +9,24 @@ import Sidebar from './Sidebar';
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  // Desktop rail toggle (Reece's ask — more room for the page on a small laptop). Starts
+  // expanded and reads the saved choice after mount rather than during render, so the server
+  // and first client render agree; otherwise the sidebar would hydrate at the wrong width.
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    try {
+      setCollapsed(window.localStorage.getItem('tpp-sidebar-collapsed') === '1');
+    } catch { /* private mode / storage disabled — stay expanded */ }
+  }, []);
+
+  const toggleCollapsed = () => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try { window.localStorage.setItem('tpp-sidebar-collapsed', next ? '1' : '0'); } catch { /* ignore */ }
+      return next;
+    });
+  };
 
   // close the drawer whenever the route changes
   useEffect(() => { setOpen(false); }, [pathname]);
@@ -33,7 +51,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           open ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <Sidebar onNavigate={() => setOpen(false)} onClose={() => setOpen(false)} />
+        <Sidebar
+          onNavigate={() => setOpen(false)}
+          onClose={() => setOpen(false)}
+          collapsed={collapsed}
+          onToggleCollapse={toggleCollapsed}
+        />
       </div>
 
       {/* Main column */}

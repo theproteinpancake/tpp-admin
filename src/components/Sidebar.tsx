@@ -4,7 +4,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { ListTodo,
+import { PanelLeftOpen, PanelLeftClose, ListTodo,
   LayoutDashboard,
   Clapperboard,
   TrendingUp,
@@ -102,7 +102,17 @@ const ROLE_LABEL: Record<string, string> = {
   marketing: 'Marketing', logistics: 'Logistics', staff: 'Staff',
 };
 
-export default function Sidebar({ onNavigate, onClose }: { onNavigate?: () => void; onClose?: () => void }) {
+export default function Sidebar({
+  onNavigate,
+  onClose,
+  collapsed = false,
+  onToggleCollapse,
+}: {
+  onNavigate?: () => void;
+  onClose?: () => void;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
+}) {
   const pathname = usePathname();
   const [me, setMe] = useState<Me | null>(null);
 
@@ -128,11 +138,29 @@ export default function Sidebar({ onNavigate, onClose }: { onNavigate?: () => vo
   const isActive = (href: string) => href === activeHref;
 
   return (
-    <div className="flex h-[100dvh] w-64 flex-col bg-paper border-r border-gray-200">
+    <div
+      data-collapsed={collapsed}
+      className={`group/sb relative flex h-[100dvh] w-64 flex-col border-r border-gray-200 bg-paper transition-[width] duration-200 ${
+        collapsed ? 'md:w-[4.5rem]' : ''
+      }`}
+    >
+      {/* Collapse toggle — straddles the right edge so it's reachable in both states.
+          Desktop only: on mobile the sidebar is a drawer with its own close button. */}
+      {onToggleCollapse && (
+        <button
+          onClick={onToggleCollapse}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-expanded={!collapsed}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          className="absolute -right-3 top-[4.6rem] z-10 hidden h-6 w-6 items-center justify-center rounded-full border border-gray-200 bg-paper text-caramel shadow-sm transition hover:bg-cream hover:text-maple md:flex"
+        >
+          {collapsed ? <PanelLeftOpen className="h-3.5 w-3.5" /> : <PanelLeftClose className="h-3.5 w-3.5" />}
+        </button>
+      )}
       {/* Logo */}
-      <div className="safe-top flex h-16 items-center gap-2.5 border-b border-gray-200 px-5">
+      <div className="safe-top flex h-16 items-center gap-2.5 border-b border-gray-200 px-5 md:group-data-[collapsed=true]/sb:justify-center md:group-data-[collapsed=true]/sb:px-0">
         <Image src="/smile.png" alt="The Protein Pancake" width={36} height={36} className="rounded-lg shadow-sm" />
-        <div className="leading-tight">
+        <div className="leading-tight md:group-data-[collapsed=true]/sb:hidden">
           <h1 className="text-[15px] font-bold text-caramel">TPP Control</h1>
           <p className="text-[11px] text-gray-500">The Protein Pancake</p>
         </div>
@@ -147,9 +175,10 @@ export default function Sidebar({ onNavigate, onClose }: { onNavigate?: () => vo
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
         {visibleGroups.map((group) => (
           <div key={group.label}>
-            <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+            <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400 md:group-data-[collapsed=true]/sb:hidden">
               {group.label}
             </p>
+            <div className="mx-3 mb-2 hidden border-t border-gray-200 md:group-data-[collapsed=true]/sb:block" aria-hidden />
             <div className="space-y-1">
               {group.items.map((item) => {
                 const active = isActive(item.href);
@@ -158,14 +187,15 @@ export default function Sidebar({ onNavigate, onClose }: { onNavigate?: () => vo
                     key={item.name}
                     href={item.href}
                     onClick={onNavigate}
-                    className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                    title={collapsed ? item.name : undefined}
+                    className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors md:group-data-[collapsed=true]/sb:justify-center md:group-data-[collapsed=true]/sb:px-0 ${
                       active
                         ? 'bg-caramel text-white shadow-sm'
                         : 'text-caramel hover:bg-cream hover:text-maple'
                     }`}
                   >
                     <item.icon className="h-5 w-5 shrink-0" />
-                    {item.name}
+                    <span className="md:group-data-[collapsed=true]/sb:hidden">{item.name}</span>
                   </Link>
                 );
               })}
@@ -177,11 +207,14 @@ export default function Sidebar({ onNavigate, onClose }: { onNavigate?: () => vo
       {/* Bottom Section */}
       <div className="safe-bottom border-t border-gray-200 p-3">
         {me && (
-          <div className="mb-2 flex items-center gap-2.5 rounded-lg bg-cream/60 px-3 py-2">
+          <div
+            title={collapsed ? `${me.name || me.email} · ${ROLE_LABEL[me.role] || me.role}` : undefined}
+            className="mb-2 flex items-center gap-2.5 rounded-lg bg-cream/60 px-3 py-2 md:group-data-[collapsed=true]/sb:justify-center md:group-data-[collapsed=true]/sb:bg-transparent md:group-data-[collapsed=true]/sb:px-0"
+          >
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-caramel text-[13px] font-semibold text-white">
               {(me.name || me.email).trim().charAt(0).toUpperCase()}
             </div>
-            <div className="min-w-0 leading-tight">
+            <div className="min-w-0 leading-tight md:group-data-[collapsed=true]/sb:hidden">
               <p className="truncate text-[13px] font-semibold text-caramel">{me.name || me.email}</p>
               <p className="truncate text-[11px] text-gray-500">{ROLE_LABEL[me.role] || me.role}</p>
             </div>
@@ -190,17 +223,19 @@ export default function Sidebar({ onNavigate, onClose }: { onNavigate?: () => vo
         <Link
           href="/settings"
           onClick={onNavigate}
-          className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-caramel hover:bg-cream hover:text-maple transition-colors"
+          title={collapsed ? 'Settings' : undefined}
+          className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-caramel transition-colors hover:bg-cream hover:text-maple md:group-data-[collapsed=true]/sb:justify-center md:group-data-[collapsed=true]/sb:px-0"
         >
-          <Settings className="h-5 w-5" />
-          Settings
+          <Settings className="h-5 w-5 shrink-0" />
+          <span className="md:group-data-[collapsed=true]/sb:hidden">Settings</span>
         </Link>
         <button
           onClick={handleLogout}
-          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-caramel hover:bg-red-50 hover:text-red-600 transition-colors"
+          title={collapsed ? 'Sign out' : undefined}
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-caramel transition-colors hover:bg-red-50 hover:text-red-600 md:group-data-[collapsed=true]/sb:justify-center md:group-data-[collapsed=true]/sb:px-0"
         >
-          <LogOut className="h-5 w-5" />
-          Sign Out
+          <LogOut className="h-5 w-5 shrink-0" />
+          <span className="md:group-data-[collapsed=true]/sb:hidden">Sign Out</span>
         </button>
       </div>
     </div>
