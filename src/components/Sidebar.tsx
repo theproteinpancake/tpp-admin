@@ -47,6 +47,13 @@ const groups: NavGroup[] = [
     ],
   },
   {
+    label: 'Staff',
+    section: 'staff',
+    items: [
+      { name: 'To do lists', href: '/staff/todos', icon: ListTodo },
+    ],
+  },
+  {
     label: 'Logistics',
     section: 'logistics',
     items: [
@@ -75,13 +82,6 @@ const groups: NavGroup[] = [
       { name: 'Influencers', href: '/marketing/influencers', icon: Megaphone },
       { name: 'Influencer Reporting', href: '/marketing/influencer-reporting', icon: BarChart3 },
       { name: 'Collabs', href: '/marketing/collabs', icon: Handshake },
-    ],
-  },
-  {
-    label: 'Staff',
-    section: 'staff',
-    items: [
-      { name: 'To do lists', href: '/staff/todos', icon: ListTodo },
     ],
   },
   {
