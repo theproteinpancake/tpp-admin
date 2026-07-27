@@ -55,6 +55,11 @@ export const TEMPLATES: WaTemplate[] = [
     sample: { '1': 'Friday, 13 June', '2': 'Chase mycustomsuk (Izabela) — no customs update on INTERNAL2 since Tuesday.' },
   },
   {
+    key: 'tpp_task_assigned',
+    body: '📋 *{{1}}* {{2}}\n\n{{3}}\n\nOpen TPP Control → Staff → To do lists to pick it up.',
+    sample: { '1': 'Reece', '2': 'added a new task to your to do list', '3': 'Remove Tote from Gift Stack — due Friday' },
+  },
+  {
     key: 'tpp_system_alert',
     body: '🚨 *TPP system check* — {{1}}\n\nWhat needs attention: {{2}}\n\nDetails: {{3}}\n\nReply here and I\'ll dig into it, or check the dashboard logs.',
     sample: { '1': 'Wednesday, 10 June', '2': 'The 7am sales review did not run', '3': 'Last successful run was 26 hours ago — the cron or the route may be failing.' },

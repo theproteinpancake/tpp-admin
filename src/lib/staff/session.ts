@@ -27,39 +27,63 @@ export async function currentMember(): Promise<MemberRow | null> {
     .maybeSingle();
   if (existing) return existing;
 
-  // First visit: adopt a name-matched row (the seeded team) before creating a new one, so a
-  // fresh login doesn't orphan the tasks already assigned to that person.
-  const name = (user.name || user.email.split("@")[0]).trim();
-  const { data: byName } = await db()
+  // First visit: ADOPT an existing unlinked row before creating anything. Matching is on the
+  // first name, because the tracker was seeded with what people are called ("Reece", "Debbie")
+  // while the dashboard stores full names ("Luke Rolls") — a strict match would miss and mint
+  // a second copy of the same person. Creating a duplicate is the worst outcome here: it
+  // splits their tasks in two and leaves the new row with no phone number to ping.
+  const fullName = (user.name || user.email.split("@")[0]).trim();
+  const firstName = fullName.split(/\s+/)[0];
+
+  const { data: candidates } = await db()
     .from("staff_members")
     .select("*")
-    .ilike("name", `${name}%`)
     .is("app_user_id", null)
-    .maybeSingle();
+    .ilike("name", `${firstName}%`);
 
-  if (byName) {
+  const adopt = (candidates ?? [])[0];
+  if (adopt) {
     const { data: linked } = await db()
       .from("staff_members")
-      .update({ app_user_id: user.id })
-      .eq("id", byName.id)
+      .update({ app_user_id: user.id, name: fullName })
+      .eq("id", adopt.id)
       .select("*")
       .maybeSingle();
-    return linked ?? byName;
+    return linked ?? adopt;
   }
 
-  const display = name.charAt(0).toUpperCase() + name.slice(1);
-  const { data: created } = await db()
+  const initials = fullName
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part: string) => part.charAt(0).toUpperCase())
+    .join("");
+  const { data: created, error } = await db()
     .from("staff_members")
-    .insert({
-      app_user_id: user.id,
-      name: display,
-      initials: display.slice(0, 2).toUpperCase(),
-      sort_order: 99,
-    })
+    .insert({ app_user_id: user.id, name: fullName, initials, sort_order: 99 })
     .select("*")
     .maybeSingle();
+  if (created) return created;
 
-  return created ?? null;
+  // Name is unique: a clash means their row already exists but is linked to a different
+  // account (e.g. someone re-created in Settings). Claim it rather than leaving them
+  // memberless — one person, one row, always.
+  if (error) {
+    const { data: clash } = await db()
+      .from("staff_members")
+      .select("*")
+      .ilike("name", fullName)
+      .maybeSingle();
+    if (clash) {
+      const { data: relinked } = await db()
+        .from("staff_members")
+        .update({ app_user_id: user.id })
+        .eq("id", clash.id)
+        .select("*")
+        .maybeSingle();
+      return relinked ?? clash;
+    }
+  }
+  return null;
 }
 
 /**

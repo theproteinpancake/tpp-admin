@@ -74,8 +74,11 @@ async function pushToWhatsApp(
   if (!members?.length) return;
 
   const { supabaseLogistics } = await import("../supabase-logistics");
-  const { sendWhatsApp, allowedNumbers, senderRole, waAddr } = await import("../whatsapp");
+  const { sendWhatsApp, sendWhatsAppTemplate, hasOpenSession, allowedNumbers, senderRole, waAddr } =
+    await import("../whatsapp");
+  const { getTemplateSid } = await import("../waTemplates");
   const { recordProactiveContext } = await import("../stockAgent");
+  const { melbLongDate } = await import("../tz");
 
   const appUserIds = members.map((m) => m.app_user_id).filter(Boolean) as string[];
   const { data: users } = appUserIds.length
@@ -97,7 +100,25 @@ async function pushToWhatsApp(
 
     const verb = row.type === "assigned" ? "added a new task to your to do list" : "mentioned you in a task";
     const text = `📋 *${actorName}* ${verb}:\n\n${row.body}\n\nOpen TPP Control → Staff → To do lists.`;
-    const ok = await sendWhatsApp(waAddr(to), text).catch(() => false);
+
+    // WhatsApp only allows free-form inside a 24h session (i.e. if they've messaged us
+    // recently). Outside it, Meta silently drops free-form (error 63016), which is how the
+    // sales review used to vanish. So: free-form when the window is open, approved template
+    // when it isn't — a teammate who has never messaged the number still gets told.
+    const inSession = await hasOpenSession(waAddr(to)).catch(() => false);
+    let ok: string | boolean = false;
+    if (inSession) ok = await sendWhatsApp(waAddr(to), text).catch(() => false);
+    if (!ok) {
+      const sid = await getTemplateSid("tpp_task_assigned").catch(() => null);
+      if (sid) {
+        ok = await sendWhatsAppTemplate(waAddr(to), sid, {
+          "1": actorName.slice(0, 60),
+          "2": verb,
+          "3": row.body.slice(0, 550),
+        }).catch(() => false);
+      }
+    }
+    if (!ok && !inSession) ok = await sendWhatsApp(waAddr(to), text).catch(() => false); // last resort
     if (ok) {
       sentIds.push(row.id);
       await recordProactiveContext(
