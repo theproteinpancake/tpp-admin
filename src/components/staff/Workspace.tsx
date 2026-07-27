@@ -35,7 +35,7 @@ import {
 } from "./icons";
 
 /** How often to pull in other people's changes. */
-const POLL_MS = 20_000;
+const POLL_MS = 45_000;
 
 type View = "board" | "list" | "calendar" | "links" | "inbox";
 
@@ -81,7 +81,11 @@ export function Workspace({
   /* Keep the board fresh without a websocket — at four people, polling is
      plenty and there is nothing extra to run or pay for. */
   useEffect(() => {
-    const id = window.setInterval(() => router.refresh(), POLL_MS);
+    // Each refresh is a full server render, so don't burn one while the tab is in the
+    // background — coming back to it triggers the focus refresh below anyway.
+    const id = window.setInterval(() => {
+      if (!document.hidden) router.refresh();
+    }, POLL_MS);
     const onFocus = () => router.refresh();
     window.addEventListener("focus", onFocus);
     return () => {

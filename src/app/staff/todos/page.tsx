@@ -6,7 +6,6 @@ import {
   getSuggestions,
   getUnreadCount,
 } from '@/lib/staff/data';
-import { sweepDueDates } from '@/lib/staff/due-sweep';
 import { currentMember } from '@/lib/staff/session';
 
 export const dynamic = 'force-dynamic';
@@ -24,8 +23,9 @@ export default async function TodosPage() {
     );
   }
 
-  // Raises any "due tomorrow" / "overdue" alerts before the bell is rendered.
-  await sweepDueDates();
+  // The due-date sweep used to run here on every render. It's a once-a-day job
+  // (QUIET_PERIOD_HOURS = 20) that was firing on every load, every 20s poll and every window
+  // focus — ~100ms plus writes each time. It now rides the followups cron instead.
 
   const [board, links, suggestions, notifications, unreadCount] = await Promise.all([
     getBoardData(),

@@ -5,6 +5,7 @@ import { sendWhatsApp, sendWhatsAppTemplate } from '@/lib/whatsapp';
 import { recordProactiveContext } from '@/lib/stockAgent';
 import { melbLongDate } from '@/lib/tz';
 import { repairReviewDelivery } from '@/lib/analyticsBrief';
+import { sweepDueDates } from '@/lib/staff/due-sweep';
 
 export const maxDuration = 60;
 
@@ -14,6 +15,9 @@ async function handle(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
   const given = req.headers.get('x-cron-secret') || new URL(req.url).searchParams.get('secret');
   if (secret && given !== secret) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+
+  // Staff board due-date sweep (was on the board's render path — see page.tsx).
+  void sweepDueDates().catch(() => {});
 
   const { data: due } = await supabaseLogistics.from('agent_followups')
     .select('*').eq('status', 'pending').lte('due_at', new Date().toISOString()).limit(10);

@@ -18,18 +18,18 @@ import type { MemberRow } from "./database.types";
  */
 export async function currentMember(): Promise<MemberRow | null> {
   const user = await getCurrentUser();
-  if (!user) return null;
+  if (!user?.id) return null;
 
   const { data: existing } = await db()
     .from("staff_members")
     .select("*")
-    .eq("app_user_id", user.uid)
+    .eq("app_user_id", user.id)
     .maybeSingle();
   if (existing) return existing;
 
   // First visit: adopt a name-matched row (the seeded team) before creating a new one, so a
   // fresh login doesn't orphan the tasks already assigned to that person.
-  const name = user.email.split("@")[0];
+  const name = (user.name || user.email.split("@")[0]).trim();
   const { data: byName } = await db()
     .from("staff_members")
     .select("*")
@@ -40,7 +40,7 @@ export async function currentMember(): Promise<MemberRow | null> {
   if (byName) {
     const { data: linked } = await db()
       .from("staff_members")
-      .update({ app_user_id: user.uid })
+      .update({ app_user_id: user.id })
       .eq("id", byName.id)
       .select("*")
       .maybeSingle();
@@ -51,7 +51,7 @@ export async function currentMember(): Promise<MemberRow | null> {
   const { data: created } = await db()
     .from("staff_members")
     .insert({
-      app_user_id: user.uid,
+      app_user_id: user.id,
       name: display,
       initials: display.slice(0, 2).toUpperCase(),
       sort_order: 99,
