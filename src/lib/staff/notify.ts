@@ -38,7 +38,7 @@ export async function notify({
         body,
       })),
     )
-    .select("id, recipient_id, type, body");
+    .select("id, recipient_id, type, body, task_id");
 
   // WhatsApp push happens here because every notifying path funnels through notify() —
   // 11 call sites, one hook. Best-effort and non-blocking: a Twilio hiccup must never fail
@@ -55,7 +55,7 @@ export async function notify({
 const WHATSAPP_TYPES: NotificationType[] = ["assigned", "mentioned"];
 
 async function pushToWhatsApp(
-  rows: { id: string; recipient_id: string; type: NotificationType; body: string }[],
+  rows: { id: string; recipient_id: string; type: NotificationType; body: string; task_id: string | null }[],
   actorId: string | null,
 ): Promise<void> {
   const pushable = rows.filter((r) => WHATSAPP_TYPES.includes(r.type));
@@ -78,7 +78,7 @@ async function pushToWhatsApp(
     await import("../whatsapp");
   const { getTemplateSid } = await import("../waTemplates");
   const { recordProactiveContext } = await import("../stockAgent");
-  const { melbLongDate } = await import("../tz");
+  const APP_URL = process.env.PUBLIC_APP_URL || "https://admin.theproteinpancake.co";
 
   const appUserIds = members.map((m) => m.app_user_id).filter(Boolean) as string[];
   const { data: users } = appUserIds.length
@@ -99,7 +99,9 @@ async function pushToWhatsApp(
     if (!to) continue; // no number on file — the in-app bell still has it
 
     const verb = row.type === "assigned" ? "added a new task to your to do list" : "mentioned you in a task";
-    const text = `📋 *${actorName}* ${verb}:\n\n${row.body}\n\nOpen TPP Control → Staff → To do lists.`;
+    // Deep link straight to the task rather than "go and find it" directions.
+    const link = row.task_id ? `${APP_URL}/staff/todos?task=${row.task_id}` : `${APP_URL}/staff/todos`;
+    const text = `📋 *${actorName}* ${verb}:\n\n${row.body}\n\n${link}`;
 
     // WhatsApp only allows free-form inside a 24h session (i.e. if they've messaged us
     // recently). Outside it, Meta silently drops free-form (error 63016), which is how the
@@ -114,16 +116,20 @@ async function pushToWhatsApp(
         ok = await sendWhatsAppTemplate(waAddr(to), sid, {
           "1": actorName.slice(0, 60),
           "2": verb,
-          "3": row.body.slice(0, 550),
+          "3": `${row.body}\n${link}`.slice(0, 550),
         }).catch(() => false);
       }
     }
     if (!ok && !inSession) ok = await sendWhatsApp(waAddr(to), text).catch(() => false); // last resort
     if (ok) {
       sentIds.push(row.id);
+      if (row.task_id) {
+        const { sendWhatsAppButtons } = await import("../whatsapp");
+        await sendWhatsAppButtons(waAddr(to), "Tap an option 👇", ["Mark as complete", "Not now"]).catch(() => false);
+      }
       await recordProactiveContext(
         waAddr(to),
-        `TASK PING just sent: ${actorName} ${verb} — "${row.body}". It lives on the To do lists board (Staff → To do lists in TPP Control). You have no tool to edit that board; if they ask about it, point them there.`,
+        `TASK PING just sent: ${actorName} ${verb} — "${row.body}"${row.task_id ? ` (task_id "${row.task_id}")` : ""}. PENDING TASK ACTION: if their next message is "Mark as complete" (or "done"/"completed"/"finished" about this task), call complete_task with task_id "${row.task_id}". "Not now" means leave it — just acknowledge briefly. The board is Staff → To do lists in TPP Control: ${link}`,
       ).catch(() => {});
     }
   }

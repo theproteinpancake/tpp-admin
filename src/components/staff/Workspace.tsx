@@ -50,6 +50,7 @@ export function Workspace({
   notifications,
   unreadCount,
   currentMember,
+  initialTaskId,
 }: {
   tasks: BoardTask[];
   members: MemberRow[];
@@ -59,6 +60,7 @@ export function Workspace({
   notifications: NotificationItem[];
   unreadCount: number;
   currentMember: MemberRow;
+  initialTaskId?: string | null;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -72,7 +74,14 @@ export function Workspace({
   const [categoryFilter, setCategoryFilter] = useState<string>("");
   const [search, setSearch] = useState("");
 
-  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  // ?task=<id> deep link: WhatsApp task pings link straight to the task, so a ping is one tap
+  // from the thing it's about rather than "go find it on the board". Cleared from the URL once
+  // opened, so a refresh or a shared link doesn't keep re-opening it.
+  const [openTaskId, setOpenTaskId] = useState<string | null>(initialTaskId ?? null);
+  useEffect(() => {
+    if (!initialTaskId) return;
+    window.history.replaceState(null, "", window.location.pathname);
+  }, [initialTaskId]);
   const [newTask, setNewTask] = useState<NewTaskSeed | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);

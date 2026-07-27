@@ -100,6 +100,11 @@ const tools: Anthropic.Tool[] = [
     input_schema: { type: 'object', properties: { days: { type: 'number', description: 'how many days back (1-30), default 7' } } },
   },
   {
+    name: 'complete_task',
+    description: 'Mark a STAFF TO-DO-LIST task as done. Use ONLY when a PENDING TASK ACTION note in this conversation carries a task_id AND the user\'s reply means done ("Mark as complete" button tap, "done", "finished that", "completed"). Pass that exact task_id. Never guess an id, and never use this for POs, transfers or wholesale orders — this is only the Staff → To do lists board.',
+    input_schema: { type: 'object', properties: { task_id: { type: 'string', description: 'the task_id from the PENDING TASK ACTION note' } }, required: ['task_id'] },
+  },
+  {
     name: 'expiry_snapshot',
     description: 'Attach a DASHBOARD-STYLE BEST-BEFORE CARD IMAGE (soonest-dated lots in stock, product shots, lot numbers, colour-coded days-left) to your reply. USE THIS for any expiry / best-before / shelf-life update covering multiple lots ("expiry update", "what\'s expiring", "best before dates") — send the image and put ONLY the extras in text (anything needing action, e.g. a lot under 90 days; 1-2 lines). For a single-lot question use get_expiring_stock text.',
     input_schema: { type: 'object', properties: { site: { type: 'string', enum: ['ALTONA', 'MANCHESTER'], description: 'default ALTONA (AU). MANCHESTER for UK.' } } },
@@ -593,6 +598,18 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
       days: r.rows, totals: { au_sales_aud: Math.round(totals.au * 100) / 100, uk_sales_gbp: Math.round(totals.uk * 100) / 100, orders: totals.orders },
       ...(r.warnings.length ? { warnings: r.warnings } : {}),
       note: 'AU figures are AUD, UK figures are GBP (native). The LAST row is TODAY (Melbourne) and is partial — say so when quoting it. One compact line per day, no tables.',
+    };
+  }
+  if (name === 'complete_task') {
+    const { completeTaskById } = await import('./staff/complete');
+    const who = _phone ? (senderRole(_phone) === 'wholesale' ? 'Kate' : 'Luke') : undefined;
+    const r = await completeTaskById(String(input.task_id || ''), who);
+    if ('error' in r) return r;
+    return {
+      ...r,
+      note: r.already_done
+        ? `"${r.title}" was already marked done — say so, don't claim you just did it.`
+        : `"${r.title}" is now DONE on the to-do board.${r.recurring ? ' It repeats, so the next occurrence is created on the board — mention that.' : ''} Confirm briefly; no need to re-list the board.`,
     };
   }
   if (name === 'expiry_snapshot') {

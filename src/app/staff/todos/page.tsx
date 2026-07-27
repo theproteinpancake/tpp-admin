@@ -11,7 +11,12 @@ import { currentMember } from '@/lib/staff/session';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-export default async function TodosPage() {
+export default async function TodosPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ task?: string }>;
+}) {
+  const { task: initialTaskId } = await searchParams;
   // The section guard in ../layout.tsx has already established a signed-in user with staff
   // access; currentMember() maps that session to (or creates) their tracker member row.
   const member = await currentMember();
@@ -45,6 +50,7 @@ export default async function TodosPage() {
       notifications={notifications}
       unreadCount={unreadCount}
       currentMember={member}
+      initialTaskId={initialTaskId ?? null}
     />
   );
 }
