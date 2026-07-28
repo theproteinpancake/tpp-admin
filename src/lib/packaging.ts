@@ -43,10 +43,16 @@ export async function getPouchTracking(): Promise<PouchRow[]> {
     supabaseLogistics.from('products').select('id, sku, flavour, unit_size_g').eq('active', true).eq('category', 'mix'),
     supabaseLogistics.from('packaging').select('*').eq('kind', 'pouch'),
     supabaseLogistics.from('packaging').select('*').eq('kind', 'srp').eq('active', true),
-    supabaseLogistics.from('po_items').select('product_id, qty_ordered, po:po_id(created_at)'),
+    supabaseLogistics.from('po_items').select('product_id, qty_ordered, po:po_id(created_at, status)'),
     supabaseLogistics.from('v_stock_current').select('product_id, avg_daily_units_30d').eq('location_code', 'ALTONA'),
     supabaseLogistics.from('packaging_deliveries').select('packaging_id, qty, delivered_on'),
   ]);
+  // A pouch is only used when the PO is REAL. Cancelled and draft orders never reach ABC, but
+  // they were being counted as consumption — and the supersede rule means a re-drafted PO
+  // leaves cancelled twins behind, so Salted Caramel had 4 dead drafts (3,048 pouches) deducted
+  // on top of the one live order. That's what drove counts negative, not missing deliveries.
+  const REAL_PO = new Set(['placed', 'received', 'ordered', 'partial']);
+  const realItems = (poItems ?? []).filter((i: any) => REAL_PO.has(String(i.po?.status ?? '').toLowerCase()));
   // Deliveries ADD stock (VISY SRP boxes → ABC, pouch drops); only those on/after the row's
   // baseline count — a fresh stock-take baseline already includes anything delivered before it.
   // Future-dated rows are ORDERS PLACED (e.g. with the Chinese pouch manufacturer) — they show
@@ -75,14 +81,14 @@ export async function getPouchTracking(): Promise<PouchRow[]> {
   const PO_WINDOW_DAYS = 180;
   const poCutoff = new Date(Date.now() - PO_WINDOW_DAYS * 86400_000).toISOString().slice(0, 10);
   const poDailyByProduct = new Map<string, number>();
-  for (const i of (poItems ?? []) as any[]) {
+  for (const i of realItems as any[]) {
     if ((i.po?.created_at ?? '').slice(0, 10) < poCutoff) continue;
     poDailyByProduct.set(i.product_id, (poDailyByProduct.get(i.product_id) || 0) + (i.qty_ordered || 0) / PO_WINDOW_DAYS);
   }
   const pouchDaily = (productId: string, unitSizeG: number | null) =>
     poDailyByProduct.get(productId) || (velByProduct.get(productId) ?? 0) * (unitSizeG === 320 ? 4 : 1);
   const consumedSince = (productId: string, since: string | null) =>
-    since ? (poItems ?? []).filter((i: any) => i.product_id === productId && (i.po?.created_at ?? '').slice(0, 10) >= since)
+    since ? realItems.filter((i: any) => i.product_id === productId && (i.po?.created_at ?? '').slice(0, 10) >= since)
       .reduce((s: number, i: any) => s + (i.qty_ordered || 0), 0) : 0;
 
   const rows: PouchRow[] = (products ?? []).map((p: any) => {
@@ -160,7 +166,7 @@ export interface SrpRow {
 export async function getSrpTracking(): Promise<SrpRow[]> {
   const [{ data: srpAll }, { data: poItems }, { data: vel }, { data: activeMix }, { data: dels }] = await Promise.all([
     supabaseLogistics.from('packaging').select('*').eq('kind', 'srp').eq('active', true),
-    supabaseLogistics.from('po_items').select('product_id, qty_ordered, po:po_id(created_at)'),
+    supabaseLogistics.from('po_items').select('product_id, qty_ordered, po:po_id(created_at, status)'),
     supabaseLogistics.from('v_stock_current').select('product_id, avg_daily_units_30d').eq('location_code', 'ALTONA'),
     supabaseLogistics.from('products').select('id').eq('active', true).eq('category', 'mix'),
     supabaseLogistics.from('packaging_deliveries').select('packaging_id, qty, delivered_on'),
@@ -182,8 +188,9 @@ export async function getSrpTracking(): Promise<SrpRow[]> {
     const baseline_date = s.baseline_date ?? null;
     const lead_days = s.lead_days ?? 60;
     // bags of the linked 320g SKU ordered on/after the baseline → boxes consumed
+    const REAL_PO = new Set(['placed', 'received', 'ordered', 'partial']);
     const consumed_units = baseline_date && s.linked_product_id
-      ? (poItems ?? []).filter((i: any) => i.product_id === s.linked_product_id && (i.po?.created_at ?? '').slice(0, 10) >= baseline_date)
+      ? (poItems ?? []).filter((i: any) => i.product_id === s.linked_product_id && REAL_PO.has(String(i.po?.status ?? '').toLowerCase()) && (i.po?.created_at ?? '').slice(0, 10) >= baseline_date)
           .reduce((acc: number, i: any) => acc + (i.qty_ordered || 0), 0)
       : 0;
     const consumed_boxes = Math.round(consumed_units / units_per);
@@ -276,10 +283,33 @@ export async function getPackagingSummary() {
     ...abc_empties.filter((e) => e.status === 'order_now').map((e) => `${e.item} (ABC — ${e.carton_limited ? 'SRP cartons' : 'pouches'})`),
     ...altona_shippers.filter((s) => s.status === 'order_now').map((s) => `${s.carton} (Altona shipping carton, ${s.fulfillable} left)`),
   ];
+
+  // "What should I order?" — pouches come from China on a ~60-day lead, so anything inside
+  // lead + a month of buffer needs placing now. Suggested quantity tops the line back up to
+  // ~6 months of cover at the CURRENT packing rate, rounded to the nearest 500.
+  const POUCH_LEAD_DAYS = 60;
+  const TARGET_COVER_DAYS = 180;
+  const to_order = tracked
+    .filter((p) => p.daily && p.daily > 0 && p.days_cover != null && p.days_cover < POUCH_LEAD_DAYS + 30)
+    .sort((a, b) => (a.days_cover ?? 0) - (b.days_cover ?? 0))
+    .map((p) => {
+      const shortfall = Math.max(0, Math.round(p.daily! * TARGET_COVER_DAYS - (p.remaining ?? 0)));
+      return {
+        item: `${p.flavour} ${p.size}`, sku: p.sku,
+        pouches_left: p.remaining, days_cover: p.days_cover,
+        used_per_week: Math.round(p.daily! * 7),
+        suggested_order: Math.max(500, Math.round(shortfall / 500) * 500),
+        urgency: p.days_cover != null && p.days_cover < POUCH_LEAD_DAYS ? 'ORDER NOW — inside the 60-day lead time' : 'order soon',
+        ...(p.srp?.binding ? { note: 'SRP cartons are the tighter constraint here, not pouches' } : {}),
+      };
+    });
+
   return {
-    note: 'ABC holds EMPTY pouches + SRP cartons (used on the packing line). ShipBob Altona holds the shipping cartons. 320g sells only as 4-packs, so its usable count = min(pouches, SRP cartons × 4).',
+    note: 'ABC holds EMPTY pouches + SRP cartons (used on the packing line). ShipBob Altona holds the shipping cartons. 320g sells only as 4-packs, so its usable count = min(pouches, SRP cartons × 4). Pouch counts deduct when a PO is PLACED with ABC (that is when the pouches get filled), not when the finished stock is received; cancelled/draft POs never count.',
     abc_on_hand: { empty_pouches_and_srp_cartons: abc_empties, discontinued_srp: abc_srp_discontinued },
     altona_shipping_cartons: altona_shippers,
+    pouches_to_order: to_order.length ? to_order : ['nothing inside the 60-day lead time'],
+    ordering_basis: `usage = actual PO volume over the last 180 days; lead time ${POUCH_LEAD_DAYS} days; suggested quantity tops the line up to ~${TARGET_COVER_DAYS} days of cover, rounded to the nearest 500. Say the assumption when you quote a number.`,
     reorder_now: reorder_now.length ? reorder_now : ['nothing urgent'],
   };
 }
