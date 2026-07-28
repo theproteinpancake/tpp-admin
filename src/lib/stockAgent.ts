@@ -564,7 +564,17 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
         ...(live != null ? { live_checked: true } : {}),
       };
     });
-    if (input.needs_attention) out = out.filter((r) => ['Out of stock', 'Reorder now', 'Reorder soon'].includes(r.status));
+    // computeStatus deliberately masks OOS/reorder as "Inbound" once a PO is on the way — right
+    // for the dashboard's reorder prompts, wrong for "what needs attention": every low 520g SKU
+    // had inbound, so this filter returned NOTHING and the agent told Luke all was healthy over
+    // a card showing three zeros. Anything actually at zero, or inside a fortnight of cover,
+    // needs attention whatever is on the water.
+    if (input.needs_attention) {
+      out = out.filter((r) =>
+        ['Out of stock', 'Reorder now', 'Reorder soon'].includes(r.status) ||
+        (r.available ?? 0) <= 0 ||
+        (r.days_of_cover != null && Number(r.days_of_cover) < 14));
+    }
     return out;
   }
   if (name === 'get_purchase_orders') {
@@ -588,7 +598,58 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
     const site = String(input.site || 'ALTONA').toUpperCase();
     const sizes = Array.isArray(input.sizes) ? (input.sizes as number[]).filter((g) => [320, 520, 1000].includes(Number(g))) : [];
     _media.push(stockImageUrl(site, sizes.length ? sizes : undefined));
-    return { attached: true, site, sizes: sizes.length ? sizes : 'all', note: `Stock card image attached (live ShipBob numbers, ${site}). The card carries the availability — your text adds ONLY what it can't show (reorder-by dates, ETAs, what needs action), 1-3 lines, never a repeat of the numbers. 320g figures are CARTONS of 4.` };
+
+    // The tool used to return ONLY "attached: true", so the agent never saw the numbers it
+    // had just put in front of the user — it commented from a separate needs_attention call
+    // and told Luke "all 520g healthy" over a card showing three SKUs on ZERO. It now returns
+    // exactly what the card renders, so the words and the picture come from one source.
+    const wanted = sizes.length ? sizes : [320, 520, 1000];
+    const { data: rows } = await supabaseLogistics.from('v_stock_current')
+      .select('product_id,sku,flavour,unit_size_g,available,inbound,days_of_cover')
+      .eq('active', true).eq('location_code', site).eq('category', 'mix').in('unit_size_g', wanted);
+
+    // Open POs give the "when does it land" half — Luke wants "Buttermilk lands soon (PO-0046)",
+    // not just a number with no story.
+    const { data: openPos } = await supabaseLogistics.from('purchase_orders')
+      .select('po_number, reference, status, expected_date, items:po_items(qty_ordered, qty_received, product_id)')
+      .not('status', 'in', '("received","cancelled","draft")');
+    const poByProduct = new Map<string, { po: string; expected: string | null }[]>();
+    for (const po of (openPos ?? []) as any[]) {
+      for (const it of po.items ?? []) {
+        if ((Number(it.qty_ordered) || 0) - (Number(it.qty_received) || 0) <= 0) continue;
+        const list = poByProduct.get(it.product_id) ?? [];
+        list.push({ po: po.po_number || po.reference || 'a PO', expected: po.expected_date ?? null });
+        poByProduct.set(it.product_id, list);
+      }
+    }
+
+    const cards = (rows ?? []).map((r: any) => {
+      const is320 = r.unit_size_g === 320;
+      const avail = Number(r.available) || 0;
+      const inbound = is320 ? Math.round((Number(r.inbound) || 0) / 4) : Number(r.inbound) || 0;
+      const pos = poByProduct.get(r.product_id) ?? [];
+      return {
+        sku: r.sku,
+        item: `${r.flavour} ${is320 ? '320g' : r.unit_size_g >= 1000 ? `${r.unit_size_g / 1000}kg` : `${r.unit_size_g}g`}`,
+        available: avail,
+        inbound,
+        ...(is320 ? { unit: 'cartons of 4' } : {}),
+        days_cover: r.days_of_cover != null ? Math.round(Number(r.days_of_cover)) : null,
+        // Plain-English state, NOT the dashboard's inbound-masked status: a SKU on 0 cannot be
+        // shipped today no matter what's on the water.
+        state: avail <= 0
+          ? (inbound > 0 ? 'OUT OF STOCK NOW — cannot ship until the inbound lands' : 'OUT OF STOCK — nothing inbound')
+          : (r.days_of_cover != null && Number(r.days_of_cover) < 14 ? 'CRITICALLY LOW — days, not weeks' : r.days_of_cover != null && Number(r.days_of_cover) < 45 ? 'running low' : 'healthy'),
+        ...(pos.length ? { inbound_on: pos.map((x) => `${x.po}${x.expected ? ` (expected ${x.expected})` : ' (no expected date logged)'}`).join(', ') } : {}),
+      };
+    }).sort((a, b) => a.available - b.available);
+
+    const bad = cards.filter((c) => c.available <= 0 || (c.days_cover != null && c.days_cover < 14));
+    return {
+      attached: true, site, sizes: sizes.length ? sizes : 'all',
+      on_the_card: cards,
+      note: `Card attached (live ShipBob, ${site}) AND its data is above — your text MUST agree with it. ${bad.length ? `NEEDS CALLING OUT: ${bad.map((c) => `${c.item} (${c.available} avail — ${c.state})`).join('; ')}.` : 'Nothing is out or critically low.'} Never say "all healthy" while any row shows 0 or single-digit days: 0 available means we CANNOT ship it today, even with stock inbound — say what's out, and when it lands if inbound_on says. Keep it to 1-3 lines; don't re-list every row. 320g figures are cartons of 4.`,
+    };
   }
   if (name === 'get_amazon_sales') {
     const r = await fetchAmazonDaily(input.days ? Number(input.days) : 7);
@@ -1197,7 +1258,7 @@ CRITICAL RULE — never say you can't do something logistics-related without FIR
 Your full toolkit:
 - get_action_center — the proactive cross-site priority list (transfers due, POs, packaging, expiry, billing). Lead with this for "what needs my attention" and when opening a proactive check-in; then offer to action the top items. It returns the items NUMBERED (and saves that numbering); when the user replies with numbers about them ("1, 3 done", "disregard 2 and 5", "8 — I provisioned Manildra so it's underway"), call mark_brief_done with those numbers + any note/decision so they clear and won't resurface. Confirm what you cleared. (Only treat a bare-number reply as this if you actually showed the numbered list recently.)
 - get_amazon_sales — daily Amazon sales (AU in AUD, UK in GBP) for the last N days, live from Amazon. Use for any "how's Amazon going" / "$0 Amazon?" question.
-- get_stock — live on-hand, available, days of cover, inbound, velocity, status, per SKU per site (FINISHED goods/syrup/accessories). NEVER invent a product name from its SKU letters — use the name/flavour the tool returns (ACCS=The Scraper, ACCP=The Pancake Pan, ACCF=The Flipper, TWM=The Waffle Maker); if a row's name is just the SKU, say the SKU, don't guess.
+- get_stock — live on-hand, available, days of cover, inbound, velocity, status, per SKU per site. STATUS "Inbound" DOES NOT MEAN FINE: it means available is low/zero but a PO is coming. If available is 0 we CANNOT ship it today — say it's out and when it lands, never "healthy". (FINISHED goods/syrup/accessories). NEVER invent a product name from its SKU letters — use the name/flavour the tool returns (ACCS=The Scraper, ACCP=The Pancake Pan, ACCF=The Flipper, TWM=The Waffle Maker); if a row's name is just the SKU, say the SKU, don't guess.
 - get_packaging_stock — our PACKAGING: empty pouches + shelf-ready SRP cartons ABC holds, and the shipping cartons ShipBob Altona holds (live). Use this for ANY packaging/pouch/SRP/carton question and for "what does ABC have on hand" — ABC holds EMPTIES (pouches + SRP cartons), NOT finished product. Don't answer packaging questions from get_stock. 320g is carton-limited when SRP cartons × 4 < pouches — call that out.
 - get_expiring_stock — batch/lot best-before dates, days left, soonest-expiring stock (BOTH sites). This covers ALL expiry / shortest-dated / batch / best-before questions.
 - get_purchase_orders — POs: supplier, status, expected date, outstanding units.
@@ -1260,7 +1321,7 @@ ATTACHMENTS & "this/that" — when the message includes an ATTACHMENT (PDF invoi
 
 "YES" ANSWERS THE MOST RECENT QUESTION (CRITICAL): a bare approval (yes / go / do it) always refers to the LAST question YOU asked — never to an older step. PENDING/context notes describe the next step AS OF WHEN THEY WERE WRITTEN; once the conversation shows that step completed, the note is DEAD — acting on a stale note (e.g. re-running create_wro after the WRO exists) is a serious failure.
 WHATSAPP FORMATTING (CRITICAL): WhatsApp does NOT render markdown — NEVER output markdown tables (| pipes |), headers (#) or horizontal rules. Stock/quantity lists are ONE COMPACT LINE PER ITEM: "SCL — In stock: 167 ✅" (use 🛑 for 0, and append "(inbound)" when a restock is on the way). Group with a short *bold* heading (*PRIMARY* / *OTHER PRODUCTS*), nothing else. Keep every list scannable on a phone screen.
-STOCK UPDATES ARE AN IMAGE: whenever the answer covers MULTIPLE SKUs ("stock update", "how's stock", "320g stock", "what can I sell") call stock_snapshot — it attaches a dashboard-style card (scope with sizes:[320] etc. when the ask is size-specific) — and put ONLY what the card can't show in text (reorder-by dates, restock ETAs, action needed; 1-3 lines). You may still call get_stock alongside to get dates/cover for that text. Only answer in text alone for a SINGLE-SKU question. Same pattern for EXPIRY/best-before updates → expiry_snapshot (card) + 1-2 lines of action items. 320g IS ALWAYS CARTONS: every 320g figure you quote (available AND inbound) is cartons of 4 — get_stock already converts; never quote bags.
+STOCK UPDATES ARE AN IMAGE: whenever the answer covers MULTIPLE SKUs ("stock update", "how's stock", "320g stock", "what can I sell") call stock_snapshot — but ONLY when they're asking for the rundown itself. A follow-up about something else (a PO date, one SKU, an ETA, "when did we order X") is answered in TEXT: do NOT re-attach a card you just sent, and never send it twice in a row — it attaches a dashboard-style card (scope with sizes:[320] etc. when the ask is size-specific) — and put ONLY what the card can't show in text (reorder-by dates, restock ETAs, action needed; 1-3 lines). You may still call get_stock alongside to get dates/cover for that text. Only answer in text alone for a SINGLE-SKU question. Same pattern for EXPIRY/best-before updates → expiry_snapshot (card) + 1-2 lines of action items. 320g IS ALWAYS CARTONS: every 320g figure you quote (available AND inbound) is cartons of 4 — get_stock already converts; never quote bags.
 TAPPABLE BUTTONS: when you ask the user to choose between clear next actions (approve/send/draft/skip), end your reply with a final line exactly like: [[buttons: Draft Sharon reply | Not now]] — 2 or 3 options, each ≤20 characters, action-specific verbs (NEVER a bare "Yes" — the label itself must say what it does, e.g. "Send to ABC", "Create WRO", "Skip"). The system renders them as tappable buttons and the user's tap comes back as the exact label. Use them for every confirmation question; skip them for open-ended questions.
 PO-ALERT REPLIES (CRITICAL): when the conversation contains a context note about a wholesale PO I proactively alerted (it includes the SOURCE EMAIL id+inbox), a reply with a clear instruction — "process it", "process [customer]", "remove/exclude X and proceed", "swap X for Y" — is the user's FULL confirmation. Execute end-to-end immediately: process_po_email(id, inbox, exclude as instructed) then create the order, and report the ShipBob order # + Xero invoice #. Never ask "which customer" (it's in the context note) and never re-ask for a confirmation they just gave. Only pause if their instruction is genuinely ambiguous (e.g. a swap to a flavour that's also OOS).
 
