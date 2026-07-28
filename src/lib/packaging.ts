@@ -43,7 +43,7 @@ export async function getPouchTracking(): Promise<PouchRow[]> {
     supabaseLogistics.from('products').select('id, sku, flavour, unit_size_g').eq('active', true).eq('category', 'mix'),
     supabaseLogistics.from('packaging').select('*').eq('kind', 'pouch'),
     supabaseLogistics.from('packaging').select('*').eq('kind', 'srp').eq('active', true),
-    supabaseLogistics.from('po_items').select('product_id, qty_ordered, po:po_id(created_at, status)'),
+    supabaseLogistics.from('po_items').select('product_id, qty_ordered, po:po_id(created_at, order_date, status)'),
     supabaseLogistics.from('v_stock_current').select('product_id, avg_daily_units_30d').eq('location_code', 'ALTONA'),
     supabaseLogistics.from('packaging_deliveries').select('packaging_id, qty, delivered_on'),
   ]);
@@ -53,6 +53,11 @@ export async function getPouchTracking(): Promise<PouchRow[]> {
   // on top of the one live order. That's what drove counts negative, not missing deliveries.
   const REAL_PO = new Set(['placed', 'received', 'ordered', 'partial']);
   const realItems = (poItems ?? []).filter((i: any) => REAL_PO.has(String(i.po?.status ?? '').toLowerCase()));
+  // WHEN a PO was placed is order_date, not created_at. created_at is when the ROW was written,
+  // and the June-2026 import wrote three years of history (Buttermilk's oldest is Oct 2023) all
+  // on 2026-06-04 — so the trailing-180-day rate was dividing 33 months of pouches by 6 months
+  // and reading 73/day against a real ~22/day. Retail velocity independently says ~25/day.
+  const poDay = (i: any) => String(i.po?.order_date ?? i.po?.created_at ?? '').slice(0, 10);
   // Deliveries ADD stock (VISY SRP boxes → ABC, pouch drops); only those on/after the row's
   // baseline count — a fresh stock-take baseline already includes anything delivered before it.
   // Future-dated rows are ORDERS PLACED (e.g. with the Chinese pouch manufacturer) — they show
@@ -82,13 +87,13 @@ export async function getPouchTracking(): Promise<PouchRow[]> {
   const poCutoff = new Date(Date.now() - PO_WINDOW_DAYS * 86400_000).toISOString().slice(0, 10);
   const poDailyByProduct = new Map<string, number>();
   for (const i of realItems as any[]) {
-    if ((i.po?.created_at ?? '').slice(0, 10) < poCutoff) continue;
+    if (poDay(i) < poCutoff) continue;
     poDailyByProduct.set(i.product_id, (poDailyByProduct.get(i.product_id) || 0) + (i.qty_ordered || 0) / PO_WINDOW_DAYS);
   }
   const pouchDaily = (productId: string, unitSizeG: number | null) =>
     poDailyByProduct.get(productId) || (velByProduct.get(productId) ?? 0) * (unitSizeG === 320 ? 4 : 1);
   const consumedSince = (productId: string, since: string | null) =>
-    since ? realItems.filter((i: any) => i.product_id === productId && (i.po?.created_at ?? '').slice(0, 10) >= since)
+    since ? realItems.filter((i: any) => i.product_id === productId && poDay(i) >= since)
       .reduce((s: number, i: any) => s + (i.qty_ordered || 0), 0) : 0;
 
   const rows: PouchRow[] = (products ?? []).map((p: any) => {
@@ -166,7 +171,7 @@ export interface SrpRow {
 export async function getSrpTracking(): Promise<SrpRow[]> {
   const [{ data: srpAll }, { data: poItems }, { data: vel }, { data: activeMix }, { data: dels }] = await Promise.all([
     supabaseLogistics.from('packaging').select('*').eq('kind', 'srp').eq('active', true),
-    supabaseLogistics.from('po_items').select('product_id, qty_ordered, po:po_id(created_at, status)'),
+    supabaseLogistics.from('po_items').select('product_id, qty_ordered, po:po_id(created_at, order_date, status)'),
     supabaseLogistics.from('v_stock_current').select('product_id, avg_daily_units_30d').eq('location_code', 'ALTONA'),
     supabaseLogistics.from('products').select('id').eq('active', true).eq('category', 'mix'),
     supabaseLogistics.from('packaging_deliveries').select('packaging_id, qty, delivered_on'),
@@ -190,7 +195,7 @@ export async function getSrpTracking(): Promise<SrpRow[]> {
     // bags of the linked 320g SKU ordered on/after the baseline → boxes consumed
     const REAL_PO = new Set(['placed', 'received', 'ordered', 'partial']);
     const consumed_units = baseline_date && s.linked_product_id
-      ? (poItems ?? []).filter((i: any) => i.product_id === s.linked_product_id && REAL_PO.has(String(i.po?.status ?? '').toLowerCase()) && (i.po?.created_at ?? '').slice(0, 10) >= baseline_date)
+      ? (poItems ?? []).filter((i: any) => i.product_id === s.linked_product_id && REAL_PO.has(String(i.po?.status ?? '').toLowerCase()) && String(i.po?.order_date ?? i.po?.created_at ?? '').slice(0, 10) >= baseline_date)
           .reduce((acc: number, i: any) => acc + (i.qty_ordered || 0), 0)
       : 0;
     const consumed_boxes = Math.round(consumed_units / units_per);
