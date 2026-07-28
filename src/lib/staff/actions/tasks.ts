@@ -325,18 +325,23 @@ export async function createTask(
 
   if (error || !task) return { error: "Could not save that task." };
 
-  // Anyone named in the notes is on the job too.
-  const { data: members } = await supabase.from("staff_members").select("id, name");
-  const mentioned = findMentions(`${title} ${description}`, members ?? []);
-  const people = [...new Set([...assigneeIds, ...mentioned])];
-
-  if (people.length > 0) await setAssignees(task.id, people);
-
   const checklist = String(formData.get("checklist") ?? "")
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
     .slice(0, 50);
+
+  // Anyone named in the notes OR in a checklist step is on the job too. The checklist used to
+  // be scanned only when steps were added later (addSubtask), so tagging someone in a step
+  // while creating the task silently assigned nobody — Reece's report.
+  const { data: members } = await supabase.from("staff_members").select("id, name");
+  const mentioned = findMentions(
+    [title, description, ...checklist].filter(Boolean).join("\n"),
+    members ?? [],
+  );
+  const people = [...new Set([...assigneeIds, ...mentioned])];
+
+  if (people.length > 0) await setAssignees(task.id, people);
 
   if (checklist.length > 0) {
     await supabase.from("staff_subtasks").insert(

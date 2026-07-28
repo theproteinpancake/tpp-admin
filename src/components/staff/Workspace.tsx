@@ -156,8 +156,13 @@ export function Workspace({
     return d.toISOString().slice(0, 10);
   }, []);
 
+  // completed_at as well as status: a finished task must never linger here, however it was
+  // closed off (Reece: "when a task is moved to Done it should also disappear from Upcoming").
   const isUpcoming = (task: BoardTask) =>
-    task.status !== "done" && !!task.due_date && task.due_date > upcomingCutoff;
+    task.status !== "done" &&
+    !task.completed_at &&
+    !!task.due_date &&
+    task.due_date > upcomingCutoff;
 
   const upcomingTasks = useMemo(
     () => visibleTasks.filter(isUpcoming).sort((a, b) => (a.due_date ?? "").localeCompare(b.due_date ?? "")),
