@@ -270,13 +270,17 @@ async function spawnNextOccurrence(taskId: string): Promise<void> {
     );
   }
 
-  // The repeat is only useful if someone knows it exists.
+  // The repeat is only useful if someone knows it exists — but it goes to the bell only.
+  // A WhatsApp ping here fired the instant you ticked the current one ("Someone added a new
+  // task…", for something due five weeks out), which read as the task not having completed.
+  // It surfaces on the board on its due date, and the due-date sweep pings then.
   await notify({
     recipientIds: people,
     actorId: null,
     taskId: created.id,
     type: "assigned",
     body: `"${task.title}" repeats — the next one is due ${dueDate}.`,
+    silent: true,
   });
 }
 

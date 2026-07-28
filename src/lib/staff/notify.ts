@@ -8,6 +8,12 @@ type NotifyInput = {
   taskId: string | null;
   type: NotificationType;
   body: string;
+  /**
+   * Record it in the bell, but don't push it to WhatsApp. For events the SYSTEM causes
+   * rather than a person — a repeat rolling over isn't someone handing you work, and
+   * pinging about a task due in five weeks is just noise.
+   */
+  silent?: boolean;
 };
 
 /**
@@ -20,6 +26,7 @@ export async function notify({
   taskId,
   type,
   body,
+  silent = false,
 }: NotifyInput): Promise<void> {
   const recipients = [...new Set(recipientIds)].filter(
     (id): id is string => Boolean(id) && id !== actorId,
@@ -43,7 +50,7 @@ export async function notify({
   // WhatsApp push happens here because every notifying path funnels through notify() —
   // 11 call sites, one hook. Best-effort and non-blocking: a Twilio hiccup must never fail
   // the task action that triggered it.
-  void pushToWhatsApp(inserted ?? [], actorId).catch(() => {});
+  if (!silent) void pushToWhatsApp(inserted ?? [], actorId).catch(() => {});
 }
 
 /**

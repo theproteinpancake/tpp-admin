@@ -23,6 +23,7 @@ import { TaskDialog } from "./TaskDialog";
 import { WeekStrip } from "./WeekStrip";
 import { Avatar, SelectControl, cx } from "./primitives";
 import {
+  RepeatIcon,
   BoardIcon,
   CalendarDaysIcon,
   ChevronDownIcon,
@@ -37,7 +38,7 @@ import {
 /** How often to pull in other people's changes. */
 const POLL_MS = 45_000;
 
-type View = "board" | "list" | "calendar" | "links" | "inbox";
+type View = "board" | "list" | "upcoming" | "calendar" | "links" | "inbox";
 
 type NewTaskSeed = { status: TaskStatus; dueDate?: string };
 
@@ -141,6 +142,30 @@ export function Workspace({
       return true;
     });
   }, [tasks, assigneeFilter, categoryFilter, search]);
+
+  /*
+   * A repeating task spawns its next occurrence the moment you tick the current one, so
+   * "Pay HotlineUGC Creator Balances" (due 1 Sep) reappeared in To Do the instant it was
+   * completed in July — it read as though nothing had happened. Anything due beyond the
+   * week strip is parked in Upcoming and rejoins the board on its own timeline. The horizon
+   * is the week strip's, so "if it's not in the week above, it's in Upcoming".
+   */
+  const upcomingCutoff = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 7);
+    return d.toISOString().slice(0, 10);
+  }, []);
+
+  const isUpcoming = (task: BoardTask) =>
+    task.status !== "done" && !!task.due_date && task.due_date > upcomingCutoff;
+
+  const upcomingTasks = useMemo(
+    () => visibleTasks.filter(isUpcoming).sort((a, b) => (a.due_date ?? "").localeCompare(b.due_date ?? "")),
+    [visibleTasks, upcomingCutoff],
+  );
+  // Board and list show what's actually live; the calendar deliberately keeps everything,
+  // since showing future dates is the entire point of a calendar.
+  const currentTasks = useMemo(() => visibleTasks.filter((t) => !isUpcoming(t)), [visibleTasks, upcomingCutoff]);
 
   function handleMove(
     taskId: string,
@@ -303,6 +328,13 @@ export function Workspace({
               icon={<ListIcon className="h-4 w-4 sm:h-3.5 sm:w-3.5" />}
             />
             <ViewToggle
+              active={view === "upcoming"}
+              onClick={() => setView("upcoming")}
+              label="Upcoming"
+              icon={<RepeatIcon className="h-3.5 w-3.5" />}
+              badge={upcomingTasks.length}
+            />
+            <ViewToggle
               active={view === "calendar"}
               onClick={() => setView("calendar")}
               label="Calendar"
@@ -433,6 +465,28 @@ export function Workspace({
             />
           ) : tasks.length === 0 ? (
             <EmptyBoard onCreate={() => setNewTask({ status: "todo" })} />
+          ) : view === "upcoming" ? (
+            upcomingTasks.length === 0 ? (
+              <div className="flex flex-col items-center justify-center px-6 py-24 text-center">
+                <h2 className="text-base font-semibold text-ink">Nothing waiting in the wings</h2>
+                <p className="mt-1 max-w-sm text-sm text-ink-soft">
+                  Tasks due more than a week out wait here — including the next occurrence of
+                  anything that repeats. They join the board as their date comes around.
+                </p>
+              </div>
+            ) : (
+              <div className="animate-view-in">
+                <p className="px-1 pb-2 text-xs text-ink-mute">
+                  Due more than a week out — these join the board automatically as their date arrives.
+                </p>
+                <ListView
+                  tasks={upcomingTasks}
+                  membersById={membersById}
+                  categoriesById={categoriesById}
+                  onOpenTask={setOpenTaskId}
+                />
+              </div>
+            )
           ) : view === "calendar" ? (
             <CalendarView
               tasks={visibleTasks}
@@ -447,7 +501,7 @@ export function Workspace({
             </p>
           ) : view === "board" ? (
             <BoardView
-              tasks={visibleTasks}
+              tasks={currentTasks}
               membersById={membersById}
               categoriesById={categoriesById}
               onOpenTask={setOpenTaskId}
@@ -457,7 +511,7 @@ export function Workspace({
             />
           ) : (
             <ListView
-              tasks={visibleTasks}
+              tasks={currentTasks}
               membersById={membersById}
               categoriesById={categoriesById}
               onOpenTask={setOpenTaskId}
