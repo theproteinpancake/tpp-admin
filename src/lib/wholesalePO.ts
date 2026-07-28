@@ -71,24 +71,29 @@ export interface POAssessment {
   summary: string;
 }
 
+// What a stockist can actually buy: the 320g wholesale mix range, plus the syrup CARTON.
+// Syrup used to be missing here entirely, so the parser had no grounded SKU for it and fell
+// back to the hardcoded single-bottle mapping in the prompt.
 async function wholesaleSkus(): Promise<{ sku: string; flavour: string }[]> {
   const { data } = await supabaseLogistics.from('products')
-    .select('sku, flavour, unit_size_g, category, active')
-    .eq('active', true).eq('category', 'mix').eq('unit_size_g', 320);
-  return (data ?? []).map((p: any) => ({ sku: p.sku, flavour: p.flavour }));
+    .select('sku, name, flavour, unit_size_g, category, active')
+    .eq('active', true)
+    .or('and(category.eq.mix,unit_size_g.eq.320),sku.eq.MSS8');
+  return (data ?? []).map((p: any) => ({ sku: p.sku, flavour: p.flavour || p.name }));
 }
 
 const PARSE_SYSTEM = (skuList: string) => `You parse a wholesale purchase order for The Protein Pancake into structured JSON.
 Our wholesale 320g SKUs: ${skuList}. A CARTON = 4× 320g bags ("box" = carton). We ship and invoice in CARTONS.
 POs arrive in MANY formats — plain email text, HTML tables, CSV, and/or PDF attachments — and sometimes SEVERAL at once for the SAME order. If multiple sources are given they are ONE order: extract ONCE, de-duplicate, prefer the most complete/structured source — NEVER sum the same line across formats.
 
-FLAVOUR→SKU: "buttermilk"=BMS, "gluten free buttermilk"/"GF buttermilk"=GFBS, "cinnamon churro"/"churro"=CIS, "maple"=MAS, "cookies & cream"=CCS, "chocolate"=CHS, "salted caramel"=SCS, "GF cinnamon churro"=GFCIS, "sugar free maple syrup"/"maple syrup"=MSS, plus any other listed flavour by name+size.
+FLAVOUR→SKU: "buttermilk"=BMS, "gluten free buttermilk"/"GF buttermilk"=GFBS, "cinnamon churro"/"churro"=CIS, "maple"=MAS, "cookies & cream"=CCS, "chocolate"=CHS, "salted caramel"=SCS, "GF cinnamon churro"=GFCIS, "sugar free maple syrup"/"maple syrup"/"sugar free maple flavoured syrup 370ml"=MSS8 (the CARTON of 8 bottles — wholesale never sells loose bottles), plus any other listed flavour by name+size.
 GF IS A DISTINCT PRODUCT: a plain flavour is the REGULAR product only — "Buttermilk"=BMS (NOT GFBS), "Cinnamon Churro"=CIS (NOT GFCIS). The Gluten Free variant applies ONLY when "GF" or "Gluten Free" is explicitly written. Never map a plain flavour to its GF SKU or vice versa. Supplier codes (TPPBP01=Buttermilk, TPPMP01=Maple, TPPCC01=Cinnamon Churro, etc.) map by the product NAME shown. Ignore freight/shipping/discount/total lines.
 
 CARTONS vs UNITS (CRITICAL — get the basis right, never the other way):
 - DEFAULT IS CARTONS. A stockist typing a casual order ("Buttermilk x8", "8 x buttermilk", "can I get 5 churro") means 8 CARTONS/boxes — wholesale customers order boxes. ordered_qty=8, qty_basis="cartons", cartons=8.
 - UNIT (bag) basis ONLY with explicit evidence: a per-bag price (~$7–12) on a single-320g line, or the words "bags"/"units"/"singles"/"320g x N units", or a retailer ordering-system line for a single 320g item (e.g. Nutrition Warehouse). Then cartons = qty ÷ 4.
 - CARTON basis is confirmed by "carton"/"box"/"x4 per carton" wording or a per-carton price (~$32–44).
+- SYRUP IS ALWAYS CARTONS (Kate's rule, no exceptions): a syrup line's Qty is the number of 8-bottle CARTONS ordered — Qty 1 = 1 carton = 8 bottles, Qty 10 = 10 cartons = 80 bottles. Emit sku "MSS8", qty_basis "cartons", cartons = the Qty as written. NEVER divide it, never treat it as loose bottles, even if the line says "370ml" or names a bottle size.
 - NEVER ALTER QUANTITIES: ordered_qty must be EXACTLY the number written in the order. If the basis is genuinely unclear, use CARTONS and add a flag "basis assumed cartons — confirm". If a unit qty does not divide evenly by 4, add a flag like "5 bags ≈ 1.25 cartons — confirm".
 
 ADDRESSES: capture bill_to (who PAYS — e.g. head office, "Bill To") and ship_to (the FULL delivery address — "Deliver To"/"Ship To", the specific store). customer_name = the SPECIFIC store we ship to (e.g. "Nutrition Warehouse Darwin"), NOT the HQ. If bill-to ≠ ship-to, note it.
@@ -104,8 +109,23 @@ function parseJson(out: string): ParsedPO {
   // from ordered_qty + qty_basis in code; a silent ÷4 (the "x8 became ×2" bug) cannot happen.
   const lines = (json.lines ?? []).map((l: any) => {
     const orderedQty = l.ordered_qty != null ? Math.max(0, Math.round(Number(l.ordered_qty) || 0)) : null;
-    const basis = l.qty_basis === 'units' ? 'units' : 'cartons';
+    let basis = l.qty_basis === 'units' ? 'units' : 'cartons';
     let cartons = Math.max(0, Math.round(Number(l.cartons) || 0));
+
+    // SYRUP IS ALWAYS THE 8-PACK CARTON (Kate's rule). Enforced here rather than trusted to the
+    // prompt: a PO for "Sugar Free Maple Flavoured Syrup 370ml × 1" was read as ONE BOTTLE (MSS)
+    // and stock-checked against the wrong SKU. The PO quantity is the number of cartons, so the
+    // SKU is rewritten to MSS8 and the quantity is left exactly as written — never divided.
+    if (String(l.sku || '').toUpperCase() === 'MSS' || /syrup/i.test(String(l.flavour || ''))) {
+      if (String(l.sku || '').toUpperCase() !== 'MSS8') {
+        flags.push(`ℹ️ ${l.flavour || 'Syrup'}: read as ${orderedQty ?? cartons} × 8-bottle carton${(orderedQty ?? cartons) === 1 ? '' : 's'} (MSS8) — wholesale syrup is never loose bottles`);
+      }
+      l.sku = 'MSS8';
+      basis = 'cartons';
+      if (orderedQty != null && orderedQty > 0) cartons = orderedQty;
+      return { sku: 'MSS8', flavour: l.flavour, cartons, ordered_qty: orderedQty, qty_basis: basis, flag: l.flag ?? null };
+    }
+
     if (orderedQty != null && orderedQty > 0) {
       if (basis === 'units') {
         const exact = orderedQty / 4;
