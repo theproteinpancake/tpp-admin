@@ -292,6 +292,8 @@ export async function getPackagingSummary() {
   // "What should I order?" — pouches come from China on a ~60-day lead, so anything inside
   // lead + a month of buffer needs placing now. Suggested quantity tops the line back up to
   // ~6 months of cover at the CURRENT packing rate, rounded to the nearest 500.
+  // Pouches come from China Packaging (60d); VISY supplies the AU cartons/boxes (21d). The
+  // agent offered a "VISY pouch order", which is the wrong supplier and the wrong lead time.
   const POUCH_LEAD_DAYS = 60;
   const TARGET_COVER_DAYS = 180;
   const to_order = tracked
@@ -304,6 +306,7 @@ export async function getPackagingSummary() {
         pouches_left: p.remaining, days_cover: p.days_cover,
         used_per_week: Math.round(p.daily! * 7),
         suggested_order: Math.max(500, Math.round(shortfall / 500) * 500),
+        supplier: 'China Packaging (60-day lead) — NOT VISY, who supply the cartons/boxes',
         urgency: p.days_cover != null && p.days_cover < POUCH_LEAD_DAYS ? 'ORDER NOW — inside the 60-day lead time' : 'order soon',
         ...(p.srp?.binding ? { note: 'SRP cartons are the tighter constraint here, not pouches' } : {}),
       };
@@ -314,7 +317,8 @@ export async function getPackagingSummary() {
     abc_on_hand: { empty_pouches_and_srp_cartons: abc_empties, discontinued_srp: abc_srp_discontinued },
     altona_shipping_cartons: altona_shippers,
     pouches_to_order: to_order.length ? to_order : ['nothing inside the 60-day lead time'],
-    ordering_basis: `usage = actual PO volume over the last 180 days; lead time ${POUCH_LEAD_DAYS} days; suggested quantity tops the line up to ~${TARGET_COVER_DAYS} days of cover, rounded to the nearest 500. Say the assumption when you quote a number.`,
+    ordering_basis: `usage = actual PO volume over the last 180 days (by the PO's order date); lead time ${POUCH_LEAD_DAYS} days; suggested quantity tops the line up to ~${TARGET_COVER_DAYS} days of cover, rounded to the nearest 500. Say the assumption when you quote a number.`,
+    suppliers: { pouches: 'China Packaging (60-day lead, USD)', cartons_and_boxes: 'VISY (21-day lead, AU)', uk: 'CBS Packaging' },
     reorder_now: reorder_now.length ? reorder_now : ['nothing urgent'],
   };
 }
