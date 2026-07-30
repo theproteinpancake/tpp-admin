@@ -209,19 +209,27 @@ export async function gmailGetAllAttachments(messageId: string, account?: string
   return out;
 }
 
-// Find the first PDF attachment on a message and return it as standard base64.
-function findPdfPart(p: any): { filename: string; attachmentId: string } | null {
-  if (p?.filename && /\.pdf$/i.test(p.filename) && p.body?.attachmentId) {
-    return { filename: p.filename, attachmentId: p.body.attachmentId };
-  }
-  for (const part of p?.parts || []) { const r = findPdfPart(part); if (r) return r; }
-  return null;
+// Every PDF on a message, in MIME order. Matches on mime type OR extension — the two used to
+// disagree between the "does this email have a docket" check and the fetch, so a PDF attached
+// without a .pdf filename passed the check and then failed to download.
+function findPdfParts(p: any, out: { filename: string; attachmentId: string }[] = []) {
+  const isPdf = /pdf/i.test(p?.mimeType || '') || /\.pdf$/i.test(p?.filename || '');
+  if (p?.filename && isPdf && p.body?.attachmentId) out.push({ filename: p.filename, attachmentId: p.body.attachmentId });
+  for (const part of p?.parts || []) findPdfParts(part, out);
+  return out;
 }
 
-export async function gmailGetPdfAttachment(messageId: string): Promise<{ filename: string; base64: string } | null> {
+/**
+ * A PDF attachment as standard base64. Pass `filename` to pick a SPECIFIC one: Sharon sends two
+ * dockets on a single email (Buttermilk + Chocolate), and taking the first silently dropped the
+ * second — the agent then insisted no Chocolate docket existed while it was sitting right there.
+ * Falls back to the first PDF when no name is given, or when the named one isn't found.
+ */
+export async function gmailGetPdfAttachment(messageId: string, filename?: string): Promise<{ filename: string; base64: string } | null> {
   const m = await gget(`/messages/${messageId}?format=full`);
-  const f = findPdfPart(m.payload || {});
-  if (!f) return null;
+  const pdfs = findPdfParts(m.payload || {});
+  if (!pdfs.length) return null;
+  const f = (filename && pdfs.find((p) => p.filename === filename)) || pdfs[0];
   const att = await gget(`/messages/${messageId}/attachments/${f.attachmentId}`);
   const std = (att.data as string).replace(/-/g, '+').replace(/_/g, '/'); // url-safe -> std base64
   return { filename: f.filename, base64: std };

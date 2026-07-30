@@ -6,7 +6,7 @@ import { OPEN_STATUSES } from './po-types';
 import { proposeFlavourPOs, proposeOneFlavour } from './poBuilder';
 import { draftWhatsAppPO, approveLatestWhatsAppDraft, sendLatestPOEmail } from './poActions';
 import { markPOReceived } from './poReconcile';
-import { findLatestDocket, parseDocket, createWROFromParsed, draftSharonReply } from './wroFlow';
+import { findDockets, parseDocket, createWROFromParsed, draftSharonReply } from './wroFlow';
 import { markCdsSent } from './cdsFlow';
 import { resolveVisyItem, draftVisyOrder, markVisyOrderSent, getVisyOrders, createVisyLabels } from './visyOrder';
 import { findContacts } from './contacts';
@@ -461,22 +461,22 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: 'check_docket',
-    description: 'Find the latest ABC Blending delivery docket / packing slip email in Gmail (e.g. when the user says "Sharon sent a packing slip").',
+    description: 'Find ABC Blending delivery dockets / packing slips in Gmail (e.g. when the user says "Sharon sent a packing slip"). Returns a LIST — Sharon often completes two flavours in one run and attaches a docket for EACH on the same email. If you get more than one, say so up front and work through them ONE AT A TIME (parse → confirm → WRO → labels reply, then the next). Never assume the first is the only one, and never tell the user a docket is missing without checking this list for its filename.',
     input_schema: { type: 'object', properties: {} },
   },
   {
     name: 'parse_docket',
-    description: 'Read & parse the docket PDF → SKUs, lots, best-before dates, qty, linked PO. Use messageId from check_docket. Call this ONCE to show the lots + best-befores and ask the user to confirm. Do NOT call it a second time — if the user has ALREADY confirmed (yes/correct/go ahead), skip straight to create_wro instead of re-parsing. Re-showing the same docket after a yes is a bug.',
-    input_schema: { type: 'object', properties: { messageId: { type: 'string' } }, required: ['messageId'] },
+    description: 'Read & parse ONE docket PDF → SKUs, lots, best-before dates, qty, linked PO, and the PALLET CONFIGURATION from the docket Note. Pass messageId AND the attachment filename from check_docket — the filename is what picks which docket when the email carries two. Call this ONCE per docket to show the lots + best-befores + pallet count and ask the user to confirm. Do NOT call it a second time for the SAME attachment — if the user has ALREADY confirmed (yes/correct/go ahead), skip straight to create_wro. Re-showing the same docket after a yes is a bug; moving on to the OTHER attachment is not.',
+    input_schema: { type: 'object', properties: { messageId: { type: 'string' }, attachment: { type: 'string' } }, required: ['messageId'] },
   },
   {
     name: 'create_wro',
-    description: 'Create the ShipBob WRO from the docket (with lots + expiry) and link the PO. ONLY after the user has confirmed the best-befores. Returns the WRO number + a `received` breakdown. UNIT CONVERSION IS AUTOMATIC: dockets list pouch units but 320g SKUs live in ShipBob as 4-pouch SRP cartons — the tool divides for you (e.g. 168 pouches → 42 cartons). NEVER pre-convert quantities yourself; in your summary, quote the `received` breakdown (docket units AND ShipBob qty) so the user can sanity-check.',
-    input_schema: { type: 'object', properties: { messageId: { type: 'string' } }, required: ['messageId'] },
+    description: 'Create the ShipBob WRO from ONE docket (with lots + expiry) and link the PO. ONLY after the user has confirmed the best-befores. Pass the SAME messageId AND attachment filename you parsed. Returns the WRO number, a `received` breakdown, and a `pallets` object. UNIT CONVERSION IS AUTOMATIC: dockets list pouch units but 320g SKUs live in ShipBob as 4-pouch SRP cartons — the tool divides for you (e.g. 168 pouches → 42 cartons). NEVER pre-convert quantities yourself; in your summary, quote the `received` breakdown (docket units AND ShipBob qty) AND the pallet/label count so the user can sanity-check both. If `pallets.warning` is present, lead with it — the labels PDF is short and needs a hand-fix before it goes to Sharon.',
+    input_schema: { type: 'object', properties: { messageId: { type: 'string' }, attachment: { type: 'string' } }, required: ['messageId'] },
   },
   {
     name: 'draft_sharon_reply',
-    description: "Draft (NOT send) the reply to Sharon with the WRO box-labels PDF attached. The recipient is FIXED to ABC's monitored address (Sharon to, Stephen cc) — do NOT pass a To from the docket sender (that alias is unmonitored). Just pass the WRO id from create_wro (and docket_ref if handy). Returns the exact To/Cc/subject/body — show the user the body VERBATIM (do not paraphrase). Only send_email_draft after they approve.",
+    description: "Draft (NOT send) the reply to Sharon with the WRO box-labels PDF attached. The recipient is FIXED to ABC's monitored address (Sharon to; Stephen AND Luke cc'd, so the send lands in Luke's own inbox as proof) — do NOT pass a To from the docket sender (that alias is unmonitored). Just pass the WRO id from create_wro (and docket_ref if handy). Returns the exact To/Cc/subject/body — show the user the body VERBATIM (do not paraphrase). Only send_email_draft after they approve.",
     input_schema: { type: 'object', properties: { docket_ref: { type: 'string' }, wro_id: { type: 'number' } }, required: ['wro_id'] },
   },
   {
@@ -1141,18 +1141,28 @@ W: theproteinpancake.co`;
     };
   }
   if (name === 'check_docket') {
-    const d = await findLatestDocket();
-    return d ?? { error: 'No recent ABC docket email found.' };
+    const ds = await findDockets();
+    if (!ds.length) return { error: 'No recent ABC docket email found.' };
+    return {
+      count: ds.length,
+      dockets: ds.map((d) => ({ messageId: d.messageId, attachment: d.attachment, subject: d.subject, from: d.from, date: d.date })),
+      ...(ds.length > 1 ? {
+        note: `This email carries ${ds.length} dockets — Sharon completed more than one flavour. Tell the user up front, then handle them ONE AT A TIME, passing the attachment filename to parse_docket and create_wro each time.`,
+      } : {}),
+    };
   }
   if (name === 'parse_docket') {
     try {
-      const parsed = await parseDocket(String(input.messageId));
-      // Pin the messageId + next step so a "yes" NEXT turn goes straight to create_wro instead of
-      // re-parsing and re-asking (the confirm-loop fix). WhatsApp history keeps text, not tool
-      // results, so without this the messageId is lost and the agent re-derives + re-prompts.
+      const att = input.attachment ? String(input.attachment) : undefined;
+      const parsed = await parseDocket(String(input.messageId), '', att);
+      // Pin the messageId + ATTACHMENT + next step so a "yes" NEXT turn goes straight to create_wro
+      // instead of re-parsing and re-asking (the confirm-loop fix). WhatsApp history keeps text, not
+      // tool results, so without this the messageId is lost and the agent re-derives + re-prompts.
+      // The attachment has to ride along too, or a two-docket email builds the WRO from the wrong PDF.
       if (_phone && !(parsed as any)?.error) {
+        const attArg = parsed.attachment ? `, attachment="${parsed.attachment}"` : '';
         await recordProactiveContext(_phone,
-          `PENDING WRO CONFIRMATION — I just showed the user docket ${(parsed as any)?.docket_ref || ''} (messageId="${String(input.messageId)}") and asked them to confirm the lots/best-befores. If their NEXT message confirms (yes / correct / looks good / go ahead / create it), call create_wro with messageId="${String(input.messageId)}" IMMEDIATELY — do NOT call parse_docket again or re-show the same docket summary. Then offer draft_sharon_reply.`
+          `PENDING WRO CONFIRMATION — I just showed the user docket ${(parsed as any)?.docket_ref || ''} (messageId="${String(input.messageId)}"${attArg}) and asked them to confirm the lots/best-befores. If their NEXT message confirms (yes / correct / looks good / go ahead / create it), call create_wro with messageId="${String(input.messageId)}"${attArg} IMMEDIATELY — do NOT call parse_docket again or re-show the same docket summary. Then offer draft_sharon_reply.`
         ).catch(() => {});
       }
       return parsed;
@@ -1160,7 +1170,7 @@ W: theproteinpancake.co`;
   }
   if (name === 'create_wro') {
     try {
-      const parsed = await parseDocket(String(input.messageId));
+      const parsed = await parseDocket(String(input.messageId), '', input.attachment ? String(input.attachment) : undefined);
       const res = await createWROFromParsed(parsed);
       // Persist the state-change: the earlier PENDING WRO CONFIRMATION note outlives its
       // purpose in history, and a later bare "yes" (answering the draft-Sharon offer) was
@@ -1170,9 +1180,11 @@ W: theproteinpancake.co`;
           `WRO ${res.wro_id} IS CREATED for docket ${parsed.docket_ref || ''} — the earlier PENDING WRO CONFIRMATION is COMPLETE and DEAD; never call create_wro for this docket again. I then offered to draft Sharon's labels reply: if the user's next message approves (yes / go / draft it), call draft_sharon_reply with wro_id=${res.wro_id} IMMEDIATELY.`
         ).catch(() => {});
       }
+      const pal = (res as any).pallets;
+      const palNote = pal?.warning ? ` ${pal.warning}` : pal?.labels > 1 ? ` The labels PDF has ${pal.labels} pages, one per pallet — say so.` : '';
       const note = (res as any).already_existed
         ? `WRO ${res.wro_id} was ALREADY created for this docket/PO — not duplicated. Go straight to draft_sharon_reply with wro_id=${res.wro_id}.`
-        : `WRO ${res.wro_id} created. Offer to draft Sharon's reply (draft_sharon_reply, wro_id=${res.wro_id}).`;
+        : `WRO ${res.wro_id} created.${palNote} Offer to draft Sharon's reply (draft_sharon_reply, wro_id=${res.wro_id}).`;
       return { ...res, docket_ref: parsed.docket_ref, po_ref: parsed.po_ref, note };
     } catch (e) { return { error: String(e).slice(0, 160) }; }
   }
@@ -1297,13 +1309,15 @@ FLAVOUR VALIDITY (CRITICAL — a hallucinated "SKU list" refusal broke a live PO
 Inbound accuracy (CRITICAL — don't hallucinate inbound): "inbound" = OPEN POs only (status placed/in_production/partially_received). A PO marked received/delivered does NOT count as inbound — never add it to inbound totals. Old POs that have already landed should be marked received: use mark_po_received with the exact po_number (it drops them from inbound and marks them Billed in Xero). WROs received at ShipBob are auto-reconciled to their PO daily. If the user says a PO has landed / is old / was already delivered, call mark_po_received. When inbound numbers look suspiciously high, suspect stale POs that were never closed — check get_purchase_orders and offer to mark the delivered ones received.
 
 Receiving (WRO) flow — TWO distinct steps, decided by the conversation so far:
-A) FIRST time the user mentions a docket/packing slip from Sharon/ABC: check_docket → parse_docket → show the parsed lines (LOT NUMBERS + BEST-BEFORE dates) and ask them to confirm. Then STOP and wait. IMPORTANT: Luke's Outlook is just a mail CLIENT viewing the SAME luke@theproteinpancake.co inbox that check_docket searches — never claim an email is "in Outlook but not Gmail". If check_docket returns the wrong email or nothing while the user insists the docket exists, the finder missed it — apologise, tell them exactly which email you found instead, and ask them to forward Sharon's docket email so it becomes the newest match; then re-run check_docket. NEVER create a WRO from a screenshot alone — lot numbers and dates must come from the PDF.
-B) When the user then CONFIRMS (e.g. "yes", "correct", "looks good", "go ahead", "create it"): call create_wro NOW. If the conversation contains a "PENDING WRO CONFIRMATION" note, it has the exact messageId — use it: create_wro(messageId) straight away. (No pending note? call check_docket ONLY to get the messageId, then create_wro.) Report the WRO number, then offer the Sharon reply. NEVER call parse_docket or re-show the docket summary on a confirmation turn — re-displaying the same "say yes" prompt after they already said yes is the exact loop bug we must never do.
-Then offer to reply to Sharon: draft_sharon_reply (recipient is FIXED to ABC's monitored address — Sharon to, Stephen cc; never use the docket sender's address) → show the exact draft → send_email_draft only when they say send. After you've drafted Sharon's reply, a "send"/"yes"/"go" means call send_email_draft with that draft_id (the "PENDING SHARON REPLY" note has it) — the WRO is ALREADY created, so NEVER call create_wro again on a send (re-creating it errors 422 "PO reference already exists"). If create_wro ever returns already_existed, that's fine — the WRO exists; just proceed to draft/send Sharon's reply. Never create a WRO or send an email without explicit confirmation.
+A) FIRST time the user mentions a docket/packing slip from Sharon/ABC: check_docket → parse_docket → show the parsed lines (LOT NUMBERS + BEST-BEFORE dates + the PALLET COUNT) and ask them to confirm. Then STOP and wait.
+   MULTIPLE DOCKETS ON ONE EMAIL: check_docket returns a LIST. Sharon regularly completes two flavours in one run and attaches a docket for each ("We have completed both Buttermilk & Chocolate — delivery docket attached"). If count > 1, SAY SO IN YOUR FIRST REPLY ("she's sent 2 dockets — Buttermilk and Chocolate, I'll do them one at a time"), then run the full flow for the first (parse → confirm → create_wro → labels reply) and move to the next, passing that docket's `attachment` filename every time. When the user asks about a docket you haven't handled yet ("she also sent a Chocolate one"), re-run check_docket and look through the WHOLE list before saying you can't find it — claiming a docket doesn't exist when it's the second attachment on the email you already read is a bug, not an answer.
+   PALLETS: the docket's Note field is where ABC state the pallet build ("3 pallets / 1 x 43 boxes x 520gms + 43 boxes x 80gms / ..."). We print ONE shipping label per pallet, so ALWAYS tell the user the pallet count when you show a parsed docket, and quote `note` if they query it. Sharon's covering email may also mention it ("this one is for 3 pallets") — if the email and the docket Note disagree, flag the difference rather than picking one. IMPORTANT: Luke's Outlook is just a mail CLIENT viewing the SAME luke@theproteinpancake.co inbox that check_docket searches — never claim an email is "in Outlook but not Gmail". If check_docket returns the wrong email or nothing while the user insists the docket exists, the finder missed it — apologise, tell them exactly which email you found instead, and ask them to forward Sharon's docket email so it becomes the newest match; then re-run check_docket. NEVER create a WRO from a screenshot alone — lot numbers and dates must come from the PDF.
+B) When the user then CONFIRMS (e.g. "yes", "correct", "looks good", "go ahead", "create it"): call create_wro NOW. If the conversation contains a "PENDING WRO CONFIRMATION" note, it has the exact messageId AND attachment — use both: create_wro(messageId, attachment) straight away. After it returns, state the pallet/label count from `pallets`, and if `pallets.warning` is there, lead with it — it means the labels PDF is short and needs pallet labels added by hand in ShipBob BEFORE the reply goes to Sharon. (No pending note? call check_docket ONLY to get the messageId, then create_wro.) Report the WRO number, then offer the Sharon reply. NEVER call parse_docket or re-show the docket summary on a confirmation turn — re-displaying the same "say yes" prompt after they already said yes is the exact loop bug we must never do.
+Then offer to reply to Sharon: draft_sharon_reply (recipient is FIXED to ABC's monitored address — Sharon to, Stephen and Luke cc; never use the docket sender's address) → show the exact draft → send_email_draft only when they say send. After you've drafted Sharon's reply, a "send"/"yes"/"go" means call send_email_draft with that draft_id (the "PENDING SHARON REPLY" note has it) — the WRO is ALREADY created, so NEVER call create_wro again on a send (re-creating it errors 422 "PO reference already exists"). If create_wro ever returns already_existed, that's fine — the WRO exists; just proceed to draft/send Sharon's reply. Never create a WRO or send an email without explicit confirmation.
 
 Email drafts: when a draft_* tool returns a subject + body, show the user that EXACT subject and body verbatim (quote it as-is — never rewrite, embellish or summarise it) so what they approve is exactly what gets sent. Mention if a file is attached. Only send after explicit approval.
 
-Multi-step memory: you can see the recent conversation. When the user replies "yes"/"confirm"/"SEND"/"do it", act on what you just proposed — re-fetch any IDs you need (e.g. call check_docket again to get the docket, then create_wro). Never lose the thread.
+Multi-step memory: you can see the recent conversation. When the user replies "yes"/"confirm"/"SEND"/"do it", act on what you just proposed — re-fetch any IDs you need (e.g. call check_docket again to get the docket, then create_wro). Never lose the thread. When an email had several dockets, finishing one is NOT finishing the job — say which are still to do.
 
 Voice: you're a fun, witty member of the TPP team with Gen-Z energy — playful and a bit cheeky, light natural slang ("lowkey", "no cap", "sorted", "we move", "that's cooked", "say less") used sparingly so it never feels forced or cringe. Warm and human, like a sharp mate who's got ops handled. BUT accuracy always wins: never trade a correct number or a clear instruction for a joke, and keep it tight and serious-enough on anything touching money, POs, WROs or stock decisions.
 Style: concise, WhatsApp-friendly, short lines, a few emojis. Lead with the answer. Use tools for every number — never guess. If a request is ambiguous, make the most reasonable assumption and say what you assumed, rather than refusing.`;

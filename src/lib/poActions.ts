@@ -10,15 +10,19 @@ const APP_URL = process.env.PUBLIC_APP_URL || 'https://admin.theproteinpancake.c
 // Single source of truth so no flow can mis-route to an unmonitored alias. Overridable via env.
 export const ABC_PO_TO = process.env.ABC_PO_TO || 'sharon.driscoll@abcblending.com.au';
 export const ABC_PO_CC = process.env.ABC_PO_CC || 'stephen@abcblending.com.au';
+export const OWNER_EMAIL = process.env.OWNER_EMAIL || 'luke@theproteinpancake.co';
+// Every outbound ABC email cc's Stephen AND Luke — Luke so the send lands in his own inbox as
+// visible proof it went out. The PO flow did this by concatenating the address inline while the
+// labels reply used the bare constant, so whether Luke got copied depended on which flow ran.
+// One list, used by both.
+export const ABC_CC = `${ABC_PO_CC}, ${OWNER_EMAIL}`;
 const PO_SIGNATURE = 'Luke Rolls\nOwner | The Protein Pancake\nP: +61 0412 474 330\nE: luke@theproteinpancake.co';
 
 // Build the ABC PO email (To: Sharon, CC: Stephen, Xero PDF attached).
 function poEmailContent(poNumber: string, flavour: string) {
   const of = flavour ? ` of ${flavour}` : '';
   return {
-    // Luke is CC'd so the send lands in his own inbox — visible proof the PO email actually
-    // went out (asked for after the 13 Jul duplicate-PO mess made sends hard to trust blind).
-    to: ABC_PO_TO, cc: `${ABC_PO_CC}, luke@theproteinpancake.co`, subject: 'New PO',
+    to: ABC_PO_TO, cc: ABC_CC, subject: 'New PO',
     body: `Hey guys,\n\nJust sending over a new PO${of}.\n\nThanks!\n\n${PO_SIGNATURE}`,
   };
 }
@@ -52,7 +56,7 @@ export async function sendLatestPOEmail():
     await gmailSendDraft(po.email_draft_id);
     await supabaseLogistics.from('purchase_orders')
       .update({ email_draft_id: null, updated_at: new Date().toISOString() }).eq('id', po.id);
-    return { ok: true, po_number: po.po_number, to: ABC_PO_TO, cc: ABC_PO_CC };
+    return { ok: true, po_number: po.po_number, to: ABC_PO_TO, cc: ABC_CC };
   } catch (e) {
     return { error: `Couldn't send the PO email: ${String(e).slice(0, 120)}` };
   }
@@ -175,7 +179,7 @@ export async function approveLatestWhatsAppDraft(flavourFilter?: string, force?:
       .eq('id', po.id);
     return {
       ok: true, xero_number: xero.number, email_drafted: !!draft,
-      email_to: ABC_PO_TO, email_cc: ABC_PO_CC,
+      email_to: ABC_PO_TO, email_cc: ABC_CC,
       email_subject: draft?.subject ?? 'New PO', email_body: draft?.body ?? '',
     };
   } catch (e) {
