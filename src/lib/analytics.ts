@@ -228,7 +228,10 @@ export function derive(r: any, a: Assumptions) {
   const n = (v: any) => Number(v) || 0;
   // Amazon total is DERIVED (AU + UK), same pattern as sales_total — the two regions are the
   // stored/editable source of truth so Luke can compare markets; the total is never set directly.
-  const amazon_sales = n(r.amazon_sales_au) + n(r.amazon_sales_uk);
+  // amazon_sales_uk is stored in GBP (that's the marketplace currency Luke compares on), so it
+  // must be converted before joining an AUD total — adding it raw understated Amazon revenue,
+  // and with it sales_total, blended ROAS and net profit.
+  const amazon_sales = n(r.amazon_sales_au) + n(r.amazon_sales_uk) * (a.fx_gbp_aud || 1);
   const sales_total = n(r.online_sales) + amazon_sales + n(r.wholesale_invoices);
   const total_ad_spend = n(r.meta_spend) + n(r.google_spend) + n(r.amazon_spend);
   const gross_profit = n(r.gross_profit);
@@ -251,6 +254,58 @@ export function derive(r: any, a: Assumptions) {
     npm: sales_total ? round2(net_profit / sales_total) : null,
     shipping_ratio: sales_total ? round2(n(r.shipbob_charges) / sales_total) : null,
     cr: r.cr != null ? n(r.cr) : null,
+  };
+}
+
+/**
+ * Blended marketing efficiency, week by week — the "what's MER this week" answer.
+ *
+ * Deliberately reports BOTH conventions, because they disagree and both are in use here:
+ *  - mer_x       revenue ÷ spend  (4.2× — "$4.20 back per $1 of ads"), what Luke says out loud
+ *  - mer_percent spend ÷ revenue  (23.8%), which is what the MER tile on the Analytics page
+ *                shows, and where LOWER is better
+ * Same derive() the dashboard uses, so the agent and the page can never quote different numbers.
+ *
+ * dtc_mer_x excludes wholesale from revenue: wholesale invoices aren't driven by the ad spend
+ * they'd otherwise flatter. The headline stays blended to match the page.
+ */
+export async function getMer(weeks = 6) {
+  const a = await getAssumptions();
+  const { data } = await supabaseLogistics.from('sales_week').select('*')
+    .order('week_start', { ascending: false }).limit(Math.max(1, Math.min(weeks, 26)));
+  const n = (v: any) => Number(v) || 0;
+  const today = new Date().toISOString().slice(0, 10);
+
+  const rows = ((data ?? []) as any[]).map((r) => {
+    const d = derive(r, a);
+    const end = new Date(new Date(r.week_start).getTime() + 6 * 86400_000).toISOString().slice(0, 10);
+    const dtcRev = n(r.online_sales) + d.amazon_sales;
+    const spend = d.total_ad_spend;
+    return {
+      week: `${r.week_start} → ${end}`,
+      ...(end >= today ? { partial: `week still running — figures to ${String(r.auto_filled_at || '').slice(0, 10) || 'last sync'} only` } : {}),
+      revenue_total: d.sales_total,
+      spend_total: spend,
+      mer_x: spend ? round2(d.sales_total / spend) : null,
+      mer_percent: d.sales_total ? round2((spend / d.sales_total) * 100) : null,
+      dtc_mer_x: spend ? round2(dtcRev / spend) : null,
+      revenue: { shopify: round2(n(r.online_sales)), amazon_aud: round2(d.amazon_sales), wholesale: round2(n(r.wholesale_invoices)) },
+      spend: { meta: round2(n(r.meta_spend)), google: round2(n(r.google_spend)), amazon: r.amazon_spend == null ? null : round2(n(r.amazon_spend)) },
+    };
+  });
+
+  const missingAmazonSpend = rows.some((r) => r.spend.amazon == null);
+  return {
+    weeks: rows,
+    definitions: {
+      mer_x: 'blended revenue (Shopify + Amazon + wholesale) ÷ total ad spend — higher is better',
+      mer_percent: 'ad spend as a % of blended revenue — this is the MER tile on the Analytics page, LOWER is better',
+      dtc_mer_x: 'same as mer_x but excluding wholesale, since ads do not drive wholesale invoices',
+    },
+    ...(missingAmazonSpend ? {
+      caveat: 'Amazon AD SPEND is not connected yet (the Ads API needs Luke to create an LWA app), so it is missing from spend — MER is therefore flattered slightly. Meta and Google spend are live. Say this when quoting the number.',
+    } : {}),
+    fx_gbp_aud: a.fx_gbp_aud,
   };
 }
 
