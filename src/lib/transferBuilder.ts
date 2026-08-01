@@ -2,6 +2,7 @@
 // using live per-SKU velocity. Trigger: place the transfer ~90 days before sellout;
 // top the destination up to ~180 days of cover, capped by what the origin can spare.
 import { supabaseLogistics } from './supabase-logistics';
+import { cartonUnits } from './transferConstants';
 
 export const TRIGGER_DAYS = 90;   // build a transfer when destination cover falls below this
 export const TARGET_DAYS = 180;   // days of cover the shipment should provide AFTER it arrives
@@ -16,9 +17,6 @@ const UK_FALLBACK_FRACTION = 0.2; // if a SKU has no destination velocity yet, a
 // manually as the odd extra, not auto-built.
 const UK_SIZE_G = 520;
 
-// Export shipping cartons: units per carton (ABC carton specs).
-const SHIP_CARTON: Record<number, number> = { 520: 12, 1000: 8 };
-const cartonUnits = (g: number) => SHIP_CARTON[g] ?? 12;
 
 // Pallet capacity for 520g cartons (23×23×33cm): 15 cases/layer × 5 layers = 75 cases
 // = 900 units (~468 kg product, ~530 kg gross) at ~134cm. A 6th layer (~1,080 units)

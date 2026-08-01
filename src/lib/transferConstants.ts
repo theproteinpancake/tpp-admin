@@ -44,6 +44,27 @@ export const UNIT_VALUE: Record<string, number> = {
 
 export const declaredValue = (sku: string, fallback?: number) => UNIT_VALUE[sku] ?? fallback ?? 0;
 
+// Export shipping cartons: units per carton, by bag size. ABC pack 520g twelve to a carton and
+// 1kg eight — the pallet, the packing list and the customs paperwork all count CARTONS, so a
+// transfer line that isn't a whole number of them can't actually be built or documented.
+// Single source of truth: transferBuilder plans against it and updateTransferLines enforces it.
+export const SHIP_CARTON: Record<number, number> = { 520: 12, 1000: 8 };
+export const cartonUnits = (sizeG?: number | null) => SHIP_CARTON[Number(sizeG)] ?? 12;
+
+/**
+ * Round a requested unit count to whole cartons. Rounds to NEAREST so a hand-typed "175" becomes
+ * 180 rather than silently dropping half a carton, but never rounds a wanted line down to nothing.
+ * Only applies where a carton size is known (finished mix bags); syrup and accessories ride along
+ * as loose extras and are left exactly as asked.
+ */
+export function roundToCartons(units: number, sizeG?: number | null, category?: string | null):
+  { units: number; cartons: number; adjusted: boolean } {
+  const cu = cartonUnits(sizeG);
+  if (category && category !== 'mix') return { units, cartons: Math.ceil(units / cu), adjusted: false };
+  const cartons = Math.max(1, Math.round(units / cu));
+  return { units: cartons * cu, cartons, adjusted: cartons * cu !== units };
+}
+
 // AUD → GBP for the commercial-invoice GBP column. Indicative (HMRC's published customs rate for
 // the period is the one that legally applies); matches the rate used on INTERNAL2.
 export const AUD_TO_GBP = 0.527;
@@ -87,6 +108,13 @@ export const UK_PALLET = {
 export const MAERSK = {
   name: 'Viviana Diaz',
   email: 'viviana.diaz@maersk.com',
+};
+
+// Maersk's AU logistics desk — separate from Viviana (quote & booking). They want their OWN
+// filled SLI form before they'll schedule the pickup, which is why a booking alone stalls.
+export const MAERSK_LOGISTICS = {
+  name: 'Maersk AU Logistics',
+  email: process.env.MAERSK_SLI_EMAIL || 'au.logistics@lns.maersk.com',
 };
 
 export const sizeLabel = (g: number | null | undefined) =>

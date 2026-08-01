@@ -2,6 +2,7 @@
 // react-pdf document generators for internal-transfer shipping paperwork.
 import { Document, Page, View, Text, Image, StyleSheet, renderToBuffer } from '@react-pdf/renderer';
 import type { Transfer } from './transfers';
+import { renderMaerskSli } from './sliMaersk';
 import { TPP_LOGO } from './logo';
 import { TPP_SIGNATURE } from './signature';
 import {
@@ -474,6 +475,8 @@ export const TRANSFER_DOCS = {
   'packing-list': { label: '2 · Packing List', render: renderPackingList },
   'certificate-of-origin': { label: '3 · Certificate of Origin', render: renderCertificateOfOrigin },
   'sli': { label: '4 · SLI (Maersk)', render: renderSli },
+  // Maersk's OWN fillable form. Their AU desk books pickups off this one, not our render above.
+  'sli-maersk-form': { label: '4a · SLI (Maersk official form)', render: (t: Transfer) => renderMaerskSli(t) },
   'sli-carrier': { label: '4b · SLI (Carrier form)', render: renderSliCarrier },
   'indirect-representation': { label: '5 · Indirect-Rep Letter', render: renderIndirectRep },
   'product-specification': { label: '6 · Product Specification', render: renderProductSpec },

@@ -24,8 +24,9 @@ import { getActionCenter, dismissBriefItems } from './actionCenter';
 import { setConfig } from './settings';
 import { melbMidnightUtc } from './tz';
 import { getPoForecast } from './poForecast';
-import { MAERSK, IMPORTER } from './transferConstants';
+import { MAERSK, IMPORTER, MAERSK_LOGISTICS } from './transferConstants';
 import { renderCommercialInvoice, renderPackingList } from './transferPdf';
+import { renderMaerskSli, sliValues } from './sliMaersk';
 import { previewTransferShipbob, createTransferWro, lotDateCheck } from './transferShipbob';
 import { sendWhatsApp, senderRole, waAddr } from './whatsapp';
 import { processWholesalePO, processWholesalePOMulti, oosReplyBody } from './wholesalePO';
@@ -195,8 +196,13 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: 'draft_transfer_email',
-    description: 'Draft (NOT send) the booking email to Viviana at Maersk (quote & booking — she replaced Jordan Burnes) to start/progress a transfer, with links to the Commercial Invoice + Packing List. Show the user the draft; only send_email_draft when they explicitly approve. For who to chase at later stages (BL, customs, UK delivery) use get_uk_pallet_contacts.',
+    description: "Draft (NOT send) the booking email to Viviana at Maersk (quote & booking — she replaced Jordan Burnes) to start/progress a transfer. Attaches the Commercial Invoice, Packing List AND the filled Maersk SLI. Show the user the draft; only send_email_draft when they explicitly approve. This books the freight but does NOT schedule the truck — Maersk's AU logistics desk need the SLI separately, so offer draft_maersk_sli_email afterwards. For who to chase at later stages (BL, customs, UK delivery) use get_uk_pallet_contacts.",
     input_schema: { type: 'object', properties: { reference: { type: 'string' } }, required: ['reference'] },
+  },
+  {
+    name: 'draft_maersk_sli_email',
+    description: "Draft (NOT send) the PICKUP request to Maersk's AU logistics desk (au.logistics@lns.maersk.com) with MAERSK'S OWN Shipper's Letter of Instruction filled out and attached for this transfer. This is a SEPARATE step from draft_transfer_email — Viviana handles the quote/booking, this desk schedules the actual truck, and they won't move without their own SLI form. The form is filled from the transfer's real manifest (cartons, units, weight, volume, EORI, incoterms). Use for \"send the SLI\", \"book the pickup\", \"Maersk need the SLI\". Show the user the To/subject/body verbatim; only send_email_draft after they approve.",
+    input_schema: { type: 'object', properties: { reference: { type: 'string', description: 'transfer reference e.g. INTERNAL5' } }, required: ['reference'] },
   },
   {
     name: 'get_packaging_stock',
@@ -868,13 +874,56 @@ W: theproteinpancake.co`;
       // Supersede any earlier un-sent draft for this transfer so stale/duplicate drafts don't pile up.
       await gmailDeleteDraftsBySubject(subject).catch(() => 0);
       // Attach the (auto-signed) Commercial Invoice + Packing List PDFs directly to the draft.
-      const [ci, pl] = await Promise.all([renderCommercialInvoice(t), renderPackingList(t)]);
+      const [ci, pl, sli] = await Promise.all([renderCommercialInvoice(t), renderPackingList(t), renderMaerskSli(t)]);
       const attachments = [
         { filename: `Commercial Invoice — ${ref}.pdf`, base64: ci.toString('base64') },
         { filename: `Packing List — ${ref}.pdf`, base64: pl.toString('base64') },
+        { filename: `SLI — ${ref}.pdf`, base64: sli.toString('base64') },
       ];
       const draftId = await gmailCreateDraft(MAERSK.email, subject, body, attachments);
-      return { draft_id: draftId, to: MAERSK.email, subject, body, attached: ['Commercial Invoice', 'Packing List'], note: 'Draft created with both PDFs attached. Show the user the To/subject + that both docs are attached (the body is here in this result). On "send", call send_email_draft with this draft_id; do NOT re-send the docs.' };
+      return { draft_id: draftId, to: MAERSK.email, subject, body, attached: ['Commercial Invoice', 'Packing List', 'SLI (Maersk form)'], reminder: `Booking alone does NOT get a truck — Maersk's AU logistics desk (${MAERSK_LOGISTICS.email}) need the SLI sent to them too. Offer draft_maersk_sli_email next.`, note: 'Draft created with all three PDFs attached. Show the user the To/subject + that both docs are attached (the body is here in this result). On "send", call send_email_draft with this draft_id; do NOT re-send the docs.' };
+    } catch (e) { return { error: String(e).slice(0, 160) }; }
+  }
+  if (name === 'draft_maersk_sli_email') {
+    const ref = String(input.reference || '').trim().toUpperCase();
+    const t = await getTransfer(ref);
+    if (!t) return { error: `No transfer found with reference ${ref}.` };
+    const subject = `SLI + pickup request — The Protein Pancake ${ref} (Altona VIC → Heywood UK)`;
+    const v = sliValues(t);
+    const body =
+`Hi team,
+
+Please find attached our completed Shipper's Letter of Instruction for ${ref}, ready for pickup.
+
+* Pickup: The Protein Pancake C/O ShipBob, Inc, 21-27 Marshall Court, Altona VIC 3018
+* Delivery: The Protein Pancake C/O ShipBob, Inc, Unit P6, Parklands Heywood Distribution Park, Heywood OL10 2TT, United Kingdom
+* Packages: ${v['NUMBER AND TYPE OF PACKAGES']}
+* Weight: ${v['TOTAL WEIGHT']}
+* Volume: ${v['TOTAL VOLUME']}
+* Incoterms: DDP Heywood · EORI ${IMPORTER.eori}
+
+Non-hazardous food product, no temperature control required. Commercial invoice and packing list are with Viviana on the booking.
+
+Could you please confirm a pickup slot?
+
+
+Flipping Regards,
+
+Luke | Founder
+The Protein Pancake
+P: +61 412 474 330
+E: luke@theproteinpancake.co
+W: theproteinpancake.co`;
+    try {
+      await gmailDeleteDraftsBySubject(subject).catch(() => 0);
+      const sli = await renderMaerskSli(t);
+      const draftId = await gmailCreateDraft(MAERSK_LOGISTICS.email, subject, body,
+        [{ filename: `SLI — ${ref}.pdf`, base64: sli.toString('base64') }] as any);
+      return {
+        draft_id: draftId, to: MAERSK_LOGISTICS.email, subject, body,
+        attached: [`SLI — ${ref}.pdf (Maersk's own form, filled and flattened)`],
+        note: `Draft created. Show the user the To/subject and the body VERBATIM, and say the filled SLI is attached. On "send", call send_email_draft with this draft_id.`,
+      };
     } catch (e) { return { error: String(e).slice(0, 160) }; }
   }
   if (name === 'update_transfer_status') {
@@ -1282,6 +1331,7 @@ Your full toolkit:
 - suggest_transfer → create_transfer — propose a UK restock transfer (520g medium bags ONLY; LEAD-TIME-AWARE: covers ~75d transit + 180d after arrival, so in-flight inbound is discounted by transit-period sales; best-seller pallet-fill, Altona-capped). When presenting, lead with uk_cover_at_arrival_days (cover WHEN IT LANDS, not now) and call out any SKU that stocks out before arrival. CRITICAL — DATE CHECK AT DRAFT TIME: suggest_transfer now returns best_before + short_dated per line and a short_dated_warning; if anything is short_dated, surface it prominently and ask the user whether to DROP or swap those SKUs BEFORE you create_transfer (UK stock sits ~2.5mo at sea, so we don't want short dates) — fixing it now avoids regenerating the CI later. Show the preview, confirm (with short-dated lines resolved), then create the draft. send_transfer_docs — WhatsApp the Commercial Invoice + Packing List PDFs for a transfer to the user to preview. The docs are AUTO-SIGNED (Luke's signature) and AUTO-DATED (today) — they are fully send-ready, the user does NOT need to sign or add a date manually. So once the user previews them and is happy ("looks good, send them" / "draft the maersk email" / "draft the booking email"), call draft_transfer_email ONCE — it attaches the (signed) Commercial Invoice + Packing List to the email itself. Do NOT re-run send_transfer_docs when asked to draft/send the email (the docs were already previewed; re-sending them is the looping bug). Then send_email_draft only after the user approves. draft_transfer_email — draft (not send) the Maersk booking email (to Viviana Diaz, who replaced Jordan Burnes) to start the transfer. For sending the email, use send_email_draft only after explicit approval. For chasing later stages (BL, customs chokepoint, UK delivery) use get_uk_pallet_contacts to name the right person.
 AMENDING A TRANSFER MANIFEST: if the user changes a DRAFT transfer's contents in chat (e.g. "drop CHM/GFBM/SCM because they're short-dated, bump CIM to 216 and MAM to 156"), you CAN now save it — work out the full resulting line set and call update_transfer_lines(reference, lines:[{sku,units}]) (it REPLACES all lines + recomputes cartons/value). Then the CI + Packing List regenerate from the new lines — offer send_transfer_docs. Do NOT tell the user to edit it on the Transfers page; do it via this tool.
 
+MAERSK — TWO SEPARATE EMAILS, both needed before a pallet moves. Viviana (draft_transfer_email) quotes and books the freight; her booking does NOT get a truck to Altona. Maersk's AU logistics desk schedules the pickup and will not act without THEIR OWN SLI form filled in — draft_maersk_sli_email fills it from the transfer's real manifest and attaches it. So after a booking draft, always offer the SLI email as the next step; if the user asks why a pallet hasn't been collected, check whether the SLI went out. Never retype the SLI by hand or claim our own generated SLI PDF will do — the desk want their form.
 SHIPBOB TRANSFER ITEMS: when the user asks to "generate the shipbob items / AU B2B order + UK WRO / what lots would we send", call preview_transfer_shipbob(reference). Present, clearly: (1) the recommended LOTS per SKU (longest best-before — call out any ⚠ short-dated lots or shortfalls so they're reviewed before going to the UK), and (2) the place_in_shipbob recipe as a numbered checklist (Business → Manchester contact → Freight → Upload your own → attach CI + Packing List → add items + select THESE lots). Be honest: ShipBob B2B freight orders are a separate flow with no API yet, so the agent CANNOT create the AU order itself — the user places it in the ShipBob UI using this recipe (it takes ~2 min and guarantees the right lots). Do NOT claim you created it, and do NOT re-run draft_transfer_email instead.
 THE UK RECEIVING WRO *IS* AUTOMATED: once the user has placed the AU B2B order, call create_transfer_wro(reference, au_order_ref if they gave the order #). It creates the Manchester receiving WRO from the same units/lots/best-befores and WhatsApps the user the WRO LABEL — they attach that label to the AU B2B order before the pallet ships so Manchester can receive it. So the flow is: preview_transfer_shipbob → user places the AU order in ShipBob (recipe + lots) → create_transfer_wro → user attaches the sent label to the AU order → send_email_draft the Maersk booking email.
 
@@ -1399,7 +1449,7 @@ WHOLESALE & MARKETING — you can ALSO run ALL of Kate's wholesale + marketing t
 // wholesale, influencers, collabs, restock ETAs and follow-ups.
 const WHOLESALE_EXCLUDED_TOOLS = new Set([
   'draft_po', 'approve_po', 'send_po_email', 'get_reorder_recommendations', 'get_po_forecast',
-  'suggest_transfer', 'create_transfer', 'update_transfer_status', 'send_transfer_docs', 'draft_transfer_email',
+  'suggest_transfer', 'create_transfer', 'update_transfer_status', 'send_transfer_docs', 'draft_transfer_email', 'draft_maersk_sli_email',
   'preview_transfer_shipbob', 'create_transfer_wro', 'update_transfer_lines',
   'get_uk_pallet_contacts', 'check_docket', 'parse_docket', 'create_wro', 'draft_sharon_reply', 'send_email_draft',
   'mark_po_received', 'get_action_center', 'mark_brief_done', 'get_shipping_billing', 'update_logistics_brief_excludes', 'get_amazon_sales',
