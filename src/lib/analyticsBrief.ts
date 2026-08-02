@@ -5,7 +5,7 @@
 // − wages. Sent via the tpp_sales_review template (delivers any time) with free-form fallback.
 import { supabaseLogistics } from './supabase-logistics';
 import { getAssumptions, shopifyOrders, shopifyWeekCOGS } from './analytics';
-import { fetchMetaWeek } from './meta';
+import { fetchMetaWeek, fetchMetaWeekByMarket } from './meta';
 import { sendWhatsApp, sendWhatsAppTemplate, allowedNumbers, senderRole, hasOpenSession, verifyRecentDelivery, recentMessagesTo } from './whatsapp';
 import { gmailCreateDraft, gmailSendDraft } from './google';
 import { getConfig, setConfig } from './settings';
@@ -17,12 +17,22 @@ import { cashBriefLine } from './cashflow';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
+export interface MarketMetrics {
+  label: string; flag: string;
+  online: number; orders: number; aov: number | null; cr: number | null;
+  amazon: number; spend: number; roas: number | null; cpa: number | null;
+}
 export interface ReviewMetrics {
   kind: 'day' | 'week'; period: string;
   online: number; orders: number; aov: number; cr: number | null;
   wholesale: number; amazon: number; amazon_detail?: string | null; total: number;
   roas: number | null; cpa: number | null; nc_roas: number | null; nc_cpa: number | null;
   net: number;
+  markets?: MarketMetrics[];
+  // Spend on campaigns that span BOTH markets (e.g. catalog retargeting AU, NZ, UK) and so can't
+  // be assigned to either. Disclosed rather than dropped — otherwise the per-market ROAS looks
+  // better than reality because some of the spend simply vanished from the split.
+  unsplit_spend?: number;
 }
 const nn = (v: any) => Number(v) || 0;
 const d0 = (v: number | null) => v == null ? '—' : (v < 0 ? '−$' : '$') + Math.abs(Math.round(v)).toLocaleString('en-AU');
@@ -52,6 +62,16 @@ export function reviewText(m: ReviewMetrics): string {
     `NC CPA ${d2(m.nc_cpa)}`,
     ``,
     `Net profit ${d0(m.net)}`,
+    // Per-market split (weekly only). Shopify revenue by billing country, Meta efficiency by
+    // campaign geo — the two markets are bought separately, so a blended ROAS hides that UK
+    // runs at roughly half AU/NZ's on double the CPM.
+    ...(m.markets?.length ? ['', 'By market', ...m.markets.map((k) =>
+      `${k.flag} ${k.label} ${d0(k.online)} · ${k.orders} orders · AOV ${d2(k.aov)}`
+      + (k.cr != null ? ` · CR ${pc(k.cr)}` : '')
+      + (k.roas != null ? ` · ROAS ${xx(k.roas)}` : '')
+      + (k.cpa != null ? ` · CPA ${d2(k.cpa)}` : '')),
+      ...(m.unsplit_spend ? [`(+ ${d0(m.unsplit_spend)} spend on AU/NZ+UK campaigns, not split)`] : []),
+    ] : []),
   ].join('\n');
 }
 
@@ -61,9 +81,59 @@ export function reviewVars(m: ReviewMetrics): Record<string, string> {
     '1': `${m.kind === 'week' ? 'Week' : 'Daily'} · ${m.period}`,
     '2': `${d0(m.online)} · ${m.orders} orders · AOV ${d2(m.aov)}${m.cr != null ? ` · CR ${pc(m.cr)}` : ''}`,
     '3': `${d0(m.wholesale)} wholesale · ${d0(m.amazon)} amazon${m.amazon_detail ? ` (${m.amazon_detail})` : ''} · ${d0(m.total)} total`,
-    '4': `ROAS ${xx(m.roas)} · CPA ${d2(m.cpa)} · NC ROAS ${xx(m.nc_roas)} · NC CPA ${d2(m.nc_cpa)}`,
+    '4': `ROAS ${xx(m.roas)} · CPA ${d2(m.cpa)} · NC ROAS ${xx(m.nc_roas)} · NC CPA ${d2(m.nc_cpa)}`
+      + (m.markets?.length ? ` · ${m.markets.filter((k) => k.roas != null).map((k) => `${k.label} ${xx(k.roas)}`).join(' · ')}` : ''),
     '5': d0(m.net),
   };
+}
+
+/**
+ * Per-market breakdown for the weekly review — AU/NZ and UK, our two live markets.
+ *
+ * Revenue and orders come from the real order rows (billing country), NOT from sales_week, which
+ * only stores NZ and UK sub-totals and has no AU line. Ad efficiency comes from Meta at campaign
+ * level, bucketed by the market in the campaign name.
+ *
+ * CR is shown only where it is actually stored (uk_cr): there is no per-market session count for
+ * AU, and inventing one would put a number next to a market that nothing measures.
+ */
+export async function marketBreakdown(weekStart: string): Promise<{ markets: MarketMetrics[]; unsplit_spend: number }> {
+  const end = addDays(weekStart, 6);
+  const a = await getAssumptions();
+  const [{ data: orders }, { data: row }] = await Promise.all([
+    supabaseLogistics.from('shopify_order').select('country,total,created_at')
+      .gte('created_at', melbMidnightUtc(weekStart))
+      .lt('created_at', melbMidnightUtc(addDays(end, 1))),
+    supabaseLogistics.from('sales_week').select('uk_cr,amazon_sales_au,amazon_sales_uk').eq('week_start', weekStart).maybeSingle(),
+  ]);
+
+  const GROUPS: { key: string; label: string; flag: string; countries: string[] }[] = [
+    { key: 'AUNZ', label: 'AU/NZ', flag: '🇦🇺', countries: ['AU', 'NZ'] },
+    { key: 'UK', label: 'UK', flag: '🇬🇧', countries: ['GB', 'UK'] },
+  ];
+
+  let meta: Awaited<ReturnType<typeof fetchMetaWeekByMarket>> = null;
+  try { meta = await fetchMetaWeekByMarket(weekStart, addDays(end, 1)); } catch { /* efficiency is optional; sales still report */ }
+
+  const markets = GROUPS.map((g) => {
+    const mine = (orders ?? []).filter((o: any) => g.countries.includes(String(o.country || '').toUpperCase()));
+    const online = mine.reduce((sum: number, o: any) => sum + nn(o.total), 0);
+    const mk = meta ? (meta as any)[g.key] : null;
+    const amazon = g.key === 'UK'
+      ? nn(row?.amazon_sales_uk) * (a.fx_gbp_aud || 1)   // stored in GBP
+      : nn(row?.amazon_sales_au);
+    return {
+      label: g.label, flag: g.flag,
+      online: r2(online), orders: mine.length,
+      aov: mine.length ? r2(online / mine.length) : null,
+      cr: g.key === 'UK' && row?.uk_cr != null ? nn(row.uk_cr) : null,
+      amazon: r2(amazon),
+      spend: mk ? mk.spend : 0,
+      roas: mk?.roas ?? null,
+      cpa: mk?.cpa ?? null,
+    };
+  });
+  return { markets, unsplit_spend: meta ? r2((meta as any).OTHER?.spend || 0) : 0 };
 }
 
 // Weekly metrics from the verified master row.
@@ -83,6 +153,7 @@ export async function weekMetrics(weekStart: string): Promise<ReviewMetrics | nu
     roas: r.meta_roas != null ? nn(r.meta_roas) : null, cpa: r.meta_cpa != null ? nn(r.meta_cpa) : null,
     nc_roas: r.meta_nc_roas != null ? nn(r.meta_nc_roas) : null, nc_cpa: r.meta_nc_cpa != null ? nn(r.meta_nc_cpa) : null,
     net,
+    ...(await marketBreakdown(weekStart).then((b) => ({ markets: b.markets, unsplit_spend: b.unsplit_spend })).catch(() => ({}))),
   };
 }
 
