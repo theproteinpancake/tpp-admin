@@ -57,7 +57,7 @@ export interface POAssessment {
   bill_to: string | null;
   ship_to: string | null;
   contact_email: string | null;     // best human reply address from the PO body (not the relay/system sender)
-  previous_recipient: { name: string; address1?: string; address2?: string; city?: string; state?: string; zip_code?: string; country?: string; email?: string; from_order: string } | null; // customer's last ShipBob delivery — the shipping source of truth
+  previous_recipient: { name: string; address1?: string; address2?: string; city?: string; state?: string; zip_code?: string; country?: string; email?: string; from_order: string; fulfilled?: boolean; shipped_on?: string } | null; // customer's last ShipBob delivery — the shipping source of truth
   customer_on_file: boolean;        // matched an existing Xero/wholesale customer?
   needs_review: boolean;            // true if Kate must check (new customer / flags)
   flags: string[];
@@ -189,6 +189,22 @@ export async function parseWholesalePOMulti(src: { text?: string; pdfs?: { filen
 const planBoxes = planWholesaleBoxes;
 
 // Normalise a business name for matching (drop Pty/Ltd/punctuation/branch noise).
+/**
+ * Do the PO's free-text ship-to and ShipBob's stored address describe the same place?
+ * Compared on the parts a courier actually needs — street number/name and postcode — because
+ * the PO string is prose ("Burnside Shopping Centre, 447 Portrush Rd, Deliveries via Loading
+ * Dock on Cator St") while ShipBob stores fields. A postcode disagreement is decisive: Unley's
+ * PO said 5061 when every delivered order went to PARKSIDE 5063.
+ */
+function sameAddress(shipTo: string, prev: { address1?: string; zip_code?: string; city?: string }): boolean {
+  const hay = String(shipTo || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ');
+  const zip = String(prev.zip_code || '').trim();
+  if (zip && !hay.includes(zip.toLowerCase())) return false;
+  const streetNo = String(prev.address1 || '').match(/\d+[a-z]?/i)?.[0];
+  if (streetNo && !new RegExp(`\\b${streetNo}\\b`).test(hay)) return false;
+  return !!(zip || streetNo);
+}
+
 function normName(s: string): string {
   return (s || '').toLowerCase()
     .replace(/\b(pty|ltd|inc|co|the|p\/l|llc|group)\b/g, ' ')
@@ -273,9 +289,23 @@ export async function assessPO(parsed: ParsedPO): Promise<POAssessment> {
       previous_recipient = await findLastShipBobRecipient(matched.name);
     } catch { /* best-effort */ }
   }
-  if (!parsed.ship_to && previous_recipient) {
+  // ShipBob's PROVEN address wins. This used to fire only when the PO had no ship-to, so any
+  // ship-to at all (usually Xero's billing address) silently beat an address ShipBob had already
+  // delivered to — which is how Tony & Marks Burnside got a duplicate profile and an Invalid
+  // Address hold. Xero is now a CROSS-REFERENCE: if it disagrees, say so and keep ShipBob's.
+  if (previous_recipient) {
     const prev = previous_recipient;
-    flags.push(`📦 No ship-to on this PO — last ShipBob delivery for ${matched!.name} went to: ${[prev.name, prev.address1, prev.address2, prev.city, prev.state, prev.zip_code].filter(Boolean).join(', ')}${prev.email ? ` (${prev.email})` : ''} [order #${prev.from_order}]. Confirm with Kate, then use these details as the recipient.`);
+    const proven = [prev.name, prev.address1, prev.address2, prev.city, prev.state, prev.zip_code].filter(Boolean).join(', ');
+    const provenance = prev.fulfilled
+      ? `DELIVERED successfully${prev.shipped_on ? ` on ${prev.shipped_on}` : ''} [order #${prev.from_order}]`
+      : `last ShipBob order #${prev.from_order}`;
+    if (!parsed.ship_to) {
+      flags.push(`📦 No ship-to on this PO — use ShipBob's address for ${matched!.name}: ${proven}${prev.email ? ` (${prev.email})` : ''} — ${provenance}.`);
+    } else if (!sameAddress(parsed.ship_to, prev)) {
+      flags.push(`📦 SHIP-TO MISMATCH — use ShipBob's: ${proven} (${provenance}). The PO/Xero says: "${parsed.ship_to}". Xero holds BILLING details and often carries centre names or delivery notes that ShipBob rejects, so ship to the proven address unless Kate says the store has genuinely moved. Do NOT create a new ShipBob recipient.`);
+    } else {
+      flags.push(`📦 Ship-to matches ShipBob's ${provenance} — use that existing recipient, don't create a new one.`);
+    }
   }
   if (already_processed) flags.push(`🛑 ALREADY PROCESSED — PO ${parsed.po_number} already has${existing?.xero_invoice ? ` Xero invoice ${existing.xero_invoice}` : ''}${existing?.shipbob_order_id ? ` / ShipBob order #${existing.shipbob_order_id}` : ''}. Do NOT create another — confirm with the user first.`);
   if (!customer_on_file) flags.push(`🆕 "${parsed.customer_name || 'this customer'}" isn't on file in Xero — needs adding (capture name, ship-to address, email, ABN). Check carefully.`);

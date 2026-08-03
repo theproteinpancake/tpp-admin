@@ -223,6 +223,70 @@ export async function findRecentOrderByReference(site: string, reference: string
   return null;
 }
 
+/**
+ * Past ShipBob orders for a recipient, newest first — the SHIPPING source of truth.
+ *
+ * ShipBob's saved address for a store is the one that has actually been delivered to; Xero
+ * holds BILLING data and mangles the delivery details (centre names, "Deliveries via Loading
+ * Dock on Cator St" pushed into an address line, wrong suburb/postcode). Trusting Xero over
+ * this created a duplicate ShipBob profile for Tony & Marks Burnside and an Invalid Address
+ * hold on order #381476902.
+ *
+ * Names are matched on token overlap because the two systems punctuate differently —
+ * "Tony & Marks Burnside" (Xero) vs "Tony and Marks Burnside" vs "Tony  Marks Unley" (ShipBob).
+ */
+const shipNameTokens = (s: string) => new Set(
+  String(s || '').toLowerCase()
+    .replace(/\b(pty|ltd|inc|co|the|and|p\/l|llc|group)\b/g, ' ')
+    .replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean),
+);
+export function recipientNameMatches(a: string, b: string): boolean {
+  const A = shipNameTokens(a), B = shipNameTokens(b);
+  if (!A.size || !B.size) return false;
+  const [small, big] = A.size <= B.size ? [A, B] : [B, A];
+  for (const t of small) if (!big.has(t)) return false;
+  return true;
+}
+
+const isFulfilled = (status: string) => /fulfil|complete|shipped/i.test(String(status || ''));
+
+/**
+ * Scans newest-first and STOPS as soon as a delivered order for this recipient is found, else
+ * keeps going to `sinceDays`. A flat page cap doesn't work: a store ordering monthly sits ~1,300
+ * orders back in a busy account, so a 12-page (1,200) window returned Tony & Marks Unley's own
+ * brand-new bad order instead of the one that actually delivered on 8 Jul.
+ */
+export async function findOrdersByRecipient(site: string, name: string, sinceDays = 180, maxPages = 40): Promise<{
+  id: number; date: string; status: string; name: string;
+  address: { address1?: string; address2?: string; city?: string; state?: string; zip_code?: string; country?: string };
+  email?: string;
+}[]> {
+  const token = TOKENS[site];
+  if (!token || !name) return [];
+  const out: any[] = [];
+  try {
+    for (let page = 1; page <= maxPages; page++) {
+      const res = await fetch(`${SB}/order?Page=${page}&Limit=100&SortOrder=Newest`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) break;
+      const batch: any[] = await res.json();
+      if (!batch?.length) break;
+      for (const o of batch) {
+        if (!recipientNameMatches(o.recipient?.name || '', name)) continue;
+        out.push({
+          id: o.id, date: String(o.purchase_date || o.created_date || '').slice(0, 10),
+          status: String(o.status || ''), name: o.recipient?.name || '',
+          address: o.recipient?.address || {}, email: o.recipient?.email || undefined,
+        });
+      }
+      if (out.some((o) => isFulfilled(o.status))) break;   // proven address in hand — stop paging
+      const oldest = String(batch[batch.length - 1]?.purchase_date || batch[batch.length - 1]?.created_date || '').slice(0, 10);
+      if (oldest && oldest < new Date(Date.now() - sinceDays * 86400_000).toISOString().slice(0, 10)) break;
+      if (batch.length < 100) break;
+    }
+  } catch { /* history is best-effort */ }
+  return out;
+}
+
 export async function getWRO(site: string, id: number): Promise<any> {
   const token = TOKENS[site];
   const res = await fetch(`${SB}/receiving/${id}`, {

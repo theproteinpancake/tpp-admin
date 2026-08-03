@@ -1,7 +1,7 @@
 // Wholesale order processing: push the ShipBob B2C order + draft the Xero invoice,
 // then (on confirm) email the invoice. Called ONLY after Kate confirms the summary.
 import { supabaseLogistics } from './supabase-logistics';
-import { createB2COrder, findRecentOrderByReference, getB2COrder, type B2CRecipient } from './shipbob';
+import { createB2COrder, findRecentOrderByReference, findOrdersByRecipient, getB2COrder, type B2CRecipient } from './shipbob';
 import { createXeroInvoice, emailXeroInvoice, findInvoiceByReference, getInvoiceSummary, getInvoicePdf } from './xero';
 import { boxLines } from './boxLogic';
 import { freightCc } from './wholesalePO';
@@ -139,11 +139,38 @@ export async function sendWholesaleInvoice(invoiceId: string): Promise<{ ok: boo
 }
 
 // Last known ShipBob delivery for a wholesale customer — the recipient Xero often doesn't
-// have (Xero contact "Support Your Gym" ships to "Alex Houldsworth"). Pulled from our PO log.
+// have (Xero contact "Support Your Gym" ships to "Alex Houldsworth").
+//
+// Searches SHIPBOB'S OWN ORDER HISTORY first, preferring an order that actually FULFILLED:
+// that address is proven deliverable. The old version read only wholesale_po_log — our record
+// of orders created through THIS flow — so a store we'd shipped to for months but never
+// processed here looked brand new, and Xero's billing address won by default. That is what
+// created the duplicate "Tony & Marks Burnside" profile and its Invalid Address hold.
 export async function findLastShipBobRecipient(customerName: string, site = 'ALTONA'):
-  Promise<{ name: string; address1?: string; address2?: string; city?: string; state?: string; zip_code?: string; country?: string; email?: string; from_order: string } | null> {
+  Promise<{ name: string; address1?: string; address2?: string; city?: string; state?: string; zip_code?: string; country?: string; email?: string; from_order: string; fulfilled?: boolean; shipped_on?: string } | null> {
   const target = normName(customerName);
   if (!target) return null;
+
+  // 1) ShipBob history by recipient name — a FULFILLED order beats a merely-created one.
+  try {
+    const past = await findOrdersByRecipient(site, customerName);
+    // A DELIVERED address is proven; anything else (incl. an order we just created and haven't
+    // shipped) is only a hint, so it never displaces one that has actually arrived.
+    const best = past.find((o) => /fulfil|complete|shipped/i.test(o.status)) || past[0];
+    if (best?.name) {
+      return {
+        name: best.name, email: best.email,
+        address1: best.address.address1, address2: best.address.address2 || undefined,
+        city: best.address.city, state: best.address.state,
+        zip_code: best.address.zip_code, country: best.address.country,
+        from_order: String(best.id),
+        fulfilled: /fulfil|complete|shipped/i.test(best.status),
+        shipped_on: best.date,
+      };
+    }
+  } catch { /* fall through to the log */ }
+
+  // 2) Fallback: orders this flow created (covers a customer with no ShipBob history at all).
   const { data } = await supabaseLogistics.from('wholesale_po_log')
     .select('customer_name, shipbob_order_id, created_at')
     .not('shipbob_order_id', 'is', null).order('created_at', { ascending: false }).limit(50);
