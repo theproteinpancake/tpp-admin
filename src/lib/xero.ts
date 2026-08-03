@@ -100,6 +100,23 @@ export async function getXeroPOPdf(xeroPoId: string): Promise<string | null> {
   return null;
 }
 
+/**
+ * Pull the useful part out of a Xero error body. Xero wraps the real reason in
+ * Elements[].ValidationErrors[].Message and leads with a generic
+ * {"ErrorNumber":10,"Type":"ValidationException","Message":"A validation exception occurred"} —
+ * so a truncated error reads "error 10" and tells nobody anything. Kate got exactly that on
+ * LaManna #125861 when the real message was an unknown item code.
+ */
+export function xeroErrorDetail(text: string): string {
+  try {
+    const j = JSON.parse(text);
+    const msgs: string[] = [];
+    for (const el of j.Elements ?? []) for (const v of el.ValidationErrors ?? []) if (v?.Message) msgs.push(v.Message);
+    if (msgs.length) return [...new Set(msgs)].join(' | ');
+    return j.Message || text;
+  } catch { return text; }
+}
+
 export async function xeroPost(path: string, body: unknown): Promise<any> {
   const auth = await getXeroAuth();
   if (!auth) throw new Error('Xero not configured');
@@ -108,7 +125,7 @@ export async function xeroPost(path: string, body: unknown): Promise<any> {
     headers: { Authorization: `Bearer ${auth.token}`, 'Xero-tenant-id': auth.tenant, Accept: 'application/json', 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`Xero POST ${path} failed: ${res.status} ${await res.text()}`);
+  if (!res.ok) throw new Error(`Xero POST ${path} failed: ${res.status} ${xeroErrorDetail(await res.text())}`);
   return res.json();
 }
 
@@ -137,6 +154,20 @@ export async function getXeroContactId(name: string): Promise<string | null> {
   }
 }
 
+/**
+ * Our SKU → Xero's ItemCode, where the two systems name the same thing differently.
+ *
+ * The syrup carton is MSS8 in our products table and in ShipBob (MSS is the single bottle).
+ * Xero has exactly ONE syrup item: code MSS, described "Sugar Free Maple Flavoured Syrup 370ml
+ * (Carton of 8 units)", $44 — so Xero's MSS *is* the carton. Posting MSS8 to Xero is a 400
+ * ValidationException, which is what broke LaManna PO #125861: the ShipBob order went through
+ * on MSS8 (correct there) and the invoice died on the same code.
+ *
+ * Audited Aug 2026: MSS8 is the only wholesale SKU whose code differs between the two systems.
+ */
+const XERO_ITEM_CODE: Record<string, string> = { MSS8: 'MSS' };
+export const xeroItemCode = (sku: string) => XERO_ITEM_CODE[String(sku).toUpperCase()] ?? sku;
+
 // Find an existing (non-deleted) ACCREC invoice by Reference (the customer PO number) —
 // so we never invoice the same PO twice.
 export async function findInvoiceByReference(reference: string): Promise<{ id: string; number: string; status: string } | null> {
@@ -159,7 +190,7 @@ export async function createXeroInvoice(opts: {
   reference?: string;
   status?: 'DRAFT' | 'AUTHORISED';
 }): Promise<{ id: string; number: string; total: number }> {
-  const lineItems: any[] = opts.lines.map((l) => ({ ItemCode: l.sku, Quantity: l.quantity, TaxType: 'NONE' }));
+  const lineItems: any[] = opts.lines.map((l) => ({ ItemCode: xeroItemCode(l.sku), Quantity: l.quantity, TaxType: 'NONE' }));
   // Freight = the Xero 'FREIGHT' item (Freight Charge, $15, GST-free). Xero applies its price.
   if (opts.freight) lineItems.push({ ItemCode: 'FREIGHT', Quantity: 1, TaxType: 'NONE' });
   const body = {

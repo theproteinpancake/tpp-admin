@@ -85,7 +85,7 @@ export async function createWholesaleOrder(input: WholesaleOrderInput):
       });
     }
   } catch (e) {
-    return { error: `ShipBob order #${order.id} created, but Xero invoice failed: ${String(e).slice(0, 140)}. Create the invoice manually.` };
+    return { error: `ShipBob order #${order.id} created, but Xero invoice failed: ${String(e).slice(0, 320)}. Create the invoice manually.` };
   }
 
   // record in the dedup log
