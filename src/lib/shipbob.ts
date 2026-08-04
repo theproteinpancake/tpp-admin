@@ -287,6 +287,27 @@ export async function findOrdersByRecipient(site: string, name: string, sinceDay
   return out;
 }
 
+/** A SKU's lots at one FC, with fulfillable qty — oldest best-before first (FIFO order). */
+export async function getInventoryLots(site: string, inventoryId: number):
+  Promise<{ lot_number: string; expiration_date: string; qty: number }[]> {
+  const token = TOKENS[site];
+  if (!token || !inventoryId) return [];
+  const fc = FC[site];
+  try {
+    const res = await fetch(`${SB}/inventory-level/${inventoryId}/lots`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return [];
+    const inv = await res.json();
+    const out: { lot_number: string; expiration_date: string; qty: number }[] = [];
+    for (const l of (inv.lots ?? []) as any[]) {
+      if (!l.lot_number || !l.lot_date) continue;
+      const atFc = (l.locations ?? []).find((f: any) => f.location_id === fc);
+      const qty = Number(atFc?.fulfillable_quantity ?? l.fulfillable_quantity) || 0;
+      if (qty > 0) out.push({ lot_number: l.lot_number, expiration_date: String(l.lot_date).slice(0, 10), qty });
+    }
+    return out.sort((a, b) => a.expiration_date.localeCompare(b.expiration_date)); // oldest first
+  } catch { return []; }
+}
+
 export async function getWRO(site: string, id: number): Promise<any> {
   const token = TOKENS[site];
   const res = await fetch(`${SB}/receiving/${id}`, {

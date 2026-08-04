@@ -27,6 +27,7 @@ import { getPoForecast } from './poForecast';
 import { MAERSK, IMPORTER, MAERSK_LOGISTICS } from './transferConstants';
 import { renderCommercialInvoice, renderPackingList } from './transferPdf';
 import { renderMaerskSli, sliValues } from './sliMaersk';
+import { planDirectOrder, createDirectOrder } from './directOrder';
 import { getMer } from './analytics';
 import { previewTransferShipbob, createTransferWro, lotDateCheck } from './transferShipbob';
 import { sendWhatsApp, senderRole, waAddr } from './whatsapp';
@@ -95,6 +96,30 @@ const tools: Anthropic.Tool[] = [
       site: { type: 'string', enum: ['ALTONA', 'MANCHESTER'], description: 'default ALTONA (AU). MANCHESTER for UK.' },
       sizes: { type: 'array', items: { type: 'number', enum: [320, 520, 1000] }, description: 'limit the card to these sizes, e.g. [320] for a wholesale/320g update. Omit for all sizes.' },
     } },
+  },
+  {
+    name: 'plan_direct_order',
+    description: "Work out a ONE-OFF ShipBob send that isn't a wholesale PO — sample drops, gifting, \"send GoodnessMe 700 BM80 samples\", \"ship 50 BMS to an expo\". CREATES NOTHING. Resolves the ship-to from ShipBob's DELIVERED history for that recipient (Xero only cross-references), stock-checks every SKU at the site, and decides the FULFILMENT PATH. B2C and B2B are different picks in ShipBob, not just different postage: bulk drops come back path B2B with can_create_via_api false and a place_in_shipbob checklist, because ShipBob only exposes the B2B pick in its UI. Show the user the summary, the ship-to AND where the address came from, then wait. Use this before create_direct_order, always.",
+    input_schema: { type: 'object', properties: {
+      recipient_name: { type: 'string', description: 'who it ships to, e.g. GoodnessMe' },
+      items: { type: 'array', description: '[{sku, quantity}] in ShipBob units', items: { type: 'object', properties: { sku: { type: 'string' }, quantity: { type: 'number' } }, required: ['sku', 'quantity'] } },
+      site: { type: 'string', enum: ['ALTONA', 'MANCHESTER'] },
+      path: { type: 'string', enum: ['B2C', 'B2B'], description: 'only when the user explicitly picks a path' },
+      reference: { type: 'string' },
+      reserve_note: { type: 'string', description: 'only if the user says to delay the inventory reservation, e.g. "push out a week, waiting on more BM80". Default is same-day.' },
+    }, required: ['recipient_name', 'items'] },
+  },
+  {
+    name: 'create_direct_order',
+    description: "Actually create the one-off ShipBob order, ONLY after plan_direct_order and the user's explicit go-ahead. Refuses when the plan says B2B — that pick has no API and the user must place it in ShipBob themselves (relay the place_in_shipbob steps); it will only proceed on B2B if the user explicitly says to put it on the retail parcel path, which you pass as path:'B2C'. Refuses on short stock. Returns the order id plus a `verified` block of what ShipBob actually saved — quote that, not your intent.",
+    input_schema: { type: 'object', properties: {
+      recipient_name: { type: 'string' },
+      items: { type: 'array', items: { type: 'object', properties: { sku: { type: 'string' }, quantity: { type: 'number' } }, required: ['sku', 'quantity'] } },
+      site: { type: 'string', enum: ['ALTONA', 'MANCHESTER'] },
+      path: { type: 'string', enum: ['B2C', 'B2B'] },
+      reference: { type: 'string' },
+      boxes: { type: 'array', description: 'optional box SKUs so the packer uses the right outer', items: { type: 'object', properties: { sku: { type: 'string' }, quantity: { type: 'number' } }, required: ['sku', 'quantity'] } },
+    }, required: ['recipient_name', 'items'] },
   },
   {
     name: 'get_mer',
@@ -1256,6 +1281,28 @@ W: theproteinpancake.co`;
       return res;
     } catch (e) { return { error: String(e).slice(0, 160) }; }
   }
+  if (name === 'plan_direct_order') {
+    try {
+      return await planDirectOrder({
+        recipient_name: String(input.recipient_name || ''),
+        items: (input.items as any[]) || [],
+        site: input.site ? String(input.site) : undefined,
+        path: input.path as any, reference: input.reference ? String(input.reference) : undefined,
+        reserve_note: input.reserve_note ? String(input.reserve_note) : undefined,
+      });
+    } catch (e) { return { error: String(e).slice(0, 200) }; }
+  }
+  if (name === 'create_direct_order') {
+    try {
+      return await createDirectOrder({
+        recipient_name: String(input.recipient_name || ''),
+        items: (input.items as any[]) || [],
+        site: input.site ? String(input.site) : undefined,
+        path: input.path as any, reference: input.reference ? String(input.reference) : undefined,
+        boxes: (input.boxes as any[]) || undefined,
+      });
+    } catch (e) { return { error: String(e).slice(0, 200) }; }
+  }
   if (name === 'get_mer') {
     try { return await getMer(Number(input.weeks) || 6); }
     catch (e) { return { error: String(e).slice(0, 160) }; }
@@ -1343,6 +1390,7 @@ AMENDING A TRANSFER MANIFEST: if the user changes a DRAFT transfer's contents in
 
 ANSWER THE MESSAGE IN FRONT OF YOU. Luke asked about MER in the morning; that evening he asked to amend INTERNAL5 and got the MER non-answer repeated back on top of the transfer reply. Older messages in this conversation are CONTEXT, not an inbox to work through — do not re-answer a question the user has moved past, and never re-state a limitation you already gave them. Only revisit an earlier thread if they bring it up again or you now have something NEW to say about it (e.g. it is fixed). One reply, to the current message.
 MER / blended efficiency: get_mer is the tool — you DO have it. Lead with mer_x (revenue per $1 of ad spend); mention mer_percent when comparing against the Analytics page, which shows MER as a percentage where lower is better. Flag a week marked partial, and say Amazon ad spend is not connected yet if the caveat is present.
+ONE-OFF SHIPBOB SENDS (samples, gifting, "send X units to Y") — plan_direct_order then create_direct_order. The B2B checklist it returns is Luke's ACTUAL ShipBob flow (freight, ShipBob buys, case-pick instruction, item + LOT, same-day reservation) — relay the steps verbatim, they are not generic advice. Inventory reservation defaults to TODAY; only pass reserve_note if he says he is waiting on stock to add to the order. NEVER say you have no way to ship something without calling plan_direct_order first: it finds the ship-to from ShipBob's delivered history, so a recipient you have shipped to before is already on file even if no PO exists. B2C and B2B are DIFFERENT PICKS in ShipBob, not different postage — a bulk drop comes back path B2B, which the API cannot create; relay the place_in_shipbob checklist for the user to enter, and ask for the order number afterwards. Only put a B2B-sized send on the retail parcel path if the user explicitly asks.
 MAERSK — TWO SEPARATE EMAILS, both needed before a pallet moves. Viviana (draft_transfer_email) quotes and books the freight; her booking does NOT get a truck to Altona. Maersk's AU logistics desk schedules the pickup and will not act without THEIR OWN SLI form filled in — draft_maersk_sli_email fills it from the transfer's real manifest and attaches it. So after a booking draft, always offer the SLI email as the next step; if the user asks why a pallet hasn't been collected, check whether the SLI went out. Never retype the SLI by hand or claim our own generated SLI PDF will do — the desk want their form.
 SHIPBOB TRANSFER ITEMS: when the user asks to "generate the shipbob items / AU B2B order + UK WRO / what lots would we send", call preview_transfer_shipbob(reference). Present, clearly: (1) the recommended LOTS per SKU (longest best-before — call out any ⚠ short-dated lots or shortfalls so they're reviewed before going to the UK), and (2) the place_in_shipbob recipe as a numbered checklist (Business → Manchester contact → Freight → Upload your own → attach CI + Packing List → add items + select THESE lots). Be honest: ShipBob B2B freight orders are a separate flow with no API yet, so the agent CANNOT create the AU order itself — the user places it in the ShipBob UI using this recipe (it takes ~2 min and guarantees the right lots). Do NOT claim you created it, and do NOT re-run draft_transfer_email instead.
 THE UK RECEIVING WRO *IS* AUTOMATED: once the user has placed the AU B2B order, call create_transfer_wro(reference, au_order_ref if they gave the order #). It creates the Manchester receiving WRO from the same units/lots/best-befores and WhatsApps the user the WRO LABEL — they attach that label to the AU B2B order before the pallet ships so Manchester can receive it. So the flow is: preview_transfer_shipbob → user places the AU order in ShipBob (recipe + lots) → create_transfer_wro → user attaches the sent label to the AU order → send_email_draft the Maersk booking email.
