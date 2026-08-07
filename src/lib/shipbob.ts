@@ -287,6 +287,69 @@ export async function findOrdersByRecipient(site: string, name: string, sinceDay
   return out;
 }
 
+export interface B2BProduct {
+  reference_id: string; quantity: number;
+  lot_number?: string; lot_date?: string;   // lot_date = best-before, YYYY-MM-DD
+}
+
+/**
+ * Create a B2B order — a DIFFERENT fulfilment path from the D2C endpoint, not just different
+ * postage. This is the pick Luke used to place by hand in the UI.
+ *
+ * payment_term: 'Prepaid' = ShipBob buys the freight (his default). 'MerchantResponsible' =
+ * we upload our own label, which is what internal AU→UK transfers on Maersk need.
+ *
+ * retailer_program_data is required even with no retailer compliance program — ShipBob's own
+ * generic B2B sample carries retailer_program_type "SB-B2B", with the PO number echoing our
+ * reference.
+ *
+ * A product line carries at most ONE required_lot, so a quantity spanning two lots must be sent
+ * as two lines for the same SKU. Callers pass them pre-split.
+ */
+export async function createB2BOrder(opts: {
+  site: string;
+  reference: string;
+  recipient: B2CRecipient;
+  products: B2BProduct[];
+  carrier_type?: 'Parcel' | 'Freight';
+  payment_term?: 'Prepaid' | 'MerchantResponsible' | 'Collect' | 'ThirdParty';
+  purchase_order_number?: string;
+}): Promise<{ id: number; status: string; order_number?: string }> {
+  const token = TOKENS[opts.site];
+  if (!token) throw new Error(`No ShipBob token for ${opts.site}`);
+  const r = opts.recipient;
+  const body: Record<string, unknown> = {
+    type: 'B2B',
+    reference_id: opts.reference,
+    shipping_terms: {
+      carrier_type: opts.carrier_type || 'Freight',
+      payment_term: opts.payment_term || 'Prepaid',
+    },
+    retailer_program_data: {
+      purchase_order_number: opts.purchase_order_number || opts.reference,
+      retailer_program_type: 'SB-B2B',
+    },
+    recipient: {
+      name: r.name, email: r.email || undefined, phone_number: r.phone || undefined,
+      address: {
+        address1: r.address1, address2: r.address2 || undefined, city: r.city,
+        state: r.state || undefined, zip_code: r.zip_code, country: r.country,
+      },
+    },
+    products: opts.products.map((p) => ({
+      reference_id: p.reference_id, quantity: p.quantity,
+      ...(p.lot_number ? { required_lot: { lot_number: p.lot_number, lot_date: p.lot_date } } : {}),
+    })),
+  };
+  const channelId = await getShipbobChannelId(opts.site);
+  const headers: Record<string, string> = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  if (channelId) headers['shipbob_channel_id'] = String(channelId);
+  const res = await fetch(`${SB}/order`, { method: 'POST', headers, body: JSON.stringify(body) });
+  if (!res.ok) throw new Error(`ShipBob B2B order failed: ${res.status} ${(await res.text()).slice(0, 400)}`);
+  const o = await res.json();
+  return { id: o.id, status: o.status, order_number: o.order_number };
+}
+
 /** A SKU's lots at one FC, with fulfillable qty — oldest best-before first (FIFO order). */
 export async function getInventoryLots(site: string, inventoryId: number):
   Promise<{ lot_number: string; expiration_date: string; qty: number }[]> {

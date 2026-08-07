@@ -8,15 +8,18 @@
 // on file (order #374136574, 8 Jul) when the agent told Luke it had "no contact on file" — it
 // had no tool that looked.
 import { supabaseLogistics } from './supabase-logistics';
-import { createB2COrder, getB2COrder, getInventoryLots, type B2CRecipient } from './shipbob';
+import { createB2COrder, createB2BOrder, getB2COrder, getInventoryLots, type B2CRecipient } from './shipbob';
 import { findLastShipBobRecipient } from './wholesaleActions';
 import { xeroGet } from './xero';
 
-// B2C and B2B are DIFFERENT FULFILMENT PATHS in ShipBob, not just different postage. A B2B pick
-// is a separate flow with selections only a human makes in the UI (ship-to business, freight
-// method, packing/pallet options), and the API only creates D2C orders. So anything B2B-shaped
-// is PREPARED here and placed by Luke — never quietly pushed through the D2C endpoint, which
-// would put a bulk drop down the retail pick path.
+// B2C and B2B are DIFFERENT FULFILMENT PATHS in ShipBob, not just different postage — a bulk
+// drop pushed through the D2C endpoint would go down the retail pick. Both are creatable via the
+// 2026-01 API (type B2B + shipping_terms + required_lot), so the path is CHOSEN here and the
+// right endpoint used; it is never silently collapsed to D2C.
+//
+// Packing instructions have no API field. Luke's standing "PLEASE PICK AS CASE PICK NOT
+// INDIVIDUAL UNITS" is ShipBob's default behaviour anyway, and he adds anything unusual by hand,
+// so the created order surfaces that as a note rather than blocking on it.
 const PARCEL_KG_LIMIT = 25;
 const PARCEL_UNIT_LIMIT = 200;
 
@@ -90,6 +93,7 @@ export async function planDirectOrder(input: {
   path?: FulfilPath;       // force a path; omitted = decide from size
   reference?: string;
   reserve_note?: string;   // e.g. "push out a week, waiting on the Maple"
+  payment_term?: 'Prepaid' | 'MerchantResponsible';  // Prepaid = ShipBob buys (default)
 }): Promise<DirectOrderPlan> {
   const site = input.site || 'ALTONA';
   const warnings: string[] = [];
@@ -151,7 +155,7 @@ export async function planDirectOrder(input: {
     : bulk
       ? `${total_units} units / ~${total_kg}kg — over the ${PARCEL_UNIT_LIMIT}-unit / ${PARCEL_KG_LIMIT}kg parcel threshold, so this is a bulk drop`
       : `${total_units} units / ~${total_kg}kg — small enough for the normal retail parcel pick`;
-  const can_create_via_api = path === 'B2C';
+  const can_create_via_api = true;   // both paths are API-creatable; `path` picks the endpoint
 
   // Lot picks — the one part of the manual flow that genuinely needs data, since the UI makes
   // you choose a lot per SKU. One lot if it covers the qty, else oldest first (Luke's rule).
@@ -182,26 +186,28 @@ export async function planDirectOrder(input: {
     if (shortfall > 0) warnings.push(`⚠️ ${it.sku}: lots only cover ${it.quantity - shortfall} of ${it.quantity}.`);
   }
 
-  const place_in_shipbob = can_create_via_api ? undefined : {
-    where: `ShipBob ${fcName} → Orders → Create order → Add single order → B2B`,
+  const place_in_shipbob = path === 'B2C' ? undefined : {
+    where: `Will be created as a B2B order at ShipBob ${fcName} — these are the settings it will use:`,
     steps: [
       '1. How to ship: FREIGHT (they palletise). Parcel is only for a box or two.'
         + (international ? ' NOTE: ShipBob does NOT support international freight — check before relying on this.' : ''),
-      '2. Pay for shipping: SHIPBOB BUYS (the default — only pick "Upload your own" if you\'ve arranged the freight yourself).',
-      `3. Packing instructions: "PLEASE PICK AS CASE PICK NOT INDIVIDUAL UNITS"${international ? ' + "PLEASE PALLETISE TO STANDARD FOR INTERNATIONAL SEA FREIGHT"' : ''}`,
+      `2. Pay for shipping: ${input.payment_term === 'MerchantResponsible' ? 'WE UPLOAD OUR OWN LABEL (MerchantResponsible) — as on Maersk transfers' : 'SHIPBOB BUYS (Prepaid — the default)'}`,
+      `3. Packing instructions: NOT sent (no API field). ShipBob case-pick by default.${international ? ' This one is INTERNATIONAL — add "PLEASE PALLETISE TO STANDARD FOR INTERNATIONAL SEA FREIGHT" in the UI yourself, and note ShipBob does not support international freight.' : ''}`,
       `4. Fulfillment centre: ${fcName}. Then add each item WITH ITS LOT:`,
       ...items.map((i) => `     ${i.quantity}× ${i.sku} (${i.name})${i.lot_note ? ` — ${i.lot_note}` : ' — no lot data, pick oldest'}`),
-      `5. Reserve inventory: TODAY${input.reserve_note ? ` (${input.reserve_note})` : ' — push it out a week only if you\'re waiting on stock to add to the order'}.`,
+      `5. Reserve inventory: same day — the API has no reservation-date field, so it starts processing on creation.${input.reserve_note ? ` YOU ASKED TO DELAY (${input.reserve_note}) — that has to be set in the UI, or hold off creating this until you're ready.` : ''}`,
       recipient
         ? `   Ship to: ${recipient.name} — ${[recipient.address1, recipient.address2, recipient.city, recipient.state, recipient.zip_code, recipient.country].filter(Boolean).join(', ')}`
         : '   Ship to: ASK — no address on file',
       `   Reference: ${input.reference || '(set one, e.g. TPP-SAMPLE-GOODNESSME)'}`,
-      'Send me the ShipBob order number when it\'s in and I\'ll log it against this request.',
     ],
   };
 
-  if (!can_create_via_api) {
-    warnings.push(`📦 This is a B2B drop, and a B2B pick is a different fulfilment path that ShipBob only exposes in the UI — the API creates D2C orders only. I can't place it for you; use the checklist below so it goes down the right pick. (If you genuinely want it on the retail parcel path, say so and I'll create it as B2C.)`);
+  if (input.reserve_note) {
+    warnings.push(`⏳ You asked to delay the inventory reservation (${input.reserve_note}), but the order API has no reservation-date field — it starts processing as soon as it's created. Either set the date in the UI or wait to create it.`);
+  }
+  if (path === 'B2B') {
+    warnings.push(`📦 This will go on ShipBob's B2B pick (freight, ${input.payment_term === 'MerchantResponsible' ? 'we upload our own label' : 'ShipBob buys the freight'}) — a different fulfilment path from the retail parcel one. Confirm the settings above before I create it.`);
   }
   if (!recipient) warnings.push('🛑 No ship-to address found — ask for the contact name and full address.');
 
@@ -230,32 +236,40 @@ export async function createDirectOrder(input: {
   reference?: string;
   boxes?: { sku: string; quantity: number }[];
   path?: FulfilPath;
+  payment_term?: 'Prepaid' | 'MerchantResponsible';
 }): Promise<{ ok: true; order_id: number; reference: string; verified: Record<string, unknown> | null; plan: DirectOrderPlan }
   | { error: string; plan?: DirectOrderPlan }> {
   const site = input.site || 'ALTONA';
   const plan = await planDirectOrder(input);
   if (!plan.recipient) return { error: 'No ship-to address — ask for the contact name and full address first.' };
-  // HARD STOP on the wrong pick path. The API can only make a D2C order; pushing a bulk drop
-  // through it would send it down the retail pick, which is a different physical process, not a
-  // cheaper postage option. Requires an explicit path:'B2C' from the user to override.
-  if (!plan.can_create_via_api) {
-    return {
-      error: `${plan.path_reason} — that belongs on ShipBob's B2B pick, which has no API and needs your selections in the UI. I've prepared the details; place it there and send me the order number. If you really want it on the retail parcel path instead, say "create it as B2C" and I'll do that.`,
-      plan,
-    };
-  }
+
   const short = plan.items.filter((i) => !i.enough);
   if (short.length) return { error: `Not enough stock at ${site}: ${short.map((i) => `${i.sku} (need ${i.quantity}, have ${i.available})`).join('; ')}. Confirm with the user before overriding.` };
 
   const reference = input.reference || `TPP-SAMPLE-${Date.now().toString().slice(-8)}`;
   try {
-    const order = await createB2COrder({
-      site, reference, recipient: plan.recipient,
-      products: [
-        ...plan.items.map((i) => ({ reference_id: i.sku, quantity: i.quantity })),
-        ...(input.boxes ?? []).map((b) => ({ reference_id: b.sku, quantity: b.quantity })),
-      ],
-    });
+    // Route to the pick the plan chose. Not interchangeable: B2B is a different physical
+    // process, so a bulk drop must never fall back to the D2C endpoint on error.
+    const order = plan.path === 'B2B'
+      ? await createB2BOrder({
+        site, reference, recipient: plan.recipient,
+        purchase_order_number: input.reference,
+        carrier_type: 'Freight',
+        payment_term: input.payment_term || 'Prepaid',
+        // One required_lot per line, so a quantity spanning lots becomes several lines.
+        products: plan.items.flatMap((i) => (
+          i.lots?.length
+            ? i.lots.map((l) => ({ reference_id: i.sku, quantity: l.take, lot_number: l.lot_number, lot_date: l.expiration_date }))
+            : [{ reference_id: i.sku, quantity: i.quantity }]
+        )),
+      })
+      : await createB2COrder({
+        site, reference, recipient: plan.recipient,
+        products: [
+          ...plan.items.map((i) => ({ reference_id: i.sku, quantity: i.quantity })),
+          ...(input.boxes ?? []).map((b) => ({ reference_id: b.sku, quantity: b.quantity })),
+        ],
+      });
     // Report what ShipBob SAVED, not what we asked for — same discipline as the wholesale flow.
     let verified: Record<string, unknown> | null = null;
     try {
@@ -265,6 +279,11 @@ export async function createDirectOrder(input: {
         recipient: saved.recipient?.name,
         address: [saved.recipient?.address?.address1, saved.recipient?.address?.address2, saved.recipient?.address?.city, saved.recipient?.address?.zip_code].filter(Boolean).join(', '),
         status: saved.status,
+        // Did ShipBob keep the B2B path and the lots? required_lot is in the 2026-01 schema but
+        // isn't in the orders guide, so it gets CHECKED rather than assumed on every order.
+        order_type: saved.type ?? '(not returned)',
+        shipping_terms: saved.shipping_terms ?? '(not returned)',
+        lots_applied: (saved.products || []).some((p: any) => p.required_lot || p.lot_number) ? 'yes' : 'NOT VISIBLE on the saved order — check the lots in ShipBob',
       };
     } catch { /* verification best-effort */ }
     return { ok: true, order_id: order.id, reference, verified, plan };
