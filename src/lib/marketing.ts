@@ -140,7 +140,14 @@ export async function sendInfluencerGift(input: GiftInput):
   // "Done" about anything not confirmed on the final order.
   let verified: Record<string, unknown> | null = null;
   try {
-    const saved = await getB2COrder(site, order.id);
+    // ShipBob is read-after-write laggy: a GET straight after create 404s for a few seconds,
+    // which is why Kate saw "no verified block" four sends in a row. Retry briefly before
+    // giving up — the verification is the safety net that catches a wrong line item.
+    let saved = null;
+    for (let attempt = 0; attempt < 3 && !saved; attempt++) {
+      if (attempt) await new Promise((r) => setTimeout(r, 4000));
+      saved = await getB2COrder(site, order.id);
+    }
     if (saved) {
       verified = {
         products_on_order: (saved.products || []).map((p2: any) => `${p2.quantity ?? 1}× ${p2.reference_id}`),
