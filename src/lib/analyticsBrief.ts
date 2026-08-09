@@ -141,7 +141,11 @@ export async function weekMetrics(weekStart: string): Promise<ReviewMetrics | nu
   const a = await getAssumptions();
   const { data: r } = await supabaseLogistics.from('sales_week').select('*').eq('week_start', weekStart).maybeSingle();
   if (!r) return null;
-  const online = nn(r.online_sales), wholesale = nn(r.wholesale_invoices), amazon = nn(r.amazon_sales);
+  const online = nn(r.online_sales), wholesale = nn(r.wholesale_invoices);
+  // amazon_sales is a DERIVED total and is null on the stored row — AU and UK are the stored
+  // fields (UK in GBP). Reading the null column is why the review said "$0 amazon (AU $619 ·
+  // UK $211)": the detail read the real fields while the headline and the sales total didn't.
+  const amazon = nn(r.amazon_sales_au) + nn(r.amazon_sales_uk) * (a.fx_gbp_aud || 1);
   const adSpend = nn(r.meta_spend) + nn(r.google_spend) + nn(r.amazon_spend);
   const net = nn(r.gross_profit) + wholesale * a.wholesale_margin - adSpend - nn(r.shipbob_charges) - online * a.payment_fee_pct - (a.wages_per_day || 0) * 7;
   const end = addDays(weekStart, 6);
@@ -149,7 +153,7 @@ export async function weekMetrics(weekStart: string): Promise<ReviewMetrics | nu
     kind: 'week', period: `${fmtLong(weekStart)} – ${fmtLong(end)}`,
     online, orders: nn(r.orders), aov: nn(r.aov), cr: r.cr != null ? nn(r.cr) : null,
     wholesale, amazon, total: online + wholesale + amazon,
-    amazon_detail: (r.amazon_sales_au != null || r.amazon_sales_uk != null) ? `AU ${d0(nn(r.amazon_sales_au))} · UK ${d0(nn(r.amazon_sales_uk))}` : null,
+    amazon_detail: (r.amazon_sales_au != null || r.amazon_sales_uk != null) ? `AU ${d0(nn(r.amazon_sales_au))} · UK £${Math.round(nn(r.amazon_sales_uk)).toLocaleString('en-AU')}` : null,
     roas: r.meta_roas != null ? nn(r.meta_roas) : null, cpa: r.meta_cpa != null ? nn(r.meta_cpa) : null,
     nc_roas: r.meta_nc_roas != null ? nn(r.meta_nc_roas) : null, nc_cpa: r.meta_nc_cpa != null ? nn(r.meta_nc_cpa) : null,
     net,
