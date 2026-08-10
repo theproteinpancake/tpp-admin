@@ -100,7 +100,12 @@ export async function createWholesaleOrder(input: WholesaleOrderInput):
   // intent — the box-count mismatch above was only caught by Kate eyeballing ShipBob.
   let verified: Record<string, unknown> | null = null;
   try {
-    const saved = await getB2COrder(site, order.id);
+    // Retry: ShipBob 404s reads for a few seconds after create (same lag as the gift flow).
+    let saved = null;
+    for (let attempt = 0; attempt < 3 && !saved; attempt++) {
+      if (attempt) await new Promise((r) => setTimeout(r, 4000));
+      saved = await getB2COrder(site, order.id);
+    }
     if (saved) {
       verified = {
         products_on_order: (saved.products || []).map((p: any) => `${p.quantity ?? 1}× ${p.reference_id}`),

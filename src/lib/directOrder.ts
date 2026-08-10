@@ -273,7 +273,11 @@ export async function createDirectOrder(input: {
     // Report what ShipBob SAVED, not what we asked for — same discipline as the wholesale flow.
     let verified: Record<string, unknown> | null = null;
     try {
-      const saved = await getB2COrder(site, order.id);
+      let saved = null;
+      for (let attempt = 0; attempt < 3 && !saved; attempt++) {
+        if (attempt) await new Promise((r) => setTimeout(r, 4000));
+        saved = await getB2COrder(site, order.id);
+      }
       if (saved) verified = {
         products: (saved.products || []).map((p: any) => `${p.quantity ?? 1}× ${p.reference_id}`),
         recipient: saved.recipient?.name,
