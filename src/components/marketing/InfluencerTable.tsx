@@ -1,7 +1,7 @@
 'use client';
 import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { ExternalLink, Trash2, Search, X } from 'lucide-react';
+import { ExternalLink, Trash2, Search, X, Plus } from 'lucide-react';
 
 type Inf = {
   id: string; name: string; handle: string | null; followers: number | null; email: string | null;
@@ -82,6 +82,66 @@ function DeleteBtn({ id, name }: { id: string; name: string }) {
   );
 }
 
+// Manual entry — for gifts Kate processes by hand (or sends outside ShipBob), so the dashboard
+// stays the one complete record. Mirrors the fields the automated flow fills.
+function AddInfluencerModal({ onClose }: { onClose: () => void }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [f, setF] = useState({
+    name: '', handle: '', email: '', followers: '', flavour_sent: '', region: 'AU',
+    date_initiated: new Date().toISOString().slice(0, 10), status: 'shipped', post_type: 'None',
+    tracking_number: '', shipbob_order_id: '', cost_cogs: '', notes: '',
+  });
+  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
+  const inp = 'w-full rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-caramel placeholder:text-gray-300 focus:border-caramel focus:outline-none';
+  const lbl = 'mb-1 block text-[11px] font-medium uppercase tracking-wide text-gray-400';
+  const submit = async () => {
+    if (!f.name.trim()) { setErr('Name is required.'); return; }
+    setBusy(true); setErr('');
+    try {
+      const res = await fetch('/api/marketing/influencer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f) });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) { setErr(j.error || 'Failed to save.'); return; }
+      router.refresh();
+      onClose();
+    } finally { setBusy(false); }
+  };
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="w-full max-w-lg rounded-xl border border-gray-200 bg-paper p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-base font-semibold text-maple">Add influencer manually</h3>
+          <button onClick={onClose} className="rounded p-1 text-gray-400 hover:bg-gray-100"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="col-span-2 sm:col-span-1"><label className={lbl}>Name *</label><input className={inp} value={f.name} onChange={set('name')} placeholder="Hannah Majoros" /></div>
+          <div className="col-span-2 sm:col-span-1"><label className={lbl}>Handle</label><input className={inp} value={f.handle} onChange={set('handle')} placeholder="@thatgirlradiance_" /></div>
+          <div className="col-span-2 sm:col-span-1"><label className={lbl}>Email</label><input className={inp} value={f.email} onChange={set('email')} placeholder="name@email.com" /></div>
+          <div className="col-span-2 sm:col-span-1"><label className={lbl}>Followers</label><input className={inp} value={f.followers} onChange={set('followers')} placeholder="3,000" inputMode="numeric" /></div>
+          <div className="col-span-2"><label className={lbl}>Flavour sent</label><input className={inp} value={f.flavour_sent} onChange={set('flavour_sent')} placeholder="1× Buttermilk 520g + 1× Maple 520g" /></div>
+          <div><label className={lbl}>Region</label>
+            <select className={inp} value={f.region} onChange={set('region')}>{REGIONS.map((r) => <option key={r} value={r}>{REGION_LABEL[r]}</option>)}</select></div>
+          <div><label className={lbl}>Date sent</label><input type="date" className={inp} value={f.date_initiated} onChange={set('date_initiated')} /></div>
+          <div><label className={lbl}>Delivery status</label>
+            <select className={inp} value={f.status} onChange={set('status')}>{STATUS.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}</select></div>
+          <div><label className={lbl}>Posted</label>
+            <select className={inp} value={f.post_type} onChange={set('post_type')}>{POST.map((o) => <option key={o} value={o}>{o}</option>)}</select></div>
+          <div><label className={lbl}>Cost (COGS{f.region === 'UK' ? ', GBP' : ', AUD'})</label><input className={inp} value={f.cost_cogs} onChange={set('cost_cogs')} placeholder="16.91" inputMode="decimal" /></div>
+          <div><label className={lbl}>ShipBob order #</label><input className={inp} value={f.shipbob_order_id} onChange={set('shipbob_order_id')} placeholder="382032526 (if any)" /></div>
+          <div className="col-span-2"><label className={lbl}>Tracking number</label><input className={inp} value={f.tracking_number} onChange={set('tracking_number')} placeholder="CPWP1900556…" /></div>
+          <div className="col-span-2"><label className={lbl}>Notes</label><input className={inp} value={f.notes} onChange={set('notes')} placeholder="processed manually" /></div>
+        </div>
+        {err && <p className="mt-3 text-xs font-medium text-red-600">{err}</p>}
+        <div className="mt-4 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-lg px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100">Cancel</button>
+          <button onClick={submit} disabled={busy} className="rounded-lg bg-caramel px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50">{busy ? 'Saving…' : 'Add influencer'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const SORTS: { v: string; label: string }[] = [
   { v: 'date_desc', label: 'Newest sent' }, { v: 'date_asc', label: 'Oldest sent' },
   { v: 'name', label: 'Name A–Z' }, { v: 'followers', label: 'Most followers' }, { v: 'cost', label: 'Highest cost' },
@@ -95,6 +155,7 @@ export default function InfluencerTable({ influencers }: { influencers: Inf[] })
   const [statusF, setStatusF] = useState('');
   const [postF, setPostF] = useState('');
   const [sort, setSort] = useState('date_desc');
+  const [adding, setAdding] = useState(false);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -155,7 +216,12 @@ export default function InfluencerTable({ influencers }: { influencers: Inf[] })
           </button>
         )}
         <span className="ml-auto text-xs text-gray-400">{filtered.length} of {influencers.length}</span>
+        <button onClick={() => setAdding(true)}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-caramel px-3 py-1.5 text-sm font-medium text-white hover:opacity-90">
+          <Plus className="h-4 w-4" /> Add manually
+        </button>
       </div>
+      {adding && <AddInfluencerModal onClose={() => setAdding(false)} />}
 
       {groups.map((g) => (
         <div key={g.region} className="mb-5 overflow-x-auto rounded-xl border border-gray-200 bg-paper shadow-sm">
