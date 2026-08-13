@@ -111,7 +111,10 @@ export interface OrderingForecast {
   growth: number; growth_peak: number; wholesale_kg_day: number;
 }
 
-export async function getOrderingForecast(monthsAhead = 6): Promise<OrderingForecast> {
+export async function getOrderingForecast(monthsAhead = 6, opts: { peak?: boolean } = {}): Promise<OrderingForecast> {
+  // Peak months use momentum growth (2.28×) by default — Luke's BFCM bet. peak:false uses
+  // blended growth everywhere, for the conservative version of the same table.
+  const usePeak = opts.peak !== false;
   const [{ data: stock }, { data: monthly }, { data: ws }, sales] = await Promise.all([
     supabaseLogistics.from('v_stock_current')
       .select('sku, flavour, unit_size_g, category, avg_daily_units_90d, avg_daily_units_30d')
@@ -127,14 +130,28 @@ export async function getOrderingForecast(monthsAhead = 6): Promise<OrderingFore
   const today = melbDate(0);
   const year = Number(today.slice(0, 4));
   const byMonth = new Map(((monthly ?? []) as any[]).map((m) => [String(m.month_start).slice(0, 7), Number(m.revenue) || 0]));
-  const lyMonths = Array.from({ length: 12 }, (_, i) => byMonth.get(`${year - 1}-${String(i + 1).padStart(2, '0')}`) || 0);
-  const lyAvg = lyMonths.filter(Boolean).length ? lyMonths.reduce((s, v) => s + v, 0) / lyMonths.filter(Boolean).length : 1;
-  const seasonalIdx = (m0: number) => (lyMonths[m0] > 0 && lyAvg > 0 ? clamp(lyMonths[m0] / lyAvg, 0.6, 1.8) : 1);
+  // Seasonal shape from the TRAILING 12 COMPLETED months — i.e. each calendar month's most
+  // recent occurrence. The old version indexed against calendar-year-(year-1), so a January
+  // 2027 column used January 2025 (two years stale, from when the store was half this size):
+  // Jan's index read 0.69 when the most recent January actually ran 1.05× the base. A recent
+  // window also carries less growth-trend pollution than a fixed old year.
+  const startM0 = Number(today.slice(5, 7)) - 1; // current (incomplete) month, 0-based
+  const recentMonths: number[] = Array.from({ length: 12 }, (_, m0) => {
+    const y = m0 < startM0 ? year : year - 1; // completed this year already? else last year's
+    return byMonth.get(`${y}-${String(m0 + 1).padStart(2, '0')}`) || 0;
+  });
+  const base = recentMonths.filter(Boolean).length ? recentMonths.reduce((s, v) => s + v, 0) / recentMonths.filter(Boolean).length : 1;
+  const seasonalIdx = (m0: number) => (recentMonths[m0] > 0 && base > 0 ? clamp(recentMonths[m0] / base, 0.6, 1.8) : 1);
   const isPeakMonth = (m0: number) => seasonalIdx(m0) > 1.25; // e.g. November
 
+  // One extra month is computed beyond the display window: with carry-forward rounding the
+  // final month only orders if the leftover remainder clears half a block, so the last column
+  // showed "—" across the board (real Feb demand was ~1.5T). The extra month's demand pulls
+  // those orders into view; it is then truncated from the output.
+  const calcMonths = monthsAhead + 1;
   const months: string[] = [];
   const startM = Number(today.slice(5, 7));
-  for (let i = 1; i <= monthsAhead; i++) {
+  for (let i = 1; i <= calcMonths; i++) {
     const m = startM + i;
     const y = year + Math.floor((m - 1) / 12);
     months.push(`${y}-${String(((m - 1) % 12) + 1).padStart(2, '0')}`);
@@ -146,13 +163,25 @@ export async function getOrderingForecast(monthsAhead = 6): Promise<OrderingFore
   const b2c = new Map<string, number>();
   for (const r of (stock ?? []) as any[]) {
     if (!r.flavour || !r.unit_size_g) continue;
+    // 80g sample packs are OPT-IN ONLY in all ordering logic (Luke's standing rule — poBuilder
+    // and poForecast already exclude them). They were leaking in here, and worse: sample RUNS
+    // are one-off bursts that max(30d,90d) locks in as the new daily rate — BM80 read 27/day
+    // off one gifting run, ~400kg of phantom Buttermilk across the horizon.
+    if (Number(r.unit_size_g) < 300) continue;
     const daily = Math.max(Number(r.avg_daily_units_90d) || 0, Number(r.avg_daily_units_30d) || 0);
-    b2c.set(r.flavour, (b2c.get(r.flavour) || 0) + daily * (Number(r.unit_size_g) / 1000));
+    // ShipBob's 320g unit is the 4-pouch SRP CARTON (1.28kg), not a single pouch.
+    const kgPerUnit = Number(r.unit_size_g) === 320 ? 1.28 : Number(r.unit_size_g) / 1000;
+    b2c.set(r.flavour, (b2c.get(r.flavour) || 0) + daily * kgPerUnit);
   }
   // wholesale buffer kg/day per flavour (steady reorder cycles — growth applied, no seasonality)
   const wsKg = new Map<string, number>(((ws ?? []) as any[]).map((w) => [w.flavour as string, Number(w.kg_day) || 0]));
   let wholesale_kg_day = 0;
   for (const v of wsKg.values()) wholesale_kg_day += v;
+  // De-dup: the velocity above counts EVERY ShipBob outbound — including the wholesale orders,
+  // since Kate's flow ships them as ShipBob orders. Wholesale is modelled separately (steady,
+  // no seasonality), so its share is REMOVED from the seasonal B2C part rather than counted in
+  // both. Floor at zero: a flavour whose outbound is entirely wholesale has no B2C demand.
+  for (const [flavour, w] of wsKg) b2c.set(flavour, Math.max(0, (b2c.get(flavour) || 0) - w));
   const allFlavours = new Set([...b2c.keys(), ...wsKg.keys()]);
 
   const flavours: FlavourForecast[] = [];
@@ -165,7 +194,7 @@ export async function getOrderingForecast(monthsAhead = 6): Promise<OrderingFore
     const ws_kg: number[] = [];
     for (const ym of months) {
       const m0 = Number(ym.slice(5, 7)) - 1;
-      const g = isPeakMonth(m0) ? growthPeak : growth;
+      const g = usePeak && isPeakMonth(m0) ? growthPeak : growth;
       const d = daysIn(ym);
       const wsPart = wsKgDay * d * g;
       demand_kg.push(b2cKgDay * d * seasonalIdx(m0) * g + wsPart);
@@ -180,9 +209,11 @@ export async function getOrderingForecast(monthsAhead = 6): Promise<OrderingFore
       orders.push(order);
       cumOrdered += order;
     }
-    flavours.push({ flavour, multiple, months: orders, total: orders.reduce((s, v) => s + v, 0), demand_kg: demand_kg.map(r0), ws_kg: ws_kg.map(r0) });
+    const shown = orders.slice(0, monthsAhead);
+    flavours.push({ flavour, multiple, months: shown, total: shown.reduce((s, v) => s + v, 0), demand_kg: demand_kg.slice(0, monthsAhead).map(r0), ws_kg: ws_kg.slice(0, monthsAhead).map(r0) });
   }
   flavours.sort((a, b) => b.total - a.total);
-  const totals = months.map((_, i) => flavours.reduce((s, f) => s + f.months[i], 0));
-  return { months, flavours, totals, grand_total: totals.reduce((s, v) => s + v, 0), growth, growth_peak: growthPeak, wholesale_kg_day: Math.round(wholesale_kg_day * 10) / 10 };
+  const shownMonths = months.slice(0, monthsAhead);
+  const totals = shownMonths.map((_, i) => flavours.reduce((s, f) => s + f.months[i], 0));
+  return { months: shownMonths, flavours, totals, grand_total: totals.reduce((s, v) => s + v, 0), growth, growth_peak: growthPeak, wholesale_kg_day: Math.round(wholesale_kg_day * 10) / 10 };
 }
