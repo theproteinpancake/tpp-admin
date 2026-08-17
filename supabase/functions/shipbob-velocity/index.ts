@@ -1,7 +1,11 @@
 // ShipBob velocity — per SKU per site sell-through over 7/30/90 days.
-// Paginates /1.0/order newest-first per site token, counts units on Completed
-// shipments at that fulfillment centre, and writes avg daily units to `velocity`.
-// days_of_cover is derived in the v_stock_current view (available / avg daily).
+// Migrated to the 2026-01 API (legacy /1.0 cut off ~9 Aug 2026; velocity rows froze at 9 Aug
+// while the cron kept reporting success — net.http_post only confirms the enqueue). Shipment
+// shape verified live: products[].inventory_items[].quantity and location.id are unchanged.
+//
+// DEPLOYED OUT-OF-BAND: this source is the repo copy of the Supabase edge function
+// `shipbob-velocity` (project pwvcufaxiwgnnratbytb). Deploy changes with the Supabase MCP/CLI —
+// pushing this repo does NOT update the function.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -18,7 +22,7 @@ const dayStr = (d: Date) => d.toISOString().slice(0, 10);
 async function getOrders(token: string, page: number) {
   for (let a = 0; a < 6; a++) {
     const res = await fetch(
-      `https://api.shipbob.com/1.0/order?Page=${page}&Limit=250&SortOrder=Newest`,
+      `https://api.shipbob.com/2026-01/order?Page=${page}&Limit=250&SortOrder=Newest`,
       { headers: { Authorization: `Bearer ${token}` } },
     );
     if (res.ok) return await res.json();
@@ -48,7 +52,6 @@ Deno.serve(async (_req: Request) => {
     const token = TOKENS[loc.code];
     if (!token) { (summary.sites as any)[loc.code] = { skipped: "no token" }; continue; }
     try {
-      // sku -> { d7, d30, d90 } unit counts
       const agg = new Map<string, { d7: number; d30: number; d90: number }>();
       let page = 1, orders = 0, stop = false;
       while (!stop && page <= 40) {

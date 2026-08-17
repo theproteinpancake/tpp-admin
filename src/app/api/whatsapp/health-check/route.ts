@@ -37,6 +37,19 @@ async function freshness(): Promise<{ label: string; detail: string }[]> {
     const h = hoursAgo(data?.created_at);
     if (h > 30) issues.push({ label: 'ShipBob cost sync looks stalled', detail: `Newest shipment cost row is ${fmtAge(h)} (daily sync expected).` });
   } catch { issues.push({ label: 'ShipBob cost freshness probe failed', detail: 'Could not read shipment_costs.' }); }
+  // daily ShipBob snapshot + velocity (both died silently for 8 days in Aug 2026 when the
+  // legacy API was cut off — the cron kept "succeeding" because net.http_post only records the
+  // enqueue. Probe the DATA, not the job.)
+  try {
+    const { data } = await supabaseLogistics.from('inventory_snapshots').select('snapshot_date').order('snapshot_date', { ascending: false }).limit(1).maybeSingle();
+    const days = data?.snapshot_date ? Math.floor((Date.now() - new Date(data.snapshot_date + 'T00:00:00Z').getTime()) / 86400_000) : 999;
+    if (days > 2) issues.push({ label: 'ShipBob stock snapshot looks stalled', detail: `Newest snapshot is ${days} days old (daily expected). Stock cards and forecasts are reading stale numbers.` });
+  } catch { issues.push({ label: 'Snapshot freshness probe failed', detail: 'Could not read inventory_snapshots.' }); }
+  try {
+    const { data } = await supabaseLogistics.from('velocity').select('as_of_date').order('as_of_date', { ascending: false }).limit(1).maybeSingle();
+    const days = data?.as_of_date ? Math.floor((Date.now() - new Date(data.as_of_date + 'T00:00:00Z').getTime()) / 86400_000) : 999;
+    if (days > 2) issues.push({ label: 'ShipBob velocity looks stalled', detail: `Newest velocity row is ${days} days old (daily expected). Reorder maths and the ABC forecast are reading stale rates.` });
+  } catch { issues.push({ label: 'Velocity freshness probe failed', detail: 'Could not read velocity.' }); }
   // nightly analytics autofill
   try {
     const { data } = await supabaseLogistics.from('sales_week').select('auto_filled_at').order('auto_filled_at', { ascending: false }).limit(1).maybeSingle();

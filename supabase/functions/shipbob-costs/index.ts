@@ -1,5 +1,13 @@
-// ShipBob shipment-cost capture — pulls per-shipment fulfilment cost per site
-// (invoice_amount) over ~90 days for cost-trend + outlier monitoring.
+// ShipBob shipment costs — migrated to the 2026-01 API (legacy /1.0 finally cut off ~9 Aug
+// 2026, a week after the announced 31 Jul sunset; the main app moved in July but this edge
+// function was missed, so shipment_costs silently froze at 8 Aug and the weekly review's
+// ShipBob line read $0). The 2026-01 order list carries the same shipments[] shape —
+// invoice_amount, invoice_currency_code, location, actual_fulfillment_date — verified live
+// before this deploy.
+//
+// DEPLOYED OUT-OF-BAND: this source is the repo copy of the Supabase edge function
+// `shipbob-costs` (project pwvcufaxiwgnnratbytb). Deploy changes with the Supabase MCP/CLI —
+// pushing this repo does NOT update the function.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -15,7 +23,7 @@ const dayStr = (d: Date) => d.toISOString().slice(0, 10);
 
 async function getOrders(token: string, page: number) {
   for (let a = 0; a < 6; a++) {
-    const res = await fetch(`https://api.shipbob.com/1.0/order?Page=${page}&Limit=250&SortOrder=Newest`,
+    const res = await fetch(`https://api.shipbob.com/2026-01/order?Page=${page}&Limit=250&SortOrder=Newest`,
       { headers: { Authorization: `Bearer ${token}` } });
     if (res.ok) return await res.json();
     if ([403, 429, 502, 503].includes(res.status)) { await sleep(2500 + a * 2000); continue; }
@@ -61,7 +69,6 @@ Deno.serve(async () => {
         if (batch.length < 250) break;
         page++; await sleep(600);
       }
-      // upsert by shipment id
       for (let i = 0; i < rows.length; i += 500) {
         await sb.from("shipment_costs").upsert(rows.slice(i, i + 500), { onConflict: "shipbob_shipment_id" });
       }

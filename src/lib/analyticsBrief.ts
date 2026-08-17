@@ -28,6 +28,7 @@ export interface ReviewMetrics {
   wholesale: number; amazon: number; amazon_detail?: string | null; total: number;
   roas: number | null; cpa: number | null; nc_roas: number | null; nc_cpa: number | null;
   net: number;
+  cost_warning?: string | null;
   markets?: MarketMetrics[];
   // Spend on campaigns that span BOTH markets (e.g. catalog retargeting AU, NZ, UK) and so can't
   // be assigned to either. Disclosed rather than dropped — otherwise the per-market ROAS looks
@@ -62,6 +63,7 @@ export function reviewText(m: ReviewMetrics): string {
     `NC CPA ${d2(m.nc_cpa)}`,
     ``,
     `Net profit ${d0(m.net)}`,
+    ...(m.cost_warning ? [m.cost_warning] : []),
     // Per-market split (weekly only). Shopify revenue by billing country, Meta efficiency by
     // campaign geo — the two markets are bought separately, so a blended ROAS hides that UK
     // runs at roughly half AU/NZ's on double the CPM.
@@ -142,6 +144,10 @@ export async function weekMetrics(weekStart: string): Promise<ReviewMetrics | nu
   const { data: r } = await supabaseLogistics.from('sales_week').select('*').eq('week_start', weekStart).maybeSingle();
   if (!r) return null;
   const online = nn(r.online_sales), wholesale = nn(r.wholesale_invoices);
+  // A week with hundreds of orders and $0 fulfilment cost is a broken pipeline, not a free
+  // week: on 10-16 Aug the ShipBob cost sync had died (legacy API cut-off) and the review
+  // announced net profit $9,048 when the real figure was $1,397. Surface it, loudly.
+  const shipbobMissing = nn(r.orders) > 20 && nn(r.shipbob_charges) <= 0;
   // amazon_sales is a DERIVED total and is null on the stored row — AU and UK are the stored
   // fields (UK in GBP). Reading the null column is why the review said "$0 amazon (AU $619 ·
   // UK $211)": the detail read the real fields while the headline and the sales total didn't.
@@ -157,6 +163,7 @@ export async function weekMetrics(weekStart: string): Promise<ReviewMetrics | nu
     roas: r.meta_roas != null ? nn(r.meta_roas) : null, cpa: r.meta_cpa != null ? nn(r.meta_cpa) : null,
     nc_roas: r.meta_nc_roas != null ? nn(r.meta_nc_roas) : null, nc_cpa: r.meta_nc_cpa != null ? nn(r.meta_nc_cpa) : null,
     net,
+    cost_warning: shipbobMissing ? '⚠️ ShipBob fulfilment costs are MISSING for this week (sync issue) — net profit is overstated by roughly the week\'s shipping bill. Treat the profit figure as broken until the cost sync is fixed.' : null,
     ...(await marketBreakdown(weekStart).then((b) => ({ markets: b.markets, unsplit_spend: b.unsplit_spend })).catch(() => ({}))),
   };
 }
