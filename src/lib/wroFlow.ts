@@ -3,7 +3,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { supabaseLogistics } from './supabase-logistics';
 import { gmailSearch, gmailGetPdfAttachment, gmailListAttachmentNames, gmailCreateDraft } from './google';
-import { createWRO, getWROLabels } from './shipbob';
+import { createWRO, getWRO, getWROLabels } from './shipbob';
 import { ABC_PO_TO, ABC_CC } from './poActions';
 
 const MODEL = 'claude-sonnet-4-6';
@@ -209,7 +209,14 @@ export async function createWROFromParsed(parsed: ParsedDocket, site = 'ALTONA')
     const { data: existingPo } = await supabaseLogistics.from('purchase_orders')
       .select('shipbob_wro_id, wro_status').eq('po_number', parsed.po_ref).maybeSingle();
     if ((existingPo as any)?.shipbob_wro_id) {
-      return { wro_id: Number((existingPo as any).shipbob_wro_id), status: (existingPo as any).wro_status || 'AwaitingArrival', lines: parsed.lines.length, already_existed: true };
+      // A CANCELLED WRO doesn't block a re-create — that's the amended-docket flow: Sharon
+      // re-sends the docket, the old WRO gets cancelled in ShipBob, and the re-run must build
+      // a fresh one (e.g. 993381, whose one-label config was superseded by an amended docket).
+      const liveStatus = await getWRO(site, Number((existingPo as any).shipbob_wro_id))
+        .then((w: any) => String(w?.status || '')).catch(() => '');
+      if (!/cancel/i.test(liveStatus)) {
+        return { wro_id: Number((existingPo as any).shipbob_wro_id), status: (existingPo as any).wro_status || 'AwaitingArrival', lines: parsed.lines.length, already_existed: true };
+      }
     }
   }
   const { data: loc } = await supabaseLogistics.from('locations').select('id').eq('code', site).single();
