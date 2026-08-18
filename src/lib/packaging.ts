@@ -233,20 +233,27 @@ export async function getSrpTracking(): Promise<SrpRow[]> {
 }
 
 export interface ShipperRow {
+  site?: string; type?: 'carton' | 'insert';
   id: string; name: string; visy_code: string | null; sku: string | null;
   min_order: number | null; reorder_point: number | null; inventory_id: number | null;
   fulfillable: number | null; onhand: number | null; live: boolean; status: PackStatus;
 }
 
-// ShipBob Altona shipping cartons (PANSMALL etc.) — stock is pulled LIVE from ShipBob (not a
-// baseline), since they're consumed by every outbound order. Ordering one creates a WRO for the pallet.
+// ShipBob-held packaging — shipping cartons AND per-order inserts (thank-you cards, gift
+// cards), at BOTH sites. Stock is pulled LIVE from ShipBob (not a baseline), since it's
+// consumed by every outbound order. The "Thank You 1" card sold out unnoticed in Aug 2026
+// precisely because inserts weren't in this list; UK boxes were never tracked at all.
+// site NULL on legacy rows means ALTONA.
 export async function getShipperTracking(): Promise<ShipperRow[]> {
-  const { data } = await supabaseLogistics.from('packaging').select('*').eq('kind', 'shipper').eq('active', true).order('name');
+  const { data } = await supabaseLogistics.from('packaging').select('*').in('kind', ['shipper', 'insert']).eq('active', true).order('name');
   const rows = (data ?? []) as any[];
-  const ids = rows.map((p) => p.shipbob_inventory_id).filter(Boolean) as number[];
-  const live = await getInventoryLevels('ALTONA', ids).catch(() => new Map());
+  const siteOf = (p: any) => (p.site || 'ALTONA').toUpperCase();
+  const bySite = new Map<string, number[]>();
+  for (const p of rows) if (p.shipbob_inventory_id) bySite.set(siteOf(p), [...(bySite.get(siteOf(p)) ?? []), Number(p.shipbob_inventory_id)]);
+  const live = new Map<string, Map<number, { fulfillable: number; onhand: number }>>();
+  for (const [site, ids] of bySite) live.set(site, await getInventoryLevels(site, ids).catch(() => new Map()));
   const out: ShipperRow[] = rows.map((p) => {
-    const lvl = p.shipbob_inventory_id ? live.get(p.shipbob_inventory_id) : undefined;
+    const lvl = p.shipbob_inventory_id ? live.get(siteOf(p))?.get(Number(p.shipbob_inventory_id)) : undefined;
     const fulfillable = lvl ? lvl.fulfillable : null;
     const rp = p.reorder_point ?? 0;
     let status: PackStatus = 'unset';
@@ -259,6 +266,7 @@ export async function getShipperTracking(): Promise<ShipperRow[]> {
       id: p.id, name: p.name, visy_code: p.visy_code, sku: p.sku,
       min_order: p.min_order, reorder_point: p.reorder_point, inventory_id: p.shipbob_inventory_id ?? null,
       fulfillable, onhand: lvl ? lvl.onhand : null, live: !!lvl, status,
+      site: siteOf(p), type: p.kind === 'insert' ? 'insert' : 'carton',
     };
   });
   // lowest cover first (order_now → order_soon → ok → unknown)
@@ -283,10 +291,11 @@ export async function getPackagingSummary() {
   const abc_srp_discontinued = srp.map((s) => ({ item: s.name.replace('SRP Box (small) — ', ''), cartons_remaining: s.remaining, note: 'discontinued 320g size — held, not drawn down' }));
   const altona_shippers = shippers.map((s) => ({
     carton: s.name, visy_code: s.visy_code, fulfillable: s.fulfillable, onhand: s.onhand, reorder_point: s.reorder_point, status: s.status, live: s.live,
+    site: s.site, type: s.type,
   }));
   const reorder_now = [
     ...abc_empties.filter((e) => e.status === 'order_now').map((e) => `${e.item} (ABC — ${e.carton_limited ? 'SRP cartons' : 'pouches'})`),
-    ...altona_shippers.filter((s) => s.status === 'order_now').map((s) => `${s.carton} (Altona shipping carton, ${s.fulfillable} left)`),
+    ...altona_shippers.filter((s) => s.status === 'order_now').map((s) => `${s.carton} (${s.site} ${s.type === 'insert' ? 'insert card' : 'shipping carton'}, ${s.fulfillable} left)`),
   ];
 
   // "What should I order?" — pouches come from China on a ~60-day lead, so anything inside
@@ -313,9 +322,9 @@ export async function getPackagingSummary() {
     });
 
   return {
-    note: 'ABC holds EMPTY pouches + SRP cartons (used on the packing line). ShipBob Altona holds the shipping cartons. 320g sells only as 4-packs, so its usable count = min(pouches, SRP cartons × 4). Pouch counts deduct when a PO is PLACED with ABC (that is when the pouches get filled), not when the finished stock is received; cancelled/draft POs never count.',
+    note: 'ABC holds EMPTY pouches + SRP cartons (used on the packing line). ShipBob holds the shipping cartons AND the per-order insert cards (thank-you/gift cards) at BOTH sites — every row is labelled with its site. 320g sells only as 4-packs, so its usable count = min(pouches, SRP cartons × 4). Pouch counts deduct when a PO is PLACED with ABC (that is when the pouches get filled), not when the finished stock is received; cancelled/draft POs never count.',
     abc_on_hand: { empty_pouches_and_srp_cartons: abc_empties, discontinued_srp: abc_srp_discontinued },
-    altona_shipping_cartons: altona_shippers,
+    shipbob_cartons_and_inserts: altona_shippers,
     pouches_to_order: to_order.length ? to_order : ['nothing inside the 60-day lead time'],
     ordering_basis: `usage = actual PO volume over the last 180 days (by the PO's order date); lead time ${POUCH_LEAD_DAYS} days; suggested quantity tops the line up to ~${TARGET_COVER_DAYS} days of cover, rounded to the nearest 500. Say the assumption when you quote a number.`,
     suppliers: { pouches: 'China Packaging (60-day lead, USD)', cartons_and_boxes: 'VISY (21-day lead, AU)', uk: 'CBS Packaging' },

@@ -50,6 +50,20 @@ async function freshness(): Promise<{ label: string; detail: string }[]> {
     const days = data?.as_of_date ? Math.floor((Date.now() - new Date(data.as_of_date + 'T00:00:00Z').getTime()) / 86400_000) : 999;
     if (days > 2) issues.push({ label: 'ShipBob velocity looks stalled', detail: `Newest velocity row is ${days} days old (daily expected). Reorder maths and the ABC forecast are reading stale rates.` });
   } catch { issues.push({ label: 'Velocity freshness probe failed', detail: 'Could not read velocity.' }); }
+  // unmapped ShipBob inventory with live stock (written by the shipbob-snapshot discovery
+  // sweep) — a SKU moving stock outside our tracking is how the thank-you cards sold out
+  // unnoticed in Aug 2026.
+  try {
+    const { data } = await supabaseLogistics.from('app_config').select('value').eq('key', 'shipbob_unmapped').maybeSingle();
+    const parsed = typeof data?.value === 'string' ? JSON.parse(data.value) : data?.value;
+    const items = (parsed?.items ?? []) as { site: string; name: string; fulfillable: number }[];
+    if (items.length) {
+      issues.push({
+        label: `${items.length} ShipBob item${items.length > 1 ? 's' : ''} with stock but NO tracking`,
+        detail: items.slice(0, 5).map((i) => `${i.site}: ${i.name} (${i.fulfillable} on hand)`).join(' · ') + (items.length > 5 ? ` · +${items.length - 5} more` : '') + '. Map them in products/packaging so stock and reordering are watched.',
+      });
+    }
+  } catch { /* discovery data is best-effort */ }
   // nightly analytics autofill
   try {
     const { data } = await supabaseLogistics.from('sales_week').select('auto_filled_at').order('auto_filled_at', { ascending: false }).limit(1).maybeSingle();

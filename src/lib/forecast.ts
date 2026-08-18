@@ -19,8 +19,21 @@ import { melbDate, addDays, dowMon0 } from './tz';
 const r0 = (n: number) => Math.round(n);
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
-// ABC order multiples per flavour (kg). Default 500; fast movers order in bigger blocks.
-const ABC_MULTIPLE: Record<string, number> = { Buttermilk: 1000 };
+/**
+ * ABC order block size, from the flavour's demand rate. Luke (Aug 2026): "we keep selling out —
+ * any delay from ABC and we're OOS; start getting into 1T+ increments, even 2T for primary
+ * flavours". Bigger blocks mean fewer, larger production runs and more buffer against ABC lead
+ * slippage. Velocity-adaptive rather than a hardcoded per-flavour table so a flavour graduates
+ * automatically as it grows (and shrinks back if it cools):
+ *   >= 18 kg/day (~550kg/mo) -> 2T blocks   (Buttermilk today)
+ *   >=  6 kg/day (~180kg/mo) -> 1T blocks   (GF Buttermilk, both Churros)
+ *   below                    -> 500kg       (slow flavours keep the small block so stock stays fresh)
+ */
+export function abcBlockKg(kgPerDay: number): number {
+  if (kgPerDay >= 18) return 2000;
+  if (kgPerDay >= 6) return 1000;
+  return 500;
+}
 
 export interface WeekPoint { week: string; label: string; actual: number | null; lastYear: number | null; forecast: number | null }
 export interface SalesForecast {
@@ -189,7 +202,7 @@ export async function getOrderingForecast(monthsAhead = 6, opts: { peak?: boolea
     const b2cKgDay = b2c.get(flavour) || 0;
     const wsKgDay = wsKg.get(flavour) || 0;
     if (b2cKgDay + wsKgDay <= 0.05) continue;
-    const multiple = ABC_MULTIPLE[flavour] ?? 500;
+    const multiple = abcBlockKg((b2cKgDay + wsKgDay) * growth);
     const demand_kg: number[] = [];
     const ws_kg: number[] = [];
     for (const ym of months) {

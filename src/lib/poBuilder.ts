@@ -3,11 +3,12 @@
 // 320g bags are wholesale, packed in Shelf-Ready Cartons of 4 — PO is in total units,
 // but ShipBob counts them as cartons (units ÷ 4).
 import { supabaseLogistics } from './supabase-logistics';
+import { abcBlockKg } from './forecast';
 
 const LEAD_DAYS = 30;          // ABC → Altona
 const TARGET_TOTAL_DAYS = 90;  // aim to cover ~3 months (incl. lead) of demand
 const TRIGGER_DAYS = 45;       // a size is "due" below this cover
-const BATCH_KG = 500;          // orders round to multiples of this
+const BATCH_KG = 500;          // floor block; fast flavours round to abcBlockKg's bigger blocks
 
 export const cartonSize = (g: number) => (g === 320 ? 4 : 1); // 320g wholesale = box of 4
 const bagKg = (g: number) => g / 1000;
@@ -49,11 +50,15 @@ function buildProposal(flavour: string, sizes: any[], force: boolean, forceKg?: 
   if (weights.every((w) => w <= 0)) weights = needs.map((n) => n.daily * bagKg(n.unit_size_g));
   const wTotal = weights.reduce((a, b) => a + b, 0) || 1;
 
-  // honour an explicit size if the user asked for one (e.g. "500kg"); else round the
-  // demand deficit up to the next clean 500kg multiple.
+  // honour an explicit size if the user asked for one (e.g. "500kg"); else round the demand
+  // deficit up to the flavour's ABC block. Blocks scale with velocity (500kg / 1T / 2T) so
+  // fast flavours order in bigger runs — Luke kept selling out on any ABC delay when
+  // everything rounded to 500s.
+  const flavourKgDay = needs.reduce((s2, n) => s2 + n.daily * bagKg(n.unit_size_g), 0);
+  const blockKg = Math.max(BATCH_KG, abcBlockKg(flavourKgDay));
   const order_kg = forceKg && forceKg > 0
     ? forceKg
-    : Math.max(BATCH_KG, Math.ceil((totalDeficitKg || BATCH_KG) / BATCH_KG) * BATCH_KG);
+    : Math.max(blockKg, Math.ceil((totalDeficitKg || blockKg) / blockKg) * blockKg);
   const forced = !!(forceKg && forceKg > 0);
   const lines: POLine[] = [];
   needs.forEach((n, i) => {

@@ -1,15 +1,13 @@
-// ShipBob daily inventory snapshot — migrated to the 2026-01 API (legacy /1.0 cut off ~9 Aug
-// 2026; snapshots froze at 9 Aug and every stock read in the app silently went stale).
+// ShipBob daily inventory snapshot — 2026-01 API.
 //
-// /1.0/product carried per-FC quantities; 2026-01 moved quantities to /inventory-level, which
-// returns ACCOUNT totals per inventory id. That is equivalent here because each token is a
-// separate ShipBob account with exactly one FC (AU → Altona, UK → Manchester), so account
-// totals ARE the site's numbers.
-//
-// One behaviour deliberately dropped: the old function self-discovered new inventory ids from
-// the product list and upserted product_locations. This version reads the EXISTING
-// product_locations mapping (inventory ids are stable and new SKUs are rare) — when a new
-// product is added to ShipBob, map it in product_locations for it to appear in snapshots.
+// Two jobs:
+// 1. Snapshot: per-SKU on-hand/available/committed for every MAPPED inventory id
+//    (product_locations). Account totals == site totals because each token is a one-FC account.
+// 2. Discovery: sweep the FULL inventory catalog (cursor pagination) and record any id that
+//    has stock or movement but is mapped NOWHERE — neither product_locations nor the packaging
+//    table. Written to app_config['shipbob_unmapped'] for the health check to flag. This is the
+//    net that was missing when the thank-you cards and the whole Manchester packaging set moved
+//    stock invisibly for months (Aug 2026: "Thank You 1" sold out unnoticed).
 //
 // DEPLOYED OUT-OF-BAND: this source is the repo copy of the Supabase edge function
 // `shipbob-snapshot` (project pwvcufaxiwgnnratbytb). Deploy changes with the Supabase MCP/CLI —
@@ -25,26 +23,26 @@ const TOKENS: Record<string, string | undefined> = {
 };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function levelsFor(token: string, ids: number[]): Promise<Map<number, any>> {
-  const out = new Map<number, any>();
-  for (let i = 0; i < ids.length; i += 100) {
-    const chunk = ids.slice(i, i + 100);
+async function fullCatalog(token: string): Promise<any[]> {
+  const seen = new Map<number, any>();
+  let url: string | null = "https://api.shipbob.com/2026-01/inventory-level?PageSize=250";
+  for (let hops = 0; hops < 20 && url; hops++) {
+    let ok = false;
     for (let a = 0; a < 6; a++) {
-      const res = await fetch(
-        `https://api.shipbob.com/2026-01/inventory-level?InventoryIds=${chunk.join(",")}&PageSize=250`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) {
-        const j = await res.json();
-        for (const it of (j.items ?? j ?? [])) out.set(Number(it.inventory_id), it);
-        break;
+        const j: any = await res.json();
+        for (const it of (j.items ?? [])) seen.set(Number(it.inventory_id), it);
+        url = j.next ? `https://api.shipbob.com/2026-01${j.next}` : null;
+        ok = true; break;
       }
       if ([403, 429, 502, 503].includes(res.status)) { await sleep(2500 + a * 2000); continue; }
       throw new Error(`ShipBob ${res.status}: ${await res.text()}`);
     }
+    if (!ok) throw new Error("throttled out (catalog)");
     await sleep(400);
   }
-  return out;
+  return [...seen.values()];
 }
 
 Deno.serve(async (_req: Request) => {
@@ -61,18 +59,23 @@ Deno.serve(async (_req: Request) => {
     .select("product_id, location_id, shipbob_inventory_id, active")
     .eq("active", true);
   if (plErr) return Response.json({ error: plErr.message }, { status: 500 });
+  const { data: pkg } = await sb.from("packaging").select("shipbob_inventory_id").not("shipbob_inventory_id", "is", null);
+  const pkgIds = new Set((pkg ?? []).map((p: any) => Number(p.shipbob_inventory_id)));
 
   const summary: Record<string, unknown> = { date: today, sites: {} };
+  const unmapped: { site: string; inventory_id: number; name: string; fulfillable: number; committed: number; awaiting: number }[] = [];
 
   for (const loc of locations ?? []) {
     const token = TOKENS[loc.code];
     if (!token) { (summary.sites as any)[loc.code] = { skipped: "no token configured" }; continue; }
     const mine = (pls ?? []).filter((p: any) => p.location_id === loc.id && p.shipbob_inventory_id);
-    if (!mine.length) { (summary.sites as any)[loc.code] = { skipped: "no mapped inventory ids" }; continue; }
+    const mineIds = new Set(mine.map((p: any) => Number(p.shipbob_inventory_id)));
     try {
-      const levels = await levelsFor(token, mine.map((p: any) => Number(p.shipbob_inventory_id)));
+      const catalog = await fullCatalog(token);
+      const byId = new Map(catalog.map((it: any) => [Number(it.inventory_id), it]));
+
       const rows = mine.map((p: any) => {
-        const lv = levels.get(Number(p.shipbob_inventory_id));
+        const lv = byId.get(Number(p.shipbob_inventory_id));
         if (!lv) return null;
         return {
           snapshot_date: today, location_id: loc.id, product_id: p.product_id,
@@ -85,12 +88,28 @@ Deno.serve(async (_req: Request) => {
       if (rows.length) {
         await sb.from("inventory_snapshots").upsert(rows, { onConflict: "snapshot_date,location_id,product_id" });
       }
-      (summary.sites as any)[loc.code] = { mapped_ids: mine.length, snapshots_written: rows.length };
+
+      for (const it of catalog) {
+        const id = Number(it.inventory_id);
+        if (mineIds.has(id) || pkgIds.has(id)) continue;
+        const f = it.total_fulfillable_quantity || 0, c = it.total_committed_quantity || 0, a = it.total_awaiting_quantity || 0;
+        if (f + c + a <= 0) continue;                       // dead — not worth an alarm
+        if (/quarantineitem/i.test(String(it.name))) continue; // ShipBob internal
+        unmapped.push({ site: loc.code, inventory_id: id, name: String(it.name).slice(0, 80), fulfillable: f, committed: c, awaiting: a });
+      }
+
+      (summary.sites as any)[loc.code] = { mapped_ids: mine.length, snapshots_written: rows.length, catalog_size: catalog.length };
     } catch (e) {
       (summary.sites as any)[loc.code] = { error: String(e) };
     }
   }
 
+  await sb.from("app_config").upsert(
+    { key: "shipbob_unmapped", value: JSON.stringify({ as_of: today, items: unmapped }) },
+    { onConflict: "key" },
+  );
+
+  summary.unmapped = unmapped.length;
   summary.elapsed_ms = Date.now() - started;
   return Response.json(summary);
 });
