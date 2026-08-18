@@ -18,7 +18,7 @@ export interface DocketLine {
 }
 // One physical pallet, as Sharon writes it in the docket's Note field:
 //   "1 x 43 boxes x 520gms + 43 boxes x 80gms"  →  { contents: [{size_g:520,boxes:43},{size_g:80,boxes:43}] }
-export interface DocketPallet { contents: { size_g: number; boxes: number }[] }
+export interface DocketPallet { contents: { sku?: string | null; size_g: number; boxes: number }[] }
 
 export interface ParsedDocket {
   docket_ref: string | null;
@@ -110,9 +110,9 @@ THE "Note:" FIELD IS IMPORTANT — it is how ABC tell us the PALLET CONFIGURATIO
   1 x 43 boxes x 520gms + 43 boxes x 80gms
   1 x 80 boxes x 520gms
   1 x 120 boxes x 320gms
-Each line after the count is ONE pallet ("1 x ..." means one pallet built like this); a "+" joins two products stacked on that SAME pallet. Copy the Note text verbatim into "note", put the stated total in "pallet_count", and give one entry in "pallets" per pallet, in the order written. Use the gram size as written (520gms → 520, 1kg → 1000). If there is no Note or it says nothing about pallets, set pallet_count null and pallets [] — never invent a split.
+Each line after the count is ONE pallet ("1 x ..." means one pallet built like this); a "+" joins two products stacked on that SAME pallet. Copy the Note text verbatim into "note", put the stated total in "pallet_count", and give one entry in "pallets" per pallet, in the order written. For each pallet content give BOTH the gram size as written (520gms → 520, 1kg → 1000) AND, when the Note names the product/flavour ("GF Cinnamon Churro 520g - 78 boxes"), the matching SKU from Our SKUs — the sku is what disambiguates two products of the same size on different pallets, so never omit it when the flavour is stated; use null only when the Note truly gives size alone. If there is no Note or it says nothing about pallets, set pallet_count null and pallets [] — never invent a split.
 
-Reply ONLY with JSON: {"docket_ref":"","po_ref":"PO-00NN","expected_date":"YYYY-MM-DD or null","package_type":"Pallet","note":"raw Note text or null","pallet_count":3,"pallets":[{"contents":[{"size_g":520,"boxes":43},{"size_g":80,"boxes":43}]}],"lines":[{"sku":"","flavour":"","size_g":520,"lot":"","expiry":"YYYY-MM-DD","qty":0}]}`,
+Reply ONLY with JSON: {"docket_ref":"","po_ref":"PO-00NN","expected_date":"YYYY-MM-DD or null","package_type":"Pallet","note":"raw Note text or null","pallet_count":3,"pallets":[{"contents":[{"sku":"BMM","size_g":520,"boxes":43},{"size_g":80,"boxes":43}]}],"lines":[{"sku":"","flavour":"","size_g":520,"lot":"","expiry":"YYYY-MM-DD","qty":0}]}`,
     messages: [{
       role: 'user',
       content: [
@@ -150,34 +150,48 @@ export function planPallets(
   if (!pallets?.length) return { reason: 'the docket Note gave no pallet breakdown' };
   if (pallets.length === 1) return { reason: 'single pallet' };
 
+  // Resolve each pallet content to a docket LINE — by SKU when the Note names the flavour
+  // (which it does whenever two products share a size: "GF Cinnamon Churro 520g - 78 boxes" vs
+  // "Cinnamon Churro 520g - 80 boxes"), by size only when that size is unambiguous. The first
+  // version matched on size alone and refused docket 001592 outright, so a 3-pallet delivery
+  // shipped with a 1-of-1 label.
+  const bySku = new Map(lines.map((l) => [l.sku.toUpperCase(), l]));
   const bySize = new Map<number, DocketLine[]>();
   for (const l of lines) bySize.set(l.size_g, [...(bySize.get(l.size_g) ?? []), l]);
+  const resolve = (c: { sku?: string | null; size_g: number }): DocketLine | string => {
+    if (c.sku && bySku.has(String(c.sku).toUpperCase())) return bySku.get(String(c.sku).toUpperCase())!;
+    const sized = bySize.get(c.size_g) ?? [];
+    if (sized.length === 1) return sized[0];
+    if (!sized.length) return `the Note mentions ${c.size_g}g but the docket has no ${c.size_g}g line`;
+    return `${sized.length} docket lines are ${c.size_g}g and the Note doesn't name which flavour this pallet holds`;
+  };
 
-  for (const [size, ls] of bySize) {
-    if (ls.length > 1) return { reason: `two docket lines are both ${size}g, so the Note can't say which pallet holds which` };
-  }
-  const totalBoxes = new Map<number, number>();
+  // Per-LINE totals of the boxes the Note claims, so units-per-box is derived per line and any
+  // note-vs-docket disagreement (ABC's box counts are occasionally approximate) is absorbed
+  // proportionally — per-pallet quantities always re-add to the docket total exactly.
+  const totalBoxes = new Map<string, number>();
   for (const p of pallets) for (const c of p.contents || []) {
-    if (!bySize.has(c.size_g)) return { reason: `the Note mentions ${c.size_g}g but the docket has no ${c.size_g}g line` };
-    totalBoxes.set(c.size_g, (totalBoxes.get(c.size_g) ?? 0) + (Number(c.boxes) || 0));
+    const r = resolve(c);
+    if (typeof r === 'string') return { reason: r };
+    totalBoxes.set(r.sku, (totalBoxes.get(r.sku) ?? 0) + (Number(c.boxes) || 0));
   }
-  for (const size of bySize.keys()) {
-    if (!totalBoxes.get(size)) return { reason: `the Note doesn't say which pallet the ${size}g goes on` };
+  for (const l of lines) {
+    if (!totalBoxes.get(l.sku)) return { reason: `the Note doesn't say which pallet the ${l.flavour} ${l.size_g}g goes on` };
   }
 
-  // Last pallet carrying each size soaks up the rounding remainder.
-  const lastFor = new Map<number, number>();
-  pallets.forEach((p, i) => { for (const c of p.contents || []) lastFor.set(c.size_g, i); });
+  // Last pallet carrying each line soaks up the rounding remainder.
+  const lastFor = new Map<string, number>();
+  pallets.forEach((p, i) => { for (const c of p.contents || []) { const r = resolve(c); if (typeof r !== 'string') lastFor.set(r.sku, i); } });
 
-  const running = new Map<number, number>();
+  const running = new Map<string, number>();
   const boxes = pallets.map((p, i) => (p.contents || []).map((c) => {
-    const line = bySize.get(c.size_g)![0];
+    const line = resolve(c) as DocketLine;
     const total = qtyFor(line);
-    const isLast = lastFor.get(c.size_g) === i;
+    const isLast = lastFor.get(line.sku) === i;
     const share = isLast
-      ? total - (running.get(c.size_g) ?? 0)
-      : Math.round(total * (Number(c.boxes) || 0) / totalBoxes.get(c.size_g)!);
-    running.set(c.size_g, (running.get(c.size_g) ?? 0) + share);
+      ? total - (running.get(line.sku) ?? 0)
+      : Math.round(total * (Number(c.boxes) || 0) / totalBoxes.get(line.sku)!);
+    running.set(line.sku, (running.get(line.sku) ?? 0) + share);
     return { inventory_id: invFor(line), quantity: share, lot_number: line.lot, expiration_date: line.expiry };
   }).filter((b) => b.inventory_id && b.quantity > 0));
 
