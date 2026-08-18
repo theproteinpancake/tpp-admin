@@ -8,6 +8,7 @@ import { getTemplateSid } from './waTemplates';
 import { sendWhatsApp, sendWhatsAppTemplate, waitUntilSent, allowedNumbers, senderRole } from './whatsapp';
 import { stockImageUrl } from './stockImage';
 import { recordProactiveContext } from './stockAgent';
+import { getRestockFocus, focusText } from './restockFocus';
 import { melbDate, melbLongDate } from './tz';
 
 // SKUs the owner has asked to keep OUT of the brief's stock list, per site (e.g. UK sizes not stocked).
@@ -112,6 +113,10 @@ export async function buildLogisticsBrief(): Promise<{ vars: Record<string, stri
 // work) and is the fallback if both images fail to send (e.g. out-of-session).
 export async function sendLogisticsBrief(): Promise<{ sent: number; text: string }> {
   const { vars, text } = await buildLogisticsBrief();
+  // The one text block Luke DOES want with the cards: at most 3 restock actions ranked across
+  // every SKU class (finished goods both sites, ABC pouches, cartons, insert cards). Silent
+  // when nothing's flagged — cards-only stays the quiet default.
+  const focus = await getRestockFocus().then(focusText).catch(() => null);
   const owners = allowedNumbers().filter((to) => senderRole(to) === 'owner');
   const date = melbLongDate();
   let sent = 0;
@@ -119,13 +124,19 @@ export async function sendLogisticsBrief(): Promise<{ sent: number; text: string
     const au = await sendWhatsApp(to, `🥞 Morning stock — ${date}`, stockImageUrl('ALTONA')).catch(() => false as const);
     if (typeof au === 'string') await waitUntilSent(au).catch(() => {});
     const uk = await sendWhatsApp(to, '🇬🇧 Manchester', stockImageUrl('MANCHESTER')).catch(() => false as const);
+    if (focus && (au || uk)) {
+      // Sequence AFTER the cards, same trick as the button fix: media queues while Twilio
+      // renders our image URLs, so an instantly-sent text would arrive above the cards.
+      if (typeof uk === 'string') await waitUntilSent(uk).catch(() => {});
+      await sendWhatsApp(to, focus).catch(() => false);
+    }
     let ok = !!(au || uk);
     if (!ok) {
       const sid = await getTemplateSid('tpp_logistics_brief');
       if (sid) ok = await sendWhatsAppTemplate(to, sid, vars);
       if (!ok) ok = !!(await sendWhatsApp(to, text));
     }
-    if (ok) { sent++; await recordProactiveContext(to, `MORNING STOCK CARDS just sent (AU + UK images). The underlying data, for answering follow-ups (user replies like "stop showing X" → update_logistics_brief_excludes):\n${text}`).catch(() => {}); }
+    if (ok) { sent++; await recordProactiveContext(to, `MORNING STOCK CARDS just sent (AU + UK images)${focus ? ` plus this Restock focus:\n${focus}` : ''}. The underlying data, for answering follow-ups (user replies like "stop showing X" → update_logistics_brief_excludes):\n${text}`).catch(() => {}); }
   }
   return { sent, text };
 }

@@ -333,7 +333,9 @@ export async function getPackagingSummary() {
 }
 
 export async function getCustomPackaging(): Promise<CustomPack[]> {
-  const { data } = await supabaseLogistics.from('packaging').select('*').not('kind', 'in', '("pouch","srp","shipper")').eq('active', true).order('name');
+  // 'insert' cards are live-tracked with the shippers (getShipperTracking), so they're excluded
+  // here — this list is for MANUALLY counted custom packaging only.
+  const { data } = await supabaseLogistics.from('packaging').select('*').not('kind', 'in', '("pouch","srp","shipper","insert")').eq('active', true).order('name');
   return (data ?? []).map((p: any): CustomPack => {
     const on_hand = p.manual_on_hand ?? null;
     let status: PackStatus = 'unset';
