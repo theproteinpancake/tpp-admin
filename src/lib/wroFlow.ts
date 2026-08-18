@@ -205,18 +205,22 @@ export async function createWROFromParsed(parsed: ParsedDocket, site = 'ALTONA')
   // ShipBob rejects a repeated PO reference with a 422 ("PO reference already exists"), so the
   // agent calling create_wro a second time (e.g. when the user says "send") must NOT blow up —
   // the WRO is already made; just hand it back so the flow can proceed to Sharon's reply.
+  let supersededWroId: number | null = null;
   if (parsed.po_ref) {
     const { data: existingPo } = await supabaseLogistics.from('purchase_orders')
       .select('shipbob_wro_id, wro_status').eq('po_number', parsed.po_ref).maybeSingle();
     if ((existingPo as any)?.shipbob_wro_id) {
-      // A CANCELLED WRO doesn't block a re-create — that's the amended-docket flow: Sharon
-      // re-sends the docket, the old WRO gets cancelled in ShipBob, and the re-run must build
-      // a fresh one (e.g. 993381, whose one-label config was superseded by an amended docket).
+      // A CANCELLED or DELETED WRO doesn't block a re-create — that's the amended-docket
+      // flow: Sharon re-sends, the old WRO gets cancelled/deleted in ShipBob, and the re-run
+      // builds a fresh one. getWRO 404s on a deleted WRO, so "couldn't fetch it" counts as
+      // gone (993381 was DELETED, the fetch failed, and the old guard read that as
+      // still-alive and blocked the amended 001594).
       const liveStatus = await getWRO(site, Number((existingPo as any).shipbob_wro_id))
-        .then((w: any) => String(w?.status || '')).catch(() => '');
-      if (!/cancel/i.test(liveStatus)) {
+        .then((w: any) => String(w?.status || 'unknown')).catch(() => '');
+      if (liveStatus && !/cancel/i.test(liveStatus)) {
         return { wro_id: Number((existingPo as any).shipbob_wro_id), status: (existingPo as any).wro_status || 'AwaitingArrival', lines: parsed.lines.length, already_existed: true };
       }
+      supersededWroId = Number((existingPo as any).shipbob_wro_id);
     }
   }
   const { data: loc } = await supabaseLogistics.from('locations').select('id').eq('code', site).single();
@@ -258,22 +262,32 @@ export async function createWROFromParsed(parsed: ParsedDocket, site = 'ALTONA')
   );
   const pallet_count = plan.boxes?.length ?? 1;
 
+  const createOnce = (purchase_order_number?: string) => createWRO({
+    site, expected_arrival_date,
+    tracking_ref: parsed.docket_ref || 'ABC docket', purchase_order_number,
+    package_type: 'Pallet', ...(plan.boxes ? { boxes: plan.boxes } : { items }),
+  });
   let wro;
+  let po_ref_used = parsed.po_ref || undefined;
   try {
-    wro = await createWRO({
-      site, expected_arrival_date,
-      tracking_ref: parsed.docket_ref || 'ABC docket', purchase_order_number: parsed.po_ref || undefined,
-      package_type: 'Pallet', ...(plan.boxes ? { boxes: plan.boxes } : { items }),
-    });
+    wro = await createOnce(po_ref_used);
   } catch (e) {
-    // Backstop: ShipBob says the PO reference already exists → a WRO was already made for it
-    // (but we didn't have it linked). Don't fail the flow; surface it as already-existing.
     if (/already exists|unique value|422/i.test(String(e)) && parsed.po_ref) {
-      const { data: po } = await supabaseLogistics.from('purchase_orders').select('shipbob_wro_id, wro_status').eq('po_number', parsed.po_ref).maybeSingle();
-      if ((po as any)?.shipbob_wro_id) return { wro_id: Number((po as any).shipbob_wro_id), status: (po as any).wro_status || 'AwaitingArrival', lines: parsed.lines.length, already_existed: true };
-      throw new Error(`A WRO for PO ${parsed.po_ref} already exists at ShipBob — open Receiving in ShipBob to get its number, then I can draft Sharon's reply with the labels.`);
+      if (supersededWroId != null) {
+        // The old WRO is cancelled/deleted but ShipBob still reserves its PO reference.
+        // Re-create under a -R (redo) reference rather than dead-ending — our own DB link is
+        // what reconciliation uses, so the suffix costs nothing.
+        po_ref_used = `${parsed.po_ref}-R`;
+        wro = await createOnce(po_ref_used);
+      } else {
+        // Genuinely unknown existing WRO (we never linked it) — surface, don't duplicate.
+        const { data: po } = await supabaseLogistics.from('purchase_orders').select('shipbob_wro_id, wro_status').eq('po_number', parsed.po_ref).maybeSingle();
+        if ((po as any)?.shipbob_wro_id) return { wro_id: Number((po as any).shipbob_wro_id), status: (po as any).wro_status || 'AwaitingArrival', lines: parsed.lines.length, already_existed: true };
+        throw new Error(`A WRO for PO ${parsed.po_ref} already exists at ShipBob — open Receiving in ShipBob to get its number, then I can draft Sharon's reply with the labels.`);
+      }
+    } else {
+      throw e;
     }
-    throw e;
   }
 
   // record lots + link PO
