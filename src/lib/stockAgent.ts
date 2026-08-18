@@ -1263,10 +1263,18 @@ W: theproteinpancake.co`;
       }
       const pal = (res as any).pallets;
       const palNote = pal?.warning ? ` ${pal.warning}` : pal?.labels > 1 ? ` The labels PDF has ${pal.labels} pages, one per pallet — say so.` : '';
+      // Push the pallet-labels PDF straight into the chat: Luke checks it on his phone and can
+      // forward it to Sharon himself without opening ShipBob (his ask, Aug 2026). Best-effort —
+      // the WRO exists either way, and the reply tells him if the PDF didn't attach.
+      let labels_sent = false;
+      if (_phone && res.wro_id) {
+        const labelsUrl = `${process.env.PUBLIC_APP_URL || 'https://admin.theproteinpancake.co'}/api/whatsapp/wro-labels/${res.wro_id}`;
+        labels_sent = !!(await sendWhatsApp(_phone, `🏷️ WRO ${res.wro_id} pallet labels${pal?.labels > 1 ? ` (${pal.labels} pallets)` : ''}`, labelsUrl).catch(() => false));
+      }
       const note = (res as any).already_existed
         ? `WRO ${res.wro_id} was ALREADY created for this docket/PO — not duplicated. Go straight to draft_sharon_reply with wro_id=${res.wro_id}.`
-        : `WRO ${res.wro_id} created.${palNote} Offer to draft Sharon's reply (draft_sharon_reply, wro_id=${res.wro_id}).`;
-      return { ...res, docket_ref: parsed.docket_ref, po_ref: parsed.po_ref, note };
+        : `WRO ${res.wro_id} created.${palNote}${labels_sent ? ' The labels PDF has been sent into this chat — say it is there to check or forward to Sharon directly.' : ' (The labels PDF could not be attached here — it is still available via draft_sharon_reply.)'} Offer to draft Sharon's reply (draft_sharon_reply, wro_id=${res.wro_id}).`;
+      return { ...res, docket_ref: parsed.docket_ref, po_ref: parsed.po_ref, labels_sent, note };
     } catch (e) { return { error: String(e).slice(0, 160) }; }
   }
   if (name === 'draft_sharon_reply') {
