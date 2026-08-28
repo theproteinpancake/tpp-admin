@@ -10,18 +10,41 @@ import { gmailSend } from './google';
 function normName(s: string): string {
   return (s || '').toLowerCase().replace(/\b(pty|ltd|inc|co|the|p\/l|llc|group)\b/g, ' ').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
 }
-async function matchCustomer(name: string): Promise<{ id: string; name: string; xero_contact_id: string | null } | null> {
-  const { data } = await supabaseLogistics.from('wholesale_customers').select('id, name, xero_contact_id').eq('is_wholesale', true);
+export async function matchCustomer(name: string): Promise<{ id: string; name: string; xero_contact_id: string | null } | null> {
+  const { data } = await supabaseLogistics.from('wholesale_customers').select('id, name, xero_contact_id, parent_id').eq('is_wholesale', true);
   const target = normName(name); if (!target) return null;
   const tTok = target.split(' ').filter((w) => w.length > 2);
+  // Most-SPECIFIC match wins, not first-hit: with a consolidated parent on file ("Tony &
+  // Marks") every store PO also containment-matches the parent, and first-hit ordering made
+  // "Tony & Marks Burnside" bill correctly but LOSE its store suffix whenever the parent row
+  // happened to come back first. Exact > longest containment > token overlap.
   let best: any = null, score = 0;
   for (const c of (data ?? []) as any[]) {
     const cn = normName(c.name); if (!cn) continue;
-    if (cn === target || cn.includes(target) || target.includes(cn)) return c;
-    const ov = cn.split(' ').filter((w) => w.length > 2 && tTok.includes(w)).length;
-    if (ov > score) { score = ov; best = c; }
+    let sc = 0;
+    if (cn === target) sc = 10_000;
+    else if (cn.includes(target) || target.includes(cn)) sc = 100 + cn.length;
+    else sc = cn.split(' ').filter((w) => w.length > 2 && tTok.includes(w)).length;
+    if (sc > score) { score = sc; best = c; }
   }
-  return score >= 2 ? best : null;
+  if (!best || score < 2) return null;
+  // CONSOLIDATED BILLING (Tony & Marks, Aug 2026 — 8 store accounts merged into one Xero
+  // contact): a store row carries no xero_contact_id of its own and routes billing to its
+  // parent. The store's identity survives on the invoice as a reference suffix
+  // ("PO361804 Port Adelaide") so Kate can still see who ordered what on one account.
+  if (!best.xero_contact_id && best.parent_id) {
+    const { data: parent } = await supabaseLogistics.from('wholesale_customers')
+      .select('id, name, xero_contact_id').eq('id', best.parent_id).maybeSingle();
+    if (parent?.xero_contact_id) {
+      const storeName = String(best.name);
+      const parentName = String((parent as any).name || '');
+      const suffix = storeName.toLowerCase().startsWith(parentName.toLowerCase())
+        ? storeName.slice(parentName.length).trim()
+        : storeName;
+      return { ...best, xero_contact_id: (parent as any).xero_contact_id, bill_name: (parent as any).name, store_suffix: suffix || null };
+    }
+  }
+  return best;
 }
 
 export interface WholesaleOrderInput {
@@ -74,14 +97,18 @@ export async function createWholesaleOrder(input: WholesaleOrderInput):
   // 2) Xero invoice — reuse an existing one for this PO (don't double-invoice), else DRAFT a new one
   let inv: { id: string; number: string; total: number }; let reused: string | undefined;
   try {
-    const existingInv = poRef ? await findInvoiceByReference(poRef) : null;
+    // Consolidated accounts: the reference is "<PO> <Store>" (e.g. "361804 Port Adelaide") so
+    // one Xero account still shows which store each invoice belongs to. Dedup checks the SAME
+    // full reference string that gets written.
+    const invoiceRef = [poRef, (cust as any).store_suffix].filter(Boolean).join(' ') || undefined;
+    const existingInv = invoiceRef ? await findInvoiceByReference(invoiceRef) : null;
     if (existingInv) { inv = { id: existingInv.id, number: existingInv.number, total: 0 }; reused = `reused existing Xero invoice ${existingInv.number}`; }
     else {
       inv = await createXeroInvoice({
         contactId: cust.xero_contact_id,
         lines: lines.map((l) => ({ sku: l.sku, quantity: l.cartons })),
         freight: input.free_shipping ? undefined : 15,
-        reference: poRef || undefined, status: 'DRAFT',
+        reference: invoiceRef, status: 'DRAFT',
       });
     }
   } catch (e) {

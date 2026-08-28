@@ -371,7 +371,7 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: 'create_wholesale_order',
-    description: 'ACTUALLY process a confirmed wholesale PO — creates the ShipBob B2C order (carton SKUs + the box) AND drafts the Xero invoice to the customer. ONLY call after Kate has CONFIRMED the parsed summary AND the customer is on file in Xero. Fill from the confirmed PO: customer_name (the matched Xero contact), recipient (ship-to store + structured address), lines (sku + cartons), box, free_shipping, reference (PO number). After it returns, report back EXACTLY what was created (ShipBob order id + contents, Xero invoice number) for Kate to cross-check before sending.',
+    description: 'ACTUALLY process a confirmed wholesale PO — creates the ShipBob B2C order (carton SKUs + the box) AND drafts the Xero invoice to the customer. ONLY call after Kate has CONFIRMED the parsed summary AND the customer is on file in Xero. Fill from the confirmed PO: customer_name (the matched Xero contact), recipient (ship-to store + structured address), lines (sku + cartons), box, free_shipping, reference (PO number). CONSOLIDATED ACCOUNTS (e.g. all 8 Tony & Marks stores → ONE "Tony & Marks" Xero account, Aug 2026): still pass the STORE name as customer_name — the tool routes billing to the merged account itself and stamps the store into the invoice Reference automatically ("361804 Port Adelaide"). Never invoice a store as its own account, and in your summary say who was BILLED (the merged account) and which STORE the reference names. After it returns, report back EXACTLY what was created (ShipBob order id + contents, Xero invoice number) for Kate to cross-check before sending.',
     input_schema: {
       type: 'object',
       properties: {

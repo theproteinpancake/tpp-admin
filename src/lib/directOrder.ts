@@ -66,10 +66,17 @@ export interface DirectOrderPlan {
 
 async function xeroAddressFor(customerName: string): Promise<{ addr: Partial<B2CRecipient>; email?: string } | null> {
   const { data: cust } = await supabaseLogistics.from('wholesale_customers')
-    .select('name, xero_contact_id').ilike('name', `%${customerName}%`).limit(1).maybeSingle() as any;
-  if (!cust?.xero_contact_id) return null;
+    .select('name, xero_contact_id, parent_id').ilike('name', `%${customerName}%`).limit(1).maybeSingle() as any;
+  // Consolidated-billing store rows carry no contact of their own — follow the parent.
+  let contactId = cust?.xero_contact_id;
+  if (!contactId && cust?.parent_id) {
+    const { data: par } = await supabaseLogistics.from('wholesale_customers')
+      .select('xero_contact_id').eq('id', cust.parent_id).maybeSingle() as any;
+    contactId = par?.xero_contact_id;
+  }
+  if (!contactId) return null;
   try {
-    const r = await xeroGet(`/Contacts/${cust.xero_contact_id}`);
+    const r = await xeroGet(`/Contacts/${contactId}`);
     const c = r.Contacts?.[0];
     const a = (c?.Addresses ?? []).find((x: any) => x.AddressType === 'STREET' && x.AddressLine1)
       || (c?.Addresses ?? []).find((x: any) => x.AddressLine1);
