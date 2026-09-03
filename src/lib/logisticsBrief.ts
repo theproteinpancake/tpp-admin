@@ -6,7 +6,7 @@ import { computeStatus, CATEGORY_LEAD_DAYS } from './stock';
 import { getConfig } from './settings';
 import { getTemplateSid } from './waTemplates';
 import { sendWhatsApp, sendWhatsAppTemplate, waitUntilSent, allowedNumbers, senderRole } from './whatsapp';
-import { stockImageUrl } from './stockImage';
+import { stockImageUrl, packagingImageUrl } from './stockImage';
 import { recordProactiveContext } from './stockAgent';
 import { getRestockFocus, focusText } from './restockFocus';
 import { melbDate, melbLongDate } from './tz';
@@ -119,6 +119,8 @@ export async function sendLogisticsBrief(): Promise<{ sent: number; text: string
   const focus = await getRestockFocus().then(focusText).catch(() => null);
   const owners = allowedNumbers().filter((to) => senderRole(to) === 'owner');
   const date = melbLongDate();
+  // Monday (Melbourne) = weekly packaging card day.
+  const packagingDay = new Date().toLocaleDateString('en-AU', { weekday: 'short', timeZone: 'Australia/Melbourne' }) === 'Mon';
   let sent = 0;
   for (const to of owners) {
     const au = await sendWhatsApp(to, `🥞 Morning stock — ${date}`, stockImageUrl('ALTONA')).catch(() => false as const);
@@ -130,13 +132,19 @@ export async function sendLogisticsBrief(): Promise<{ sent: number; text: string
       if (typeof uk === 'string') await waitUntilSent(uk).catch(() => {});
       await sendWhatsApp(to, focus).catch(() => false);
     }
+    // MONDAYS ONLY: the weekly packaging card (pouches at ABC × size + SRP cartons + ShipBob
+    // boxes/cards). Rides the existing brief so it's one extra image a week, not a new stream.
+    if (packagingDay && (au || uk)) {
+      if (typeof uk === 'string') await waitUntilSent(uk).catch(() => {});
+      await sendWhatsApp(to, '📦 Weekly packaging check', packagingImageUrl()).catch(() => false);
+    }
     let ok = !!(au || uk);
     if (!ok) {
       const sid = await getTemplateSid('tpp_logistics_brief');
       if (sid) ok = await sendWhatsAppTemplate(to, sid, vars);
       if (!ok) ok = !!(await sendWhatsApp(to, text));
     }
-    if (ok) { sent++; await recordProactiveContext(to, `MORNING STOCK CARDS just sent (AU + UK images)${focus ? ` plus this Restock focus:\n${focus}` : ''}. The underlying data, for answering follow-ups (user replies like "stop showing X" → update_logistics_brief_excludes):\n${text}`).catch(() => {}); }
+    if (ok) { sent++; await recordProactiveContext(to, `MORNING STOCK CARDS just sent (AU + UK images)${packagingDay ? ' + the weekly PACKAGING card (pouches at ABC per flavour/size, SRP cartons, ShipBob boxes/cards — use get_packaging_stock for its numbers)' : ''}${focus ? ` plus this Restock focus:\n${focus}` : ''}. The underlying data, for answering follow-ups (user replies like "stop showing X" → update_logistics_brief_excludes):\n${text}`).catch(() => {}); }
   }
   return { sent, text };
 }

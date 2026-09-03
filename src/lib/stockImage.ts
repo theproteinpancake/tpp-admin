@@ -27,6 +27,12 @@ export function expiryImageUrl(site: string): string {
   return `${APP_URL}/api/whatsapp/expiry-image?site=${encodeURIComponent(site)}&k=${stockImageToken()}&t=${Date.now()}`;
 }
 
+// Weekly packaging card: empty pouches at ABC per flavour × size (+ SRP cartons on the 320g
+// cell) and ShipBob-held cartons/inserts, both live-status coloured.
+export function packagingImageUrl(): string {
+  return `${APP_URL}/api/whatsapp/packaging-image?k=${stockImageToken()}&t=${Date.now()}`;
+}
+
 export function stockImageUrl(site: string, sizes?: number[]): string {
   // t= busts WhatsApp/Twilio media caching so a fresh request renders fresh numbers
   const sz = sizes?.length ? `&sizes=${sizes.join(',')}` : '';
