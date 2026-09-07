@@ -301,14 +301,18 @@ export async function createWROFromParsed(parsed: ParsedDocket, site = 'ALTONA')
     package_type: 'Pallet', ...(plan.boxes ? { boxes: plan.boxes } : { items }),
   });
   let wro;
-  // ShipBob enforces uniqueness on purchase_order_number, so the reference is per DOCKET:
-  // "PO-0051 + PO-0052 #001670". Split deliveries of one PO no longer collide.
-  const baseRef = parsed.po_ref ? `${parsed.po_ref}${docketRef ? ` #${docketRef}` : ''}` : (docketRef ? `docket ${docketRef}` : undefined);
+  // ShipBob enforces uniqueness on purchase_order_number AND only allows [A-Za-z0-9_-] in it
+  // (422: "must only contain letters, numbers, hyphens or underscores"). The reference is per
+  // DOCKET so split deliveries of one PO never collide: "PO-0051_PO-0052_001670".
+  const safe = (v: string) => v.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
+  const baseRef = [...poRefs, docketRef].filter(Boolean).map((v) => safe(String(v))).join('_') || undefined;
   let po_ref_used = baseRef;
   try {
     wro = await createOnce(po_ref_used);
   } catch (e) {
-    if (/already exists|unique value|422/i.test(String(e)) && baseRef) {
+    // ONLY genuine duplicate wording — a 422 validation error ("must only contain letters…")
+    // was being misread as a duplicate and swallowed.
+    if (/already exists|unique value|duplicate/i.test(String(e)) && baseRef) {
       if (supersededWroId != null) {
         // The old WRO is cancelled/deleted but ShipBob still reserves its PO reference.
         // Re-create under a -R (redo) reference rather than dead-ending — our own DB link is
@@ -317,7 +321,7 @@ export async function createWROFromParsed(parsed: ParsedDocket, site = 'ALTONA')
         wro = await createOnce(po_ref_used);
       } else {
         // A WRO with this docket's reference exists at ShipBob but we never recorded it.
-        throw new Error(`ShipBob already has a WRO referenced "${baseRef}" that this dashboard didn't create — open Receiving in ShipBob to check it, then either tell me its number or use recreate_wro after cancelling it there.`);
+        throw new Error(`ShipBob rejected the WRO for docket ${docketRef || '?'} as a duplicate of something this dashboard didn't create. ShipBob said: ${String(e).slice(0, 300)}`);
       }
     } else {
       throw e;
