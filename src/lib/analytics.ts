@@ -126,8 +126,10 @@ async function shipbobCharges(startIso: string, endIso: string, fx: number) {
 }
 
 // ---- Xero/Wholesale: sum invoice totals dated in the week ----
+// v_wholesale_orders = real stockist invoices only. The raw table also holds accounting-only
+// ACCREC rows (A2X Shopify payout reconciliation, Sep 2026) that inflated a week to $16k.
 async function wholesaleTotal(startIso: string, endIso: string) {
-  const { data } = await supabaseLogistics.from('wholesale_orders').select('total').gte('order_date', startIso).lt('order_date', endIso);
+  const { data } = await supabaseLogistics.from('v_wholesale_orders').select('total').gte('order_date', startIso).lt('order_date', endIso);
   return round2((data ?? []).reduce((s: number, o: any) => s + (Number(o.total) || 0), 0));
 }
 

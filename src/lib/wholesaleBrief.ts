@@ -24,8 +24,8 @@ export async function buildWholesaleBrief(): Promise<{ vars: Record<string, stri
   const lastSunStr = new Date(thisMon.getTime() - DAY).toISOString().slice(0, 10);
 
   const [{ data: yOrders }, { data: lwOrders }, w] = await Promise.all([
-    supabaseLogistics.from('wholesale_orders').select('total').eq('order_date', yStr),
-    supabaseLogistics.from('wholesale_orders').select('total').gte('order_date', lastMonStr).lt('order_date', thisMonStr),
+    supabaseLogistics.from('v_wholesale_orders').select('total').eq('order_date', yStr),
+    supabaseLogistics.from('v_wholesale_orders').select('total').gte('order_date', lastMonStr).lt('order_date', thisMonStr),
     getWholesaleDashboard().catch(() => null),
   ]);
   const ySum = (yOrders ?? []).reduce((s: number, o: any) => s + (Number(o.total) || 0), 0);

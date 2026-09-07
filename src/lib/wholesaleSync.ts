@@ -4,7 +4,7 @@ import { supabaseLogistics } from './supabase-logistics';
 import { xeroGet } from './xero';
 
 // Retail/marketplace aggregators that are NOT wholesale customers (excluded from cadence).
-const NON_WHOLESALE = /shopify|amazon|paypal|stripe|afterpay|\bzip\b|square|gift ?card|online sales|cash sale|opening balance|sumup|till|eftpos/i;
+const NON_WHOLESALE = /shopify|amazon|paypal|stripe|afterpay|klarna|a2x|\bzip\b|square|gift ?card|online sales|cash sale|opening balance|sumup|till|eftpos/i;
 
 interface XInv { InvoiceID: string; InvoiceNumber?: string; Reference?: string; Contact?: any; Status?: string; Total?: number; CurrencyCode?: string; DateString?: string; Date?: string; DueDateString?: string; LineItems?: any[]; }
 

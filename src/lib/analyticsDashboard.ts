@@ -52,7 +52,7 @@ async function computePeriod(fromDate: string, toDate: string, model: Model = 'l
   const [attr, meta, wh, sb, cogsRes] = await Promise.all([
     getAttribution(fromDate, toDate, model),
     fetchMetaWeek(fromDate, toDate).catch(() => null), // platform-reported spend/roas/purchases/cpa
-    supabaseLogistics.from('wholesale_orders').select('total').gte('order_date', fromDate).lt('order_date', toDate),
+    supabaseLogistics.from('v_wholesale_orders').select('total').gte('order_date', fromDate).lt('order_date', toDate),
     supabaseLogistics.from('shipment_costs').select('cost,currency').gte('ship_date', fromDate).lt('ship_date', toDate),
     rangeCOGS(fromDate, toDate, a.online_cogs_pct), // parallel — biggest page-speed win
   ]);

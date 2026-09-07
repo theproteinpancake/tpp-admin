@@ -180,7 +180,7 @@ export async function dayMetrics(date: string): Promise<ReviewMetrics> {
     shopifyWeekCOGS(date, next).catch(() => null),
     fetchMetaWeek(date, next).catch(() => null),
     supabaseLogistics.from('shipment_costs').select('cost,currency').gte('ship_date', date).lt('ship_date', next),
-    supabaseLogistics.from('wholesale_orders').select('total').gte('order_date', date).lt('order_date', next),
+    supabaseLogistics.from('v_wholesale_orders').select('total').gte('order_date', date).lt('order_date', next),
     Promise.resolve(supabaseLogistics.rpc('attribution_rollup', { p_from: fromTs, p_to: toTs, p_model: 'last' })).then((r: any) => r.data).catch(() => null),
     fetchAmazonDaily(Math.min(daysBack, 30)).catch(() => null),
   ]);

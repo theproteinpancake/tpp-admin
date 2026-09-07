@@ -67,7 +67,7 @@ export async function getRangeSummary(fromIso: string, toIso: string, model: Mod
   const a = await getAssumptions();
   // wholesale + shipbob for the range (re-uses sales tables — sum across the date span)
   const [{ data: wh }, { data: sb }] = await Promise.all([
-    supabaseLogistics.from('wholesale_orders').select('total').gte('order_date', fromIso.slice(0, 10)).lt('order_date', toIso.slice(0, 10)),
+    supabaseLogistics.from('v_wholesale_orders').select('total').gte('order_date', fromIso.slice(0, 10)).lt('order_date', toIso.slice(0, 10)),
     supabaseLogistics.from('shipment_costs').select('cost,currency').gte('ship_date', fromIso.slice(0, 10)).lt('ship_date', toIso.slice(0, 10)),
   ]);
   const wholesale = (wh ?? []).reduce((s: number, o: any) => s + (Number(o.total) || 0), 0);

@@ -18,7 +18,7 @@ function startOfWeek(d: Date) { const x = new Date(d); const day = (x.getDay() +
 export async function getWholesaleDashboard() {
   const [{ data: customers }, { data: orders }, { data: stock }] = await Promise.all([
     supabaseLogistics.from('wholesale_customers').select('*'),
-    supabaseLogistics.from('wholesale_orders').select('order_date,total,customer_id,currency'),
+    supabaseLogistics.from('v_wholesale_orders').select('order_date,total,customer_id,currency'),
     supabaseLogistics.from('v_stock_current')
       .select('sku,flavour,unit_size_g,category,available,inbound,avg_daily_units_30d,avg_daily_units_90d,days_of_cover')
       .eq('location_code', 'ALTONA').eq('active', true),
@@ -112,7 +112,7 @@ export async function getWholesaleDashboard() {
 }
 
 export async function getWholesaleOrders(limit = 60) {
-  const { data } = await supabaseLogistics.from('wholesale_orders')
+  const { data } = await supabaseLogistics.from('v_wholesale_orders')
     .select('xero_invoice_id, invoice_number, reference, contact_name, status, order_date, total, currency, items:wholesale_order_items(item_code, qty)')
     .order('order_date', { ascending: false }).limit(limit);
   const orders = (data ?? []) as any[];
