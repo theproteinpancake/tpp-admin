@@ -6,7 +6,7 @@ import { OPEN_STATUSES } from './po-types';
 import { proposeFlavourPOs, proposeOneFlavour } from './poBuilder';
 import { draftWhatsAppPO, approveLatestWhatsAppDraft, sendLatestPOEmail } from './poActions';
 import { markPOReceived } from './poReconcile';
-import { findDockets, parseDocket, createWROFromParsed, draftSharonReply } from './wroFlow';
+import { findDockets, parseDocket, createWROFromParsed, draftSharonReply, cancelDocketWro, recreateWroForDocket } from './wroFlow';
 import { markCdsSent } from './cdsFlow';
 import { resolveVisyItem, draftVisyOrder, markVisyOrderSent, getVisyOrders, createVisyLabels } from './visyOrder';
 import { findContacts } from './contacts';
@@ -45,6 +45,7 @@ const MODEL = 'claude-sonnet-5'; // upgraded from sonnet-4-6 (13 Jul) — the ag
 
 // Tools that CHANGE something (orders, invoices, emails, statuses) — logged to agent_actions.
 const MUTATING_TOOLS = new Set([
+  'recreate_wro', 'cancel_wro',
   'approve_po', 'send_po_email', 'create_wro', 'send_email_draft', 'create_transfer',
   'update_transfer_status', 'mark_po_received', 'create_wholesale_order', 'process_po_email',
   'send_influencer_gift', 'update_influencer_status', 'update_influencer_details', 'save_collab', 'update_collab',
@@ -514,8 +515,18 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: 'create_wro',
-    description: 'Create the ShipBob WRO from ONE docket (with lots + expiry) and link the PO. ONLY after the user has confirmed the best-befores. Pass the SAME messageId AND attachment filename you parsed. Returns the WRO number, a `received` breakdown, and a `pallets` object. UNIT CONVERSION IS AUTOMATIC: dockets list pouch units but 320g SKUs live in ShipBob as 4-pouch SRP cartons — the tool divides for you (e.g. 168 pouches → 42 cartons). NEVER pre-convert quantities yourself; in your summary, quote the `received` breakdown (docket units AND ShipBob qty) AND the pallet/label count so the user can sanity-check both. If `pallets.warning` is present, lead with it — the labels PDF is short and needs a hand-fix before it goes to Sharon.',
+    description: 'Create the ShipBob WRO from ONE docket (with lots + expiry) and link the PO. ONLY after the user has confirmed the best-befores. Pass the SAME messageId AND attachment filename you parsed. Returns the WRO number, a `received` breakdown, and a `pallets` object. UNIT CONVERSION IS AUTOMATIC: dockets list pouch units but 320g SKUs live in ShipBob as 4-pouch SRP cartons — the tool divides for you (e.g. 168 pouches → 42 cartons). NEVER pre-convert quantities yourself; in your summary, quote the `received` breakdown (docket units AND ShipBob qty) AND the pallet/label count so the user can sanity-check both. If `pallets.warning` is present, lead with it and offer recreate_wro — never tell the user to hand-edit the WRO in ShipBob. If the result says already_existed, it is the WRO previously created for THIS docket ref; if the user says it is wrong (pallets, lots, quantities), use recreate_wro.',
     input_schema: { type: 'object', properties: { messageId: { type: 'string' }, attachment: { type: 'string' } }, required: ['messageId'] },
+  },
+  {
+    name: 'recreate_wro',
+    description: 'START OVER on a docket\'s WRO: cancels the WRO currently linked to this docket at ShipBob (only possible while it is still Awaiting Arrival) and creates a fresh one from the docket — same messageId + attachment as create_wro. Use when the user says the WRO is wrong (pallet count, labels, lots, quantities) or sends an amended docket. Returns the new WRO + `cancelled_wro_id`. Never suggest hand-editing in ShipBob when this tool applies.',
+    input_schema: { type: 'object', properties: { messageId: { type: 'string' }, attachment: { type: 'string' } }, required: ['messageId'] },
+  },
+  {
+    name: 'cancel_wro',
+    description: 'Cancel a WRO we created, by WRO number or docket ref, WITHOUT creating a replacement (e.g. delivery called off, duplicate). Only works while ShipBob still shows it Awaiting Arrival; once receiving has started the tool says so and ShipBob support has to amend it.',
+    input_schema: { type: 'object', properties: { wro_id: { type: 'number' }, docket_ref: { type: 'string' } } },
   },
   {
     name: 'draft_sharon_reply',
@@ -1281,10 +1292,34 @@ W: theproteinpancake.co`;
         labels_sent = !!(await sendWhatsApp(_phone, `🏷️ WRO ${res.wro_id} pallet labels${pal?.labels > 1 ? ` (${pal.labels} pallets)` : ''}`, labelsUrl).catch(() => false));
       }
       const note = (res as any).already_existed
-        ? `WRO ${res.wro_id} was ALREADY created for this docket/PO — not duplicated. Go straight to draft_sharon_reply with wro_id=${res.wro_id}.`
+        ? `WRO ${res.wro_id} was ALREADY created for docket ${parsed.docket_ref || '(this docket)'} (status ${res.status}) — not duplicated. Say which docket it belongs to. If the user says it is wrong, call recreate_wro; otherwise go to draft_sharon_reply with wro_id=${res.wro_id}.`
         : `WRO ${res.wro_id} created.${palNote}${labels_sent ? ' The labels PDF has been sent into this chat — say it is there to check or forward to Sharon directly.' : ' (The labels PDF could not be attached here — it is still available via draft_sharon_reply.)'} Offer to draft Sharon's reply (draft_sharon_reply, wro_id=${res.wro_id}).`;
       return { ...res, docket_ref: parsed.docket_ref, po_ref: parsed.po_ref, labels_sent, note };
     } catch (e) { return { error: String(e).slice(0, 160) }; }
+  }
+  if (name === 'recreate_wro') {
+    try {
+      const parsed = await parseDocket(String(input.messageId), '', input.attachment ? String(input.attachment) : undefined);
+      const res: any = await recreateWroForDocket(parsed);
+      if (res.error) return res;
+      if (_phone) {
+        await recordProactiveContext(_phone,
+          `WRO ${res.wro_id} IS NOW THE LIVE WRO for docket ${parsed.docket_ref || ''}${res.cancelled_wro_id ? ` (replaced cancelled WRO ${res.cancelled_wro_id})` : ''}. Never call create_wro/recreate_wro for this docket again unless the user says it is wrong. If the user approves, call draft_sharon_reply with wro_id=${res.wro_id}.`
+        ).catch(() => {});
+      }
+      const pal = res.pallets;
+      let labels_sent = false;
+      if (_phone && res.wro_id) {
+        const labelsUrl = `${process.env.PUBLIC_APP_URL || 'https://admin.theproteinpancake.co'}/api/whatsapp/wro-labels/${res.wro_id}`;
+        labels_sent = !!(await sendWhatsApp(_phone, `🏷️ WRO ${res.wro_id} pallet labels${pal?.labels > 1 ? ` (${pal.labels} pallets)` : ''}`, labelsUrl).catch(() => false));
+      }
+      return { ...res, docket_ref: parsed.docket_ref, po_ref: parsed.po_ref, labels_sent,
+        note: `${res.cancelled_wro_id ? `WRO ${res.cancelled_wro_id} cancelled. ` : ''}Fresh WRO ${res.wro_id} created${pal?.labels ? ` with ${pal.labels} pallet label${pal.labels > 1 ? 's' : ''}` : ''}.${pal?.warning ? ` ${pal.warning}` : ''}${labels_sent ? ' Labels PDF sent into this chat.' : ''} Offer draft_sharon_reply (wro_id=${res.wro_id}).` };
+    } catch (e) { return { error: String(e).slice(0, 200) }; }
+  }
+  if (name === 'cancel_wro') {
+    const res = await cancelDocketWro({ wro_id: input.wro_id ? Number(input.wro_id) : undefined, docket_ref: input.docket_ref ? String(input.docket_ref) : undefined });
+    return 'error' in res ? res : { ...res, note: `WRO ${res.wro_id} cancelled at ShipBob (was ${res.status_before}). Nothing replaces it unless you run recreate_wro.` };
   }
   if (name === 'draft_sharon_reply') {
     try {

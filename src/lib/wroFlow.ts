@@ -3,7 +3,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { supabaseLogistics } from './supabase-logistics';
 import { gmailSearch, gmailGetPdfAttachment, gmailListAttachmentNames, gmailCreateDraft } from './google';
-import { createWRO, getWRO, getWROLabels } from './shipbob';
+import { createWRO, getWRO, getWROLabels, cancelWRO } from './shipbob';
 import { ABC_PO_TO, ABC_CC } from './poActions';
 
 const MODEL = 'claude-sonnet-4-6';
@@ -231,28 +231,27 @@ export function planPallets(
 
 // Create the WRO in ShipBob (Altona), record lots, link the PO.
 export async function createWROFromParsed(parsed: ParsedDocket, site = 'ALTONA') {
-  // IDEMPOTENT: if this PO already has a WRO, return it instead of creating a duplicate.
-  // ShipBob rejects a repeated PO reference with a 422 ("PO reference already exists"), so the
-  // agent calling create_wro a second time (e.g. when the user says "send") must NOT blow up —
-  // the WRO is already made; just hand it back so the flow can proceed to Sharon's reply.
-  let supersededWroId: number | null = null;
+  // IDEMPOTENT PER DOCKET. A PO is often delivered across several dockets (PO-0052: 60 ctns on
+  // 1 Sep, the rest on 7 Sep) and one docket can cover two POs — so the WRO↔docket link lives in
+  // wro_dockets, keyed on the docket ref. A PO-keyed guard handed back PO-0052's first-delivery
+  // WRO (999935) for docket 001670 and the agent reported it as "already created". A cancelled
+  // or deleted WRO doesn't block a re-create (amended docket / recreate_wro flow): getWRO 404s
+  // on a deleted WRO, so "couldn't fetch it" counts as gone.
   const poRefs = parsed.po_refs?.length ? parsed.po_refs : parsed.po_ref ? [parsed.po_ref] : [];
-  if (poRefs.length) {
-    const { data: linked } = await supabaseLogistics.from('purchase_orders')
-      .select('shipbob_wro_id, wro_status').in('po_number', poRefs).not('shipbob_wro_id', 'is', null).limit(1);
-    const existingPo = (linked ?? [])[0] ?? null;
-    if ((existingPo as any)?.shipbob_wro_id) {
-      // A CANCELLED or DELETED WRO doesn't block a re-create — that's the amended-docket
-      // flow: Sharon re-sends, the old WRO gets cancelled/deleted in ShipBob, and the re-run
-      // builds a fresh one. getWRO 404s on a deleted WRO, so "couldn't fetch it" counts as
-      // gone (993381 was DELETED, the fetch failed, and the old guard read that as
-      // still-alive and blocked the amended 001594).
-      const liveStatus = await getWRO(site, Number((existingPo as any).shipbob_wro_id))
-        .then((w: any) => String(w?.status || 'unknown')).catch(() => '');
+  const docketRef = (parsed.docket_ref || '').trim() || null;
+  let supersededWroId: number | null = null;
+  if (docketRef) {
+    const { data: prior } = await supabaseLogistics.from('wro_dockets')
+      .select('wro_id, status, pallets').eq('site', site).eq('docket_ref', docketRef).is('cancelled_at', null)
+      .order('created_at', { ascending: false }).limit(1);
+    const prev = (prior ?? [])[0] as any;
+    if (prev?.wro_id) {
+      const liveStatus = await getWRO(site, Number(prev.wro_id)).then((w: any) => String(w?.status || 'unknown')).catch(() => '');
       if (liveStatus && !/cancel/i.test(liveStatus)) {
-        return { wro_id: Number((existingPo as any).shipbob_wro_id), status: (existingPo as any).wro_status || 'AwaitingArrival', lines: parsed.lines.length, already_existed: true };
+        return { wro_id: Number(prev.wro_id), status: liveStatus, lines: parsed.lines.length, already_existed: true, docket_ref: docketRef, pallets: { labels: prev.pallets ?? null } };
       }
-      supersededWroId = Number((existingPo as any).shipbob_wro_id);
+      supersededWroId = Number(prev.wro_id);
+      await supabaseLogistics.from('wro_dockets').update({ cancelled_at: new Date().toISOString(), status: liveStatus || 'deleted' }).eq('site', site).eq('wro_id', prev.wro_id);
     }
   }
   const { data: loc } = await supabaseLogistics.from('locations').select('id').eq('code', site).single();
@@ -302,23 +301,23 @@ export async function createWROFromParsed(parsed: ParsedDocket, site = 'ALTONA')
     package_type: 'Pallet', ...(plan.boxes ? { boxes: plan.boxes } : { items }),
   });
   let wro;
-  let po_ref_used = parsed.po_ref || undefined;
+  // ShipBob enforces uniqueness on purchase_order_number, so the reference is per DOCKET:
+  // "PO-0051 + PO-0052 #001670". Split deliveries of one PO no longer collide.
+  const baseRef = parsed.po_ref ? `${parsed.po_ref}${docketRef ? ` #${docketRef}` : ''}` : (docketRef ? `docket ${docketRef}` : undefined);
+  let po_ref_used = baseRef;
   try {
     wro = await createOnce(po_ref_used);
   } catch (e) {
-    if (/already exists|unique value|422/i.test(String(e)) && parsed.po_ref) {
+    if (/already exists|unique value|422/i.test(String(e)) && baseRef) {
       if (supersededWroId != null) {
         // The old WRO is cancelled/deleted but ShipBob still reserves its PO reference.
         // Re-create under a -R (redo) reference rather than dead-ending — our own DB link is
         // what reconciliation uses, so the suffix costs nothing.
-        po_ref_used = `${parsed.po_ref}-R`;
+        po_ref_used = `${baseRef}-R`;
         wro = await createOnce(po_ref_used);
       } else {
-        // Genuinely unknown existing WRO (we never linked it) — surface, don't duplicate.
-        const { data: pos } = await supabaseLogistics.from('purchase_orders').select('shipbob_wro_id, wro_status').in('po_number', poRefs).not('shipbob_wro_id', 'is', null).limit(1);
-        const po = (pos ?? [])[0] ?? null;
-        if ((po as any)?.shipbob_wro_id) return { wro_id: Number((po as any).shipbob_wro_id), status: (po as any).wro_status || 'AwaitingArrival', lines: parsed.lines.length, already_existed: true };
-        throw new Error(`A WRO for PO ${parsed.po_ref} already exists at ShipBob — open Receiving in ShipBob to get its number, then I can draft Sharon's reply with the labels.`);
+        // A WRO with this docket's reference exists at ShipBob but we never recorded it.
+        throw new Error(`ShipBob already has a WRO referenced "${baseRef}" that this dashboard didn't create — open Receiving in ShipBob to check it, then either tell me its number or use recreate_wro after cancelling it there.`);
       }
     } else {
       throw e;
@@ -334,6 +333,10 @@ export async function createWROFromParsed(parsed: ParsedDocket, site = 'ALTONA')
       on_hand: l.qty, source: 'wro', updated_at: new Date().toISOString(),
     }, { onConflict: 'location_id,product_id,lot_number' });
   }
+  await supabaseLogistics.from('wro_dockets').upsert({
+    site, docket_ref: docketRef || `wro-${wro.id}`, wro_id: wro.id, shipbob_ref: po_ref_used || null,
+    po_refs: poRefs, status: wro.status, pallets: pallet_count,
+  }, { onConflict: 'site,wro_id' });
   if (poRefs.length) {
     // a two-PO docket links the one WRO to BOTH POs (001670: PO-0051 GF Buttermilk + PO-0052 Buttermilk)
     await supabaseLogistics.from('purchase_orders')
@@ -358,6 +361,52 @@ export async function createWROFromParsed(parsed: ParsedDocket, site = 'ALTONA')
       : {}),
   };
   return { wro_id: wro.id, status: wro.status, lines: parsed.lines.length, received, pallets };
+}
+
+// Cancel a WRO we created (wrong pallet split, wrong lots, amended docket). Only a WRO ShipBob
+// hasn't started receiving can be cancelled — anything Arrived/Processing/Completed has to be
+// sorted with ShipBob support, and we say so instead of pretending.
+export async function cancelDocketWro(opts: { site?: string; wro_id?: number; docket_ref?: string }):
+  Promise<{ ok: true; wro_id: number; docket_ref: string | null; status_before: string } | { error: string }> {
+  const site = opts.site || 'ALTONA';
+  let wroId = opts.wro_id ? Number(opts.wro_id) : null;
+  let docketRef = opts.docket_ref?.trim() || null;
+  if (!wroId && docketRef) {
+    const { data } = await supabaseLogistics.from('wro_dockets').select('wro_id').eq('site', site).eq('docket_ref', docketRef).is('cancelled_at', null).order('created_at', { ascending: false }).limit(1);
+    wroId = (data ?? [])[0]?.wro_id ? Number((data as any)[0].wro_id) : null;
+  }
+  if (!wroId) return { error: docketRef ? `No live WRO on record for docket ${docketRef}.` : 'Need a WRO number or docket ref.' };
+  if (!docketRef) {
+    const { data } = await supabaseLogistics.from('wro_dockets').select('docket_ref').eq('site', site).eq('wro_id', wroId).maybeSingle();
+    docketRef = (data as any)?.docket_ref ?? null;
+  }
+  const live = await getWRO(site, wroId).then((w: any) => String(w?.status || 'unknown')).catch(() => 'deleted');
+  if (/cancel|deleted/i.test(live)) {
+    await supabaseLogistics.from('wro_dockets').update({ cancelled_at: new Date().toISOString(), status: live }).eq('site', site).eq('wro_id', wroId);
+    return { ok: true, wro_id: wroId, docket_ref: docketRef, status_before: live };
+  }
+  if (!/await/i.test(live)) {
+    return { error: `WRO ${wroId} is ${live} at ShipBob — receiving has started, so it can't be cancelled from here. ShipBob support has to amend it.` };
+  }
+  const ok = await cancelWRO(site, wroId);
+  if (!ok) return { error: `ShipBob refused to cancel WRO ${wroId} (status ${live}). Cancel it in ShipBob → Receiving, then run recreate_wro.` };
+  await supabaseLogistics.from('wro_dockets').update({ cancelled_at: new Date().toISOString(), status: 'Cancelled' }).eq('site', site).eq('wro_id', wroId);
+  await supabaseLogistics.from('purchase_orders').update({ wro_status: 'Cancelled', updated_at: new Date().toISOString() }).eq('shipbob_wro_id', String(wroId));
+  return { ok: true, wro_id: wroId, docket_ref: docketRef, status_before: live };
+}
+
+// Start over on a docket: cancel its live WRO (if any) and build a fresh one from the parse.
+// This is the "don't make me hand-edit the WRO" path (Luke, Sep 2026).
+export async function recreateWroForDocket(parsed: ParsedDocket, site = 'ALTONA') {
+  const docketRef = (parsed.docket_ref || '').trim() || null;
+  let cancelled: number | null = null;
+  if (docketRef) {
+    const c = await cancelDocketWro({ site, docket_ref: docketRef });
+    if ('error' in c && !/No live WRO on record/.test(c.error)) return c;
+    if ('ok' in c) cancelled = c.wro_id;
+  }
+  const res = await createWROFromParsed(parsed, site);
+  return { ...res, cancelled_wro_id: cancelled };
 }
 
 const SIGNATURE = 'Luke Rolls\nOwner | The Protein Pancake\nP: +61 0412 474 330\nE: luke@theproteinpancake.co';
