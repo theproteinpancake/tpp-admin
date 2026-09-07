@@ -44,7 +44,11 @@ export async function createWRO(opts: {
     // (WRO 969533): 2 boxes → labels PDF with "Pallet: 1 of 2" / "Pallet: 2 of 2" pages.
     box_packaging_type: 'EverythingInOneBox',
     expected_arrival_date: opts.expected_arrival_date,
-    purchase_order_number: opts.purchase_order_number || undefined,
+    // MUST be a plain string: an array here (multi-PO docket, Sep 2026) makes ShipBob 500 with
+    // a bare "Object reference not set" — coerce rather than trust the caller.
+    purchase_order_number: opts.purchase_order_number
+      ? (Array.isArray(opts.purchase_order_number) ? (opts.purchase_order_number as string[]).join(' + ') : String(opts.purchase_order_number))
+      : undefined,
     boxes: boxes.map((boxItems, bi) => ({
       // per-box refs must be distinct or ShipBob treats them as one package
       tracking_number: boxes.length > 1 ? `${opts.tracking_ref}-P${bi + 1}` : opts.tracking_ref,
@@ -64,7 +68,11 @@ export async function createWRO(opts: {
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`ShipBob WRO create failed: ${res.status} ${await res.text()}`);
+  if (!res.ok) {
+    // A ShipBob 500 carries no detail — echo what we sent so the cause is visible in one log line.
+    const sent = boxes.map((b) => b.map((i) => `${i.inventory_id}×${i.quantity}${i.lot_number ? `@${i.lot_number}` : ''}${i.expiration_date ? `/${i.expiration_date}` : ''}`).join(',')).join(' | ');
+    throw new Error(`ShipBob WRO create failed: ${res.status} ${await res.text()} — sent po=${JSON.stringify(body.purchase_order_number)} arrival=${body.expected_arrival_date} boxes=[${sent}]`);
+  }
   const wro = await res.json();
   return { id: wro.id, status: wro.status };
 }

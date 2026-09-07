@@ -22,7 +22,8 @@ export interface DocketPallet { contents: { sku?: string | null; size_g: number;
 
 export interface ParsedDocket {
   docket_ref: string | null;
-  po_ref: string | null;            // e.g. "PO-0037"
+  po_ref: string | null;            // display/ShipBob reference — ALL POs joined, e.g. "PO-0051 + PO-0052"
+  po_refs: string[];                // every PO the docket references (a docket can cover two POs)
   expected_date: string | null;
   package_type: string | null;
   lines: DocketLine[];
@@ -103,7 +104,7 @@ export async function parseDocket(messageId: string, subject = '', attachment?: 
 Our SKUs: ${skuList}.
 Map each product line to the matching SKU by flavour + size. Lot is the "Serial/Lot Nbr". Expiry is its Expiry/Best-Before date.
 CRITICAL — dates: ABC/Sharon write dates in AUSTRALIAN format DD/MM/YYYY (day first). Interpret every date that way and output ISO YYYY-MM-DD. NEVER swap day and month — e.g. "03/08/2027" = 3 August 2027 = 2027-08-03 (not 8 March). A "21/08/2027" style value where the first number is >12 is your confirmation day comes first. Best-befores must be a FUTURE date; if your parse yields a past date you've misread it.
-Qty is units shipped. "Your Reference: NN" maps to po_ref "PO-00NN" (zero-pad to 4 digits).
+Qty is units shipped. "Your Reference: NN" maps to po_ref "PO-00NN" (zero-pad to 4 digits). One docket can cover TWO POs (e.g. "Your Reference: 51, 52" or two references listed) — then po_ref is an ARRAY of every PO, e.g. ["PO-0051","PO-0052"].
 
 THE "Note:" FIELD IS IMPORTANT — it is how ABC tell us the PALLET CONFIGURATION, and we print one shipping label per pallet, so getting it wrong means the driver is short of labels. It reads like:
   3 pallets
@@ -123,7 +124,36 @@ Reply ONLY with JSON: {"docket_ref":"","po_ref":"PO-00NN","expected_date":"YYYY-
   });
   const text = resp.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('');
   const json = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
-  return { pallet_count: null, pallets: [], note: null, ...json, messageId, subject, attachment: pdf.filename };
+  // NORMALISE before anything downstream sees it. Docket 001670 (Sep 2026) referenced two POs,
+  // the model returned po_ref as an ARRAY, and that array went verbatim into ShipBob's
+  // purchase_order_number → a bare 500 "Object reference not set". Every field that reaches
+  // ShipBob is coerced + validated here so a parse quirk surfaces as a readable error, never
+  // as a null-ref on their side.
+  const rawRefs: unknown[] = Array.isArray(json.po_ref) ? json.po_ref : json.po_ref != null ? String(json.po_ref).split(/[,+&/]|\band\b/i) : [];
+  const po_refs = [...new Set(rawRefs.map((r) => String(r ?? '').trim().toUpperCase()).filter(Boolean)
+    .map((r) => { const m = r.match(/(\d{1,4})\s*$/); return m ? `PO-${m[1].padStart(4, '0')}` : r; }))];
+  const lines = (Array.isArray(json.lines) ? json.lines : []).map((l: any) => ({
+    ...l, sku: String(l?.sku ?? '').toUpperCase().trim(), lot: l?.lot == null ? '' : String(l.lot).trim(),
+    expiry: toIsoDate(l?.expiry), qty: Number(l?.qty) || 0,
+  }));
+  return {
+    pallet_count: null, pallets: [], note: null, ...json, lines,
+    po_refs, po_ref: po_refs.length ? po_refs.join(' + ') : null,
+    expected_date: toIsoDate(json.expected_date),
+    messageId, subject, attachment: pdf.filename,
+  };
+}
+
+// Accept ISO or Australian DD/MM/YYYY (Sharon's format) and return YYYY-MM-DD; null when it
+// isn't a real date. A malformed date used to flow straight into ShipBob's lot_date.
+function toIsoDate(v: unknown): string | null {
+  if (v == null) return null;
+  const t = String(v).trim();
+  let m = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) { const au = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); if (au) m = [t, au[3], au[2].padStart(2, '0'), au[1].padStart(2, '0')] as any; }
+  if (!m) return null;
+  const iso = `${m[1]}-${m[2]}-${m[3]}`;
+  return Number.isNaN(Date.parse(iso + 'T00:00:00Z')) ? null : iso;
 }
 
 /**
@@ -206,9 +236,11 @@ export async function createWROFromParsed(parsed: ParsedDocket, site = 'ALTONA')
   // agent calling create_wro a second time (e.g. when the user says "send") must NOT blow up —
   // the WRO is already made; just hand it back so the flow can proceed to Sharon's reply.
   let supersededWroId: number | null = null;
-  if (parsed.po_ref) {
-    const { data: existingPo } = await supabaseLogistics.from('purchase_orders')
-      .select('shipbob_wro_id, wro_status').eq('po_number', parsed.po_ref).maybeSingle();
+  const poRefs = parsed.po_refs?.length ? parsed.po_refs : parsed.po_ref ? [parsed.po_ref] : [];
+  if (poRefs.length) {
+    const { data: linked } = await supabaseLogistics.from('purchase_orders')
+      .select('shipbob_wro_id, wro_status').in('po_number', poRefs).not('shipbob_wro_id', 'is', null).limit(1);
+    const existingPo = (linked ?? [])[0] ?? null;
     if ((existingPo as any)?.shipbob_wro_id) {
       // A CANCELLED or DELETED WRO doesn't block a re-create — that's the amended-docket
       // flow: Sharon re-sends, the old WRO gets cancelled/deleted in ShipBob, and the re-run
@@ -235,6 +267,8 @@ export async function createWROFromParsed(parsed: ParsedDocket, site = 'ALTONA')
   // Sending raw units inflated receiving 4× (docket 001445: 168 pouches went in as 168 cartons
   // instead of 42). A non-whole carton count means a misread docket or a genuinely loose pouch
   // — refuse loudly rather than create a wrong WRO.
+  const badDate = parsed.lines.find((l) => l.expiry && !/^\d{4}-\d{2}-\d{2}$/.test(String(l.expiry)));
+  if (badDate) throw new Error(`${badDate.sku}: best-before "${badDate.expiry}" isn't a valid date — check the docket with the user before creating the WRO.`);
   const items = parsed.lines.map((l) => {
     const per = perBySku.get(l.sku) ?? 1;
     if (l.qty % per !== 0) {
@@ -281,7 +315,8 @@ export async function createWROFromParsed(parsed: ParsedDocket, site = 'ALTONA')
         wro = await createOnce(po_ref_used);
       } else {
         // Genuinely unknown existing WRO (we never linked it) — surface, don't duplicate.
-        const { data: po } = await supabaseLogistics.from('purchase_orders').select('shipbob_wro_id, wro_status').eq('po_number', parsed.po_ref).maybeSingle();
+        const { data: pos } = await supabaseLogistics.from('purchase_orders').select('shipbob_wro_id, wro_status').in('po_number', poRefs).not('shipbob_wro_id', 'is', null).limit(1);
+        const po = (pos ?? [])[0] ?? null;
         if ((po as any)?.shipbob_wro_id) return { wro_id: Number((po as any).shipbob_wro_id), status: (po as any).wro_status || 'AwaitingArrival', lines: parsed.lines.length, already_existed: true };
         throw new Error(`A WRO for PO ${parsed.po_ref} already exists at ShipBob — open Receiving in ShipBob to get its number, then I can draft Sharon's reply with the labels.`);
       }
@@ -299,10 +334,11 @@ export async function createWROFromParsed(parsed: ParsedDocket, site = 'ALTONA')
       on_hand: l.qty, source: 'wro', updated_at: new Date().toISOString(),
     }, { onConflict: 'location_id,product_id,lot_number' });
   }
-  if (parsed.po_ref) {
+  if (poRefs.length) {
+    // a two-PO docket links the one WRO to BOTH POs (001670: PO-0051 GF Buttermilk + PO-0052 Buttermilk)
     await supabaseLogistics.from('purchase_orders')
       .update({ wro_created: true, shipbob_wro_id: String(wro.id), wro_status: wro.status, updated_at: new Date().toISOString() })
-      .eq('po_number', parsed.po_ref);
+      .in('po_number', poRefs);
   }
   const received = parsed.lines.map((l) => {
     const per = perBySku.get(l.sku) ?? 1;
