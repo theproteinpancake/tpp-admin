@@ -48,6 +48,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/api/transfers') || // transfer doc PDFs (downloads + Twilio media fetch)
     pathname.startsWith('/api/gmail') || // cron gmail scour (cron-secret authenticated)
     pathname.startsWith('/api/staff/ingest') || // Mac iMessage listener (own bearer token)
+    pathname.startsWith('/api/ops') || // external agent API (own bearer token: OPS_API_TOKEN)
     pathname.startsWith('/_next') ||
     pathname.includes('.')
   ) {

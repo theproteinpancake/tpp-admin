@@ -59,6 +59,22 @@ Give Luke a mobile bot ("TPP Ops") that can, on the go:
 
 ## Deliverable 1 — `/api/ops/*` (thin, token-authed tool API)
 
+> **STATUS: BUILT (Sep 2026).** `src/app/api/ops/[tool]/route.ts` is live with the sales and
+> packaging tools below. `GET /api/ops/_schema` returns the tool list with arg docs and a
+> `mutates` flag, so the bridge can load schemas instead of hard-coding them. Auth is
+> `Authorization: Bearer $OPS_API_TOKEN` (fails CLOSED if the env var is unset), and `/api/ops`
+> is exempted from the dashboard cookie gate in `middleware.ts`. Writes require an
+> `idempotency_key` (replayed from `ops_idempotency`, never re-executed) and every call is
+> audited to `agent_actions` as `ops.<tool>` under `phone = 'ops:<client>'`.
+>
+> Read: `get_week`, `get_day`, `get_weeks`, `get_mer`, `get_dashboard`, `get_year`,
+> `get_wholesale`, `get_market_split`, `get_packaging`.
+> Write: `record_packaging_delivery`, `set_packaging_baseline` — both resolve the packaging line
+> by SKU or words, refuse ambiguity, cap quantities at 50,000 without `force:true`, and return
+> `remaining_before` / `remaining_after` so the bot reports the real change rather than its
+> intent. Remaining mutating tools (orders, WROs, transfer docs) still to build.
+
+
 Create `src/app/api/ops/[tool]/route.ts`. One POST endpoint per tool, JSON in / JSON out, each
 a thin wrapper over the library functions above. **No business logic in this layer.**
 
