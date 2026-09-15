@@ -181,18 +181,30 @@ export async function findInvoiceByReference(reference: string): Promise<{ id: s
   }
 }
 
-// Create a wholesale SALES invoice (ACCREC). Lines by ItemCode (Xero applies the
-// item's sales price); GST-free (TaxType NONE, like our products). DRAFT by default.
+// Create a wholesale SALES invoice (ACCREC). Lines by ItemCode — Xero applies the item's
+// sales price. DRAFT by default.
+//
+// TAX: the FREIGHT line inherits its tax treatment from the Xero item (SalesDetails.TaxType =
+// OUTPUT, GST on Income 10%), so Xero stays the single source of truth for it — change the item
+// in Xero and invoices follow with no code change. We previously forced TaxType 'NONE' on every
+// line, which overrode that and rendered freight as "BAS Excluded" with $0 GST (Sep 2026).
+//
+// Product lines stay PINNED to 'NONE' for now. Note the Xero items themselves say EXEMPTOUTPUT
+// ("GST Free Income"), which is the code that actually reports at G1/G3 on the BAS, whereas
+// 'NONE' (BAS Excluded) is left off the BAS entirely. Both are 0% so no invoice total changes,
+// but switching is a BAS-reporting decision for Luke's accountant — not something to change
+// silently. When that call is made, delete the TaxType here too and products will inherit.
 export async function createXeroInvoice(opts: {
   contactId: string;
   lines: { sku: string; quantity: number }[];
-  freight?: number | boolean;  // truthy → add the GST-free FREIGHT item ($15, priced by Xero)
+  freight?: number | boolean;  // truthy → add the FREIGHT item ($15 + GST, priced + taxed by Xero)
   reference?: string;
   status?: 'DRAFT' | 'AUTHORISED';
 }): Promise<{ id: string; number: string; total: number }> {
   const lineItems: any[] = opts.lines.map((l) => ({ ItemCode: xeroItemCode(l.sku), Quantity: l.quantity, TaxType: 'NONE' }));
-  // Freight = the Xero 'FREIGHT' item (Freight Charge, $15, GST-free). Xero applies its price.
-  if (opts.freight) lineItems.push({ ItemCode: 'FREIGHT', Quantity: 1, TaxType: 'NONE' });
+  // Freight = the Xero 'FREIGHT' item (Freight Charge, $15, GST on Income). NO TaxType here on
+  // purpose: omitting it makes Xero apply the item's own rate, so $15 + $1.50 GST.
+  if (opts.freight) lineItems.push({ ItemCode: 'FREIGHT', Quantity: 1 });
   const body = {
     Invoices: [{
       Type: 'ACCREC', Contact: { ContactID: opts.contactId },
