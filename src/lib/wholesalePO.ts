@@ -196,13 +196,14 @@ const planBoxes = planWholesaleBoxes;
  * Dock on Cator St") while ShipBob stores fields. A postcode disagreement is decisive: Unley's
  * PO said 5061 when every delivered order went to PARKSIDE 5063.
  */
-function sameAddress(shipTo: string, prev: { address1?: string; zip_code?: string; city?: string }): boolean {
-  const hay = String(shipTo || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ');
-  const zip = String(prev.zip_code || '').trim();
-  if (zip && !hay.includes(zip.toLowerCase())) return false;
-  const streetNo = String(prev.address1 || '').match(/\d+[a-z]?/i)?.[0];
-  if (streetNo && !new RegExp(`\\b${streetNo}\\b`).test(hay)) return false;
-  return !!(zip || streetNo);
+// Lenient completeness check for a free-text ship-to: a postcode plus something street-like
+// (number + street, or Lot/Unit/Shop/Level/Suite/PO Box). Deliberately loose — the point is to
+// catch "Coomera HQ" or "Melbourne", not to police formatting.
+function addressLooksComplete(s: string): boolean {
+  const t = s.replace(/\s+/g, ' ').trim();
+  const hasPostcode = /\b\d{4}\b/.test(t) || /\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(t);
+  const hasStreet = /\b(\d+[a-z]?\/?\d*\s+[a-z]|lot\s+\d+|unit\s+\d+|shop\s+\d+|level\s+\d+|suite\s+\d+|po box\s+\d+)/i.test(t);
+  return hasPostcode && hasStreet && t.length >= 15;
 }
 
 function normName(s: string): string {
@@ -289,30 +290,45 @@ export async function assessPO(parsed: ParsedPO): Promise<POAssessment> {
       previous_recipient = await findLastShipBobRecipient(matched.name);
     } catch { /* best-effort */ }
   }
-  // ShipBob's PROVEN address wins. This used to fire only when the PO had no ship-to, so any
-  // ship-to at all (usually Xero's billing address) silently beat an address ShipBob had already
-  // delivered to — which is how Tony & Marks Burnside got a duplicate profile and an Invalid
-  // Address hold. Xero is now a CROSS-REFERENCE: if it disagrees, say so and keep ShipBob's.
-  if (previous_recipient) {
+  // THE PO'S SHIP-TO IS THE SOURCE OF TRUTH (Luke, Sep 2026). A complete delivery address on
+  // the current PO is used as-is. A past ShipBob delivery is history, not a check: it must
+  // never override, validate, or challenge what the PO says. The previous version flagged a
+  // "SHIP-TO MISMATCH" whenever the PO differed from the last delivery, so the agent asked
+  // Kate "Belmont like last time, or Coomera HQ?" on a PO that plainly said Coomera HQ, and
+  // did the same on the 9 Sep Tony & Marks Unley PO. The last delivery is now offered ONLY
+  // when the PO gives no ship-to, an incomplete one, or one that refers back to a previous
+  // address ("same as last time") — the genuinely missing/ambiguous cases.
+  const shipTo = (parsed.ship_to || '').replace(/\s+/g, ' ').trim();
+  const shipToRefersBack = /\b(same as|as (usual|before|per)\b|previous|last (time|order|delivery)|usual (address|place))/i.test(shipTo);
+  const shipToComplete = !!shipTo && !shipToRefersBack && addressLooksComplete(shipTo);
+  let ship_to_issue = false;
+  if (!shipToComplete) {
     const prev = previous_recipient;
-    const proven = [prev.name, prev.address1, prev.address2, prev.city, prev.state, prev.zip_code].filter(Boolean).join(', ');
-    const provenance = prev.fulfilled
-      ? `DELIVERED successfully${prev.shipped_on ? ` on ${prev.shipped_on}` : ''} [order #${prev.from_order}]`
-      : `last ShipBob order #${prev.from_order}`;
-    if (!parsed.ship_to) {
-      flags.push(`📦 No ship-to on this PO — use ShipBob's address for ${matched!.name}: ${proven}${prev.email ? ` (${prev.email})` : ''} — ${provenance}.`);
-    } else if (!sameAddress(parsed.ship_to, prev)) {
-      flags.push(`📦 SHIP-TO MISMATCH — use ShipBob's: ${proven} (${provenance}). The PO/Xero says: "${parsed.ship_to}". Xero holds BILLING details and often carries centre names or delivery notes that ShipBob rejects, so ship to the proven address unless Kate says the store has genuinely moved. Do NOT create a new ShipBob recipient.`);
+    const proven = prev ? [prev.name, prev.address1, prev.address2, prev.city, prev.state, prev.zip_code].filter(Boolean).join(', ') : '';
+    const provenance = prev
+      ? (prev.fulfilled ? `delivered successfully${prev.shipped_on ? ` on ${prev.shipped_on}` : ''} [order #${prev.from_order}]` : `last ShipBob order #${prev.from_order}`)
+      : '';
+    const who = matched?.name || parsed.customer_name || 'this customer';
+    if (!shipTo) {
+      flags.push(prev
+        ? `📦 No ship-to on this PO — use the customer's last ShipBob delivery for ${who}: ${proven}${prev.email ? ` (${prev.email})` : ''} — ${provenance}. Confirm it with Kate in one line.`
+        : `📦 No ship-to on this PO and no previous ShipBob delivery on file for ${who} — ask Kate for the delivery address.`);
+    } else if (shipToRefersBack) {
+      flags.push(prev
+        ? `📦 The PO's ship-to refers back to a previous address ("${shipTo}") — use the last ShipBob delivery: ${proven} — ${provenance}. Confirm it with Kate in one line.`
+        : `📦 The PO's ship-to refers back to a previous address ("${shipTo}") but there's no ShipBob delivery on file for ${who} — ask Kate for the address.`);
     } else {
-      flags.push(`📦 Ship-to matches ShipBob's ${provenance} — use that existing recipient, don't create a new one.`);
+      flags.push(`📦 The PO's ship-to looks INCOMPLETE ("${shipTo}") — no street/number or postcode.${prev ? ` For reference the last ShipBob delivery was ${proven} (${provenance}).` : ''} Confirm the full delivery address with Kate before creating.`);
     }
+    ship_to_issue = true;
   }
+  // A complete ship-to on the PO gets NO flag: nothing to compare, nothing to ask.
   if (already_processed) flags.push(`🛑 ALREADY PROCESSED — PO ${parsed.po_number} already has${existing?.xero_invoice ? ` Xero invoice ${existing.xero_invoice}` : ''}${existing?.shipbob_order_id ? ` / ShipBob order #${existing.shipbob_order_id}` : ''}. Do NOT create another — confirm with the user first.`);
   if (!customer_on_file) flags.push(`🆕 "${parsed.customer_name || 'this customer'}" isn't on file in Xero — needs adding (capture name, ship-to address, email, ABN). Check carefully.`);
   else if (matched && normName(matched.name) !== normName(parsed.customer_name || '')) flags.push(`ℹ️ Matched to existing Xero contact "${matched.name}".`);
   if (over) flags.push('⚠️ >24 cartons — B2B/courier order, not the standard B2C flow.');
   if (oos.length) flags.push(`⚠️ Short on: ${oos.map((o) => `${o.flavour} (need ${o.cartons}, have ${o.available})`).join('; ')}`);
-  const needs_review = already_processed || !customer_on_file || (parsed.flags || []).length > 0 || lines.some((l) => l.flag);
+  const needs_review = already_processed || !customer_on_file || ship_to_issue || (parsed.flags || []).length > 0 || lines.some((l) => l.flag);
 
   const cust = parsed.customer_name ? ` for *${parsed.customer_name}*` : '';
   const lineStr = lines.map((l) => `• ${l.flavour} (${l.sku}) ×${l.cartons} carton${l.cartons === 1 ? '' : 's'}${l.qty_basis === 'units' ? ` (ordered ${l.ordered_qty} units)` : ''}${l.ok ? '' : ` ⚠️ only ${l.available} in stock`}`).join('\n');
