@@ -14,7 +14,7 @@ export const B2C_MAX_CARTONS = 24;
 // Freight policy (Kate, Jul 2026): every wholesale invoice carries the $15 FREIGHT line by
 // DEFAULT — free shipping is a per-supplier exception, not a carton-count rule.
 //   Nutrition Warehouse — free on 4+ cartons; every invoice also CC'd to their statements inbox
-//   LaManna Direct — always free
+//   LaManna Direct — always free (NOT LaManna & Sons - South Yarra: standard freight)
 //   ASN / Australian Sports Nutrition (David Wilkie) — free on 8+ cartons
 export function freightRule(customerName: string | null, totalCartons: number): { free: boolean; reason: string } {
   const n = (customerName || '').toLowerCase();
@@ -23,7 +23,13 @@ export function freightRule(customerName: string | null, totalCartons: number): 
       ? { free: true, reason: 'Nutrition Warehouse — free shipping on 4+ cartons' }
       : { free: false, reason: 'Nutrition Warehouse under 4 cartons — add $15 freight' };
   }
-  if (/lamanna/.test(n)) return { free: true, reason: 'LaManna Direct — always free shipping' };
+  // Two different LaManna accounts: LaManna DIRECT (always free) and LaManna & SONS - South
+  // Yarra (standard freight). The old bare /lamanna/ match gave & Sons free shipping too.
+  if (/la\s*manna\s*direct/.test(n)) return { free: true, reason: 'LaManna Direct — always free shipping' };
+  if (/la\s*manna/.test(n)) {
+    if (/sons|yarra/.test(n)) return { free: false, reason: 'LaManna & Sons (South Yarra) — standard $15 freight; free shipping is LaManna Direct only' };
+    return { free: false, reason: 'which LaManna? Direct is free shipping, & Sons South Yarra pays $15 — charged freight until confirmed' };
+  }
   if (/australian\s*sports\s*nutrition|\basn\b|david\s*wilkie/.test(n)) {
     return totalCartons >= 8
       ? { free: true, reason: 'ASN — free shipping on 8+ cartons' }
@@ -253,13 +259,21 @@ export async function assessPO(parsed: ParsedPO): Promise<POAssessment> {
   const oos = lines.filter((l) => !l.ok).map((l) => ({ sku: l.sku, flavour: l.flavour, cartons: l.cartons, available: l.available }));
   const total = lines.reduce((s, l) => s + l.cartons, 0);
   const fulfillable = oos.length === 0 && lines.length > 0;
-  const freight = freightRule(parsed.customer_name, total);
-  const free_shipping = freight.free;
   const over = total > B2C_MAX_CARTONS;
 
   // Is this customer already on file in Xero/wholesale? (fuzzy match the store name)
   const matched = await findWholesaleCustomer(parsed.customer_name).catch(() => null);
   const customer_on_file = !!matched;
+  // LaManna Direct and LaManna & Sons - South Yarra are different accounts with different
+  // freight. A PO that just says "LaManna" is pinned to neither: the fuzzy matcher would pick
+  // one on a coin-flip, so the ambiguity is judged on the PO's OWN wording and flagged.
+  const poName = (parsed.customer_name || '').toLowerCase();
+  const lamannaAmbiguous = /la\s*manna/.test(poName) && !/direct/.test(poName) && !/sons|yarra/.test(poName);
+  // Freight keys off the CANONICAL Xero name when we have one — the PO's wording can be loose,
+  // the contact record never is. An ambiguous LaManna stays on the PO's bare name so the rule
+  // returns "which LaManna?" (charged until confirmed) instead of trusting the coin-flip.
+  const freight = freightRule(lamannaAmbiguous ? parsed.customer_name : (matched?.name || parsed.customer_name), total);
+  const free_shipping = freight.free;
 
   // DEDUP: has this PO already been invoiced (Xero) or ordered (our log)?
   let already_processed = false;
@@ -279,6 +293,7 @@ export async function assessPO(parsed: ParsedPO): Promise<POAssessment> {
   }
 
   const flags = [...(parsed.flags || [])];
+  if (lamannaAmbiguous) flags.push('⚠️ Which LaManna? "LaManna Direct Pty Ltd" gets FREE shipping; "LaManna & Sons - South Yarra" pays $15 freight. Confirm the account with Kate before creating anything.');
   // The customer's LAST ShipBob delivery is the SHIPPING source of truth — Xero contact
   // profiles are billing data and regularly lack/mangle the delivery details ("Support Your
   // Gym" ships to Alex Houldsworth). Fetched for EVERY known customer so the agent can default
@@ -328,7 +343,7 @@ export async function assessPO(parsed: ParsedPO): Promise<POAssessment> {
   else if (matched && normName(matched.name) !== normName(parsed.customer_name || '')) flags.push(`ℹ️ Matched to existing Xero contact "${matched.name}".`);
   if (over) flags.push('⚠️ >24 cartons — B2B/courier order, not the standard B2C flow.');
   if (oos.length) flags.push(`⚠️ Short on: ${oos.map((o) => `${o.flavour} (need ${o.cartons}, have ${o.available})`).join('; ')}`);
-  const needs_review = already_processed || !customer_on_file || ship_to_issue || (parsed.flags || []).length > 0 || lines.some((l) => l.flag);
+  const needs_review = already_processed || !customer_on_file || ship_to_issue || lamannaAmbiguous || (parsed.flags || []).length > 0 || lines.some((l) => l.flag);
 
   const cust = parsed.customer_name ? ` for *${parsed.customer_name}*` : '';
   const lineStr = lines.map((l) => `• ${l.flavour} (${l.sku}) ×${l.cartons} carton${l.cartons === 1 ? '' : 's'}${l.qty_basis === 'units' ? ` (ordered ${l.ordered_qty} units)` : ''}${l.ok ? '' : ` ⚠️ only ${l.available} in stock`}`).join('\n');
